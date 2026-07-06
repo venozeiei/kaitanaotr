@@ -686,18 +686,21 @@ task.spawn(function()
                 debugInvStr = "RawXP:[" .. tostring(_G.DebugXPLabelText) .. "] " .. debugInvStr
             end
             
+            local reqPerksText = 100
+            if prestige == 0 or (prestige == 1 and level < 20) then reqPerksText = 50 end
+            
             logText.Text = string.format(
                 "🎖️ <b>Level:</b> %d / %d (%s/%s)\n" ..
                 "👑 <b>Prestige:</b> P%d\n" ..
                 "💰 <b>Gold:</b> %s | 💎 <b>Gems:</b> %s\n" ..
                 "🧪 <b>Gold Boost:</b> %s\n" ..
                 "🧪 <b>XP Boost:</b> %s\n" ..
-                "⚔️ <b>Perks:</b> <font color='%s'>%d</font> / 100\n" ..
+                "⚔️ <b>Perks:</b> <font color='%s'>%d</font> / %d\n" ..
                 "🔍 <b>DEBUG:</b> %s\n\n" ..
                 "📍 <b>Status:</b> %s\n" ..
                 "🗺️ <b>Map:</b> %s\n" ..
                 "🔄 <b>Action:</b> <font color='#00ffff'>%s</font>",
-                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
+                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, reqPerksText, debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
             )
         end
     end)
