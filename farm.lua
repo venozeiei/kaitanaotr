@@ -875,8 +875,8 @@ if placeId == 14916516914 then
             if Config.AutoPrestige and isReadyToPrestige then
                 local didPrestige = false
                 pcall(function()
-                    local pSettings = Config.PrestigeSettings["P" .. tostring(checkPrestige + 1)] or { Boost = "Gold Boost", Gold = 0 }
-                    local reqGold = pSettings.Gold * 1000000
+                    local pSettings = (Config.VenozPrestige and Config.VenozPrestige["P" .. tostring(checkPrestige + 1)]) or { TargetBoost = "Gold Boost", RequiredGold = 0 }
+                    local reqGold = (pSettings.RequiredGold or 0) * 1000000
                     local gold = _G.LastGold or 0
                     
                     if gold >= reqGold then
@@ -905,15 +905,13 @@ if placeId == 14916516914 then
                         
                         for _, tagName in ipairs(MyTalentList) do
                             print("⏳ [PRESTIGE] กำลังลองจุติด้วย Tag: " .. tagName)
-                            task.spawn(function()
-                                pcall(function()
-                                    GET:InvokeServer("S_Equipment", "Prestige", {
-                                        Boosts = pSettings.Boost or "Gold Boost",
-                                        Talents = tagName
-                                    })
-                                end)
+                            pcall(function()
+                                GET:InvokeServer("S_Equipment", "Prestige", {
+                                    Boosts = pSettings.TargetBoost or "Gold Boost",
+                                    Talents = tagName
+                                })
                             end)
-                            task.wait(0.05) -- ยิงรัวๆ ได้เลยไม่ต้องรอนาน
+                            task.wait(0.3)
                         end
                         
                         if tracker then tracker.Enabled = true end
