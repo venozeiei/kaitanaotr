@@ -871,7 +871,11 @@ if placeId == 14916516914 then
             local checkMaxXP = math.max(tonumber(_G.LastMaxXP) or 0, tonumber(plr:GetAttribute("Max_XP")) or 0)
             if checkMaxXP == 0 then checkMaxXP = 999999999 end
             local isReadyToPrestige = (checkLevel >= targetLevelReq and checkXP >= checkMaxXP and checkPrestige < Config.PrestigeTarget)
-
+            
+            if Config.AutoThunderSpearQuest and checkPrestige == Config.ThunderSpearAtPrestige then
+                isReadyToPrestige = false
+                _G.CurrentAction = "Prestige Paused: Auto Thunder Spear Quest Active!"
+            end
             if Config.AutoPrestige and isReadyToPrestige then
                 local didPrestige = false
                 pcall(function()
@@ -979,7 +983,13 @@ if placeId == 14916516914 then
                 _G.PreparingNewMap = true
                 _G.CurrentAction = "Preparing Mission..."
                 local targetMap = Config.MissionMap
-                if Config.AutoBoostedMap then
+                local targetObjective = Config.MissionObjective
+                
+                if Config.AutoThunderSpearQuest and checkPrestige == Config.ThunderSpearAtPrestige then
+                    _G.CurrentAction = "Thunder Spear Quest: Targeting Outskirts (Escort)..."
+                    targetMap = "Outskirts"
+                    targetObjective = "Escort"
+                elseif Config.AutoBoostedMap then
                     local boostedMapName = workspace:GetAttribute("Boosted_Map")
                     if boostedMapName and type(boostedMapName) == "string" and boostedMapName ~= "" then 
                         if boostedMapName == "Trost" then
@@ -989,8 +999,6 @@ if placeId == 14916516914 then
                         end
                     end
                 end
-
-                local targetObjective = Config.MissionObjective
                 for _, part in ipairs(char:GetDescendants()) do if part:IsA("BasePart") then part.CanCollide = false end end
                 root.CFrame = CFrame.new(233.395, 8.865, 37.525)
                 root.Anchored = true task.wait(1) root.Anchored = false 
@@ -1159,7 +1167,10 @@ task.spawn(function()
                 end
                 
                 local shouldLeaveForPerks = false
-                if Config.AutoDeletePerk then
+                local isThunderSpearQuestActive = Config.AutoThunderSpearQuest and curPrestige == Config.ThunderSpearAtPrestige
+                if isThunderSpearQuestActive then
+                    shouldLeaveForPerks = true -- force leave to check quest progression/claim
+                elseif Config.AutoDeletePerk then
                     local totalPerks = _G.TotalPerksCount or 0
                     local targetPerksLimit = 100
                     if curLevel <= 45 then targetPerksLimit = 50 end
@@ -1327,6 +1338,8 @@ task.spawn(function()
         local aliveTitans = {}
         local currentTotalHealth = 0
         
+        local escortCart = workspace:FindFirstChild("Cart", true)
+        
         -- Only get direct children, not descendants
         local currentTitans = TitansFolder:GetChildren()
         for _, titan in ipairs(currentTitans) do
@@ -1335,13 +1348,30 @@ task.spawn(function()
             local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
             local titanRoot = titan:FindFirstChild("HumanoidRootPart") or nape
             if nape and humanoid and humanoid.Health > 0 and titanRoot then
-                table.insert(aliveTitans, { titan = titan, nape = nape, root = titanRoot, dist = (currentRoot.Position - titanRoot.Position).Magnitude })
+                local distToPlayer = (currentRoot.Position - titanRoot.Position).Magnitude
+                local distToCart = escortCart and (escortCart:GetPivot().Position - titanRoot.Position).Magnitude or distToPlayer
+                table.insert(aliveTitans, { 
+                    titan = titan, 
+                    nape = nape, 
+                    root = titanRoot, 
+                    dist = distToPlayer, 
+                    cartDist = distToCart 
+                })
                 currentTotalHealth = currentTotalHealth + humanoid.Health
             end
         end
 
         if #aliveTitans == 0 then 
             if next(blacklistedTitans) ~= nil then blacklistedTitans = {} end
+            
+            -- If we are in Escort mode, hover safely above the cart to follow it
+            if escortCart then
+                _G.CurrentAction = "Combat: Escorting Cart (Hovering)..."
+                local cartPos = escortCart:GetPivot().Position
+                currentRoot.CFrame = CFrame.new(cartPos.X, cartPos.Y + 25, cartPos.Z)
+                currentRoot.Anchored = true
+                continue
+            end
             
             if not _G.WaveClearedRefill then
                 _G.CurrentAction = "Combat: Box Reloading (Between Waves)..."
@@ -1391,7 +1421,12 @@ task.spawn(function()
             _G.WaveClearedRefill = false
         end
         
-        table.sort(aliveTitans, function(a, b) return a.dist < b.dist end)
+        if escortCart then
+            table.sort(aliveTitans, function(a, b) return a.cartDist < b.cartDist end)
+        else
+            table.sort(aliveTitans, function(a, b) return a.dist < b.dist end)
+        end
+        
         local targetTitan = aliveTitans[1]
         
         if targetTitan and targetTitan.root then
