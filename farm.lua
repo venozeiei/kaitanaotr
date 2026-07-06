@@ -500,6 +500,7 @@ task.spawn(function()
                                 _G.TotalPerksCount = pcount
                             end
                             if slotData.Currency then _G.LastGold = slotData.Currency.Gold end
+                            _G.OwnsSpears = slotData.Has_Spears ~= nil
                             if slotData.Currencies then _G.LastGems = slotData.Currencies.Gems end
                             
                             if slotData.Progression then
@@ -814,6 +815,7 @@ if placeId == 14916516914 then
                                 _G.LastXP = slotData.Progression.XP
                             end
                             if slotData.Currency then _G.LastGold = slotData.Currency.Gold end
+                            _G.OwnsSpears = slotData.Has_Spears ~= nil
                         end
                     end
                 end
@@ -872,7 +874,19 @@ if placeId == 14916516914 then
             if checkMaxXP == 0 then checkMaxXP = 999999999 end
             local isReadyToPrestige = (checkLevel >= targetLevelReq and checkXP >= checkMaxXP and checkPrestige < Config.PrestigeTarget)
             
-            if Config.AutoThunderSpearQuest and checkPrestige == Config.ThunderSpearAtPrestige then
+            local ownsSpears = _G.OwnsSpears
+            if ownsSpears == nil then
+                pcall(function()
+                    if CoreTable and CoreTable.Cache and CoreTable.Cache.Data and CoreTable.Cache.Data.Slots then
+                        local slotData = CoreTable.Cache.Data.Slots[plr:GetAttribute("Slot") or "A"]
+                        if slotData then ownsSpears = slotData.Has_Spears ~= nil end
+                    end
+                end)
+            end
+            
+            local isThunderSpearQuestActive = Config.AutoThunderSpearQuest and checkPrestige >= Config.ThunderSpearAtPrestige and not ownsSpears
+            
+            if isThunderSpearQuestActive then
                 isReadyToPrestige = false
                 _G.CurrentAction = "Prestige Paused: Auto Thunder Spear Quest Active!"
             end
@@ -985,7 +999,19 @@ if placeId == 14916516914 then
                 local targetMap = Config.MissionMap
                 local targetObjective = Config.MissionObjective
                 
-                if Config.AutoThunderSpearQuest and checkPrestige == Config.ThunderSpearAtPrestige then
+                local ownsSpears = _G.OwnsSpears
+                if ownsSpears == nil then
+                    pcall(function()
+                        if CoreTable and CoreTable.Cache and CoreTable.Cache.Data and CoreTable.Cache.Data.Slots then
+                            local slotData = CoreTable.Cache.Data.Slots[plr:GetAttribute("Slot") or "A"]
+                            if slotData then ownsSpears = slotData.Has_Spears ~= nil end
+                        end
+                    end)
+                end
+                
+                local isThunderSpearQuestActive = Config.AutoThunderSpearQuest and checkPrestige >= Config.ThunderSpearAtPrestige and not ownsSpears
+                
+                if isThunderSpearQuestActive then
                     _G.CurrentAction = "Thunder Spear Quest: Targeting Outskirts (Escort)..."
                     targetMap = "Outskirts"
                     targetObjective = "Escort"
@@ -1301,6 +1327,7 @@ local script_actor = [[
                     
                     result.Inventory = safeInv
                     result.TotalPerksCount = totalPerks
+                    result.Has_Spears = slotData.Has_Spears ~= nil
                 end
             end
         end)
