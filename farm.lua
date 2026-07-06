@@ -23,7 +23,7 @@ local DEFAULT_CONFIG = {
     },
     AutoThunderSpearQuest = true, ThunderSpearAtPrestige = 4, AutoBoost = true, BoostTypes = {"Gold"}, BoostExpUntilPrestige = 1,
     TrackerUpdateInterval = 2, BoostCheckInterval = 10, CombatLoopInterval = 0.15, DataFetchInterval = 8, MinGemsToBuyBoosts = 4500,
-    Disable3D = false, Modifiers = {}
+    Disable3D = false, Modifiers = {}, HitAll = true
 }
 
 getgenv().Venoz_Config = getgenv().Venoz_Config or {}
@@ -1405,7 +1405,8 @@ task.spawn(function()
             end
         end
         
-        local batchTitans = {} for i = 1, math.min(5, #aliveTitans) do table.insert(batchTitans, aliveTitans[i]) end
+        local batchSize = Config.HitAll and 50 or 5
+        local batchTitans = {} for i = 1, math.min(batchSize, #aliveTitans) do table.insert(batchTitans, aliveTitans[i]) end
         if lastTotalHealth - currentTotalHealth <= 0 then cycleStuckCount = cycleStuckCount + 1 else cycleStuckCount = 0 end
         lastTotalHealth = currentTotalHealth
         
