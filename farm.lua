@@ -687,7 +687,7 @@ task.spawn(function()
             end
             
             local reqPerksText = 100
-            if prestige == 0 or (prestige == 1 and level < 20) then reqPerksText = 50 end
+            if level < 25 then reqPerksText = 50 end
             
             logText.Text = string.format(
                 "🎖️ <b>Level:</b> %d / %d (%s/%s)\n" ..
@@ -843,10 +843,9 @@ if placeId == 14916516914 then
                 local gold = amt("Gold")
                 if gold > 0 then _G.LastGold = gold end
                 local requiredPerksToSell = 100
-                local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                 
-                if currentPrestige == 0 or (currentPrestige == 1 and currentLevel < 20) then
+                if currentLevel < 25 then
                     requiredPerksToSell = 50
                 end
                 
