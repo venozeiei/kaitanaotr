@@ -1344,6 +1344,14 @@ task.spawn(function()
             
             if not _G.WaveClearedRefill then
                 _G.CurrentAction = "Combat: Box Reloading (Between Waves)..."
+                
+                -- EMERGENCY REFILL BYPASS
+                pcall(function() bindable:Invoke("CALL", "BypassRefill") end)
+                pcall(function()
+                    local getRemote = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                    getRemote:InvokeServer("Blades", "Reload")
+                end)
+                
                 local refillTarget = nil
                 for _, v in ipairs(workspace:GetChildren()) do
                     if v:GetAttribute("Max_Refills") and tonumber(v:GetAttribute("Max_Refills")) > 0 then refillTarget = v break end
@@ -1437,7 +1445,7 @@ task.spawn(function()
                 end
                 
                 -- Fallback: If we've been attacking for 10 cycles (1.5s) and dealt 0 damage, the blade is probably broken.
-                if cycleStuckCount >= 10 then
+                if cycleStuckCount >= 10 or bladesLeft <= 0 then
                     isBladeBroken = true
                 end
                 
@@ -1451,7 +1459,7 @@ task.spawn(function()
             end
         end)
         
-        local needsBoxRefill = (gasLeft < 0.05)
+        local needsBoxRefill = (gasLeft < 0.05 or bladesLeft <= 0 or isBladeBroken)
 
         -- ============================================================
         -- ⚡ SAFE RELOAD LOGIC (Blade Swap)
