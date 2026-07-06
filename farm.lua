@@ -23,7 +23,7 @@ local DEFAULT_CONFIG = {
     },
     AutoThunderSpearQuest = true, ThunderSpearAtPrestige = 4, AutoBoost = true, BoostTypes = {"Gold"}, BoostExpUntilPrestige = 1,
     TrackerUpdateInterval = 2, BoostCheckInterval = 10, CombatLoopInterval = 0.15, DataFetchInterval = 8, MinGemsToBuyBoosts = 4500,
-    Disable3D = false, Modifiers = {}, HitAll = true, InstantWin = true
+    Disable3D = false, Modifiers = {}, HitAll = true
 }
 
 getgenv().Venoz_Config = getgenv().Venoz_Config or {}
@@ -146,40 +146,6 @@ local function executeAutoQuestLogic()
     
     task.spawn(function()
         local oldAction = _G.CurrentAction
-
-        -- ============================================================
-        -- ⚡ AUTO THUNDER SPEAR QUEST (Exploit Remote)
-        -- ============================================================
-        local ownsSpears = _G.OwnsSpears
-        local checkPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
-        if Config.AutoThunderSpearQuest and checkPrestige >= Config.ThunderSpearAtPrestige and not ownsSpears then
-            _G.CurrentAction = "AutoQuest: Thunder Spear - Claiming Quests..."
-            -- 1. Accept all Spear quests
-            local spearQuests = {
-                "ThunderSpear_Towers", "ThunderSpear_Escort",
-                "ThunderSpear_IceBurst", "ThunderSpear_Supplies", "ThunderSpear_DefendSupplies"
-            }
-            for _, q in ipairs(spearQuests) do
-                pcall(function() GET:InvokeServer("Functions", "Quest", q, "Spears") end)
-                task.wait(0.1)
-            end
-
-            -- 2. Exploit Update_Spear_Towers (สร้างหอคอย 3 หลังทันที โดยไม่ต้องเข้าด่าน)
-            _G.CurrentAction = "AutoQuest: Thunder Spear - Building Watch Towers..."
-            for i = 1, 3 do
-                pcall(function() GET:InvokeServer("Quests", "Update_Spear_Towers", true) end)
-                task.wait(0.5)
-            end
-
-            -- 3. Claim rewards
-            _G.CurrentAction = "AutoQuest: Thunder Spear - Claiming Rewards..."
-            for _, q in ipairs(spearQuests) do
-                pcall(function() GET:InvokeServer("Functions", "Quest", q, "Claim") end)
-                task.wait(0.1)
-            end
-            print("⚡ [AutoQuest] Thunder Spear Quests claimed!")
-        end
-
         _G.CurrentAction = "AutoQuest: Accepting Dailies & Weeklies..."
         for i = 1, 4 do
             pcall(function() GET:InvokeServer("Functions", "Quest", "Daily " .. i, "Daily") end)
@@ -534,7 +500,6 @@ task.spawn(function()
                                 _G.TotalPerksCount = pcount
                             end
                             if slotData.Currency then _G.LastGold = slotData.Currency.Gold end
-                            _G.OwnsSpears = slotData.Has_Spears ~= nil
                             if slotData.Currencies then _G.LastGems = slotData.Currencies.Gems end
                             
                             if slotData.Progression then
@@ -721,21 +686,18 @@ task.spawn(function()
                 debugInvStr = "RawXP:[" .. tostring(_G.DebugXPLabelText) .. "] " .. debugInvStr
             end
             
-            local reqPerksText = 100
-            if level <= 45 then reqPerksText = 50 end
-            
             logText.Text = string.format(
                 "🎖️ <b>Level:</b> %d / %d (%s/%s)\n" ..
                 "👑 <b>Prestige:</b> P%d\n" ..
                 "💰 <b>Gold:</b> %s | 💎 <b>Gems:</b> %s\n" ..
                 "🧪 <b>Gold Boost:</b> %s\n" ..
                 "🧪 <b>XP Boost:</b> %s\n" ..
-                "⚔️ <b>Perks:</b> <font color='%s'>%d</font> / %d\n" ..
+                "⚔️ <b>Perks:</b> <font color='%s'>%d</font> / 100\n" ..
                 "🔍 <b>DEBUG:</b> %s\n\n" ..
                 "📍 <b>Status:</b> %s\n" ..
                 "🗺️ <b>Map:</b> %s\n" ..
                 "🔄 <b>Action:</b> <font color='#00ffff'>%s</font>",
-                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, reqPerksText, debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
+                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
             )
         end
     end)
@@ -849,7 +811,6 @@ if placeId == 14916516914 then
                                 _G.LastXP = slotData.Progression.XP
                             end
                             if slotData.Currency then _G.LastGold = slotData.Currency.Gold end
-                            _G.OwnsSpears = slotData.Has_Spears ~= nil
                         end
                     end
                 end
@@ -879,8 +840,10 @@ if placeId == 14916516914 then
                 local gold = amt("Gold")
                 if gold > 0 then _G.LastGold = gold end
                 local requiredPerksToSell = 100
+                local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
-                if currentLevel <= 45 then
+                
+                if currentPrestige == 0 or (currentPrestige == 1 and currentLevel < 20) then
                     requiredPerksToSell = 50
                 end
                 
@@ -907,27 +870,14 @@ if placeId == 14916516914 then
             local checkMaxXP = math.max(tonumber(_G.LastMaxXP) or 0, tonumber(plr:GetAttribute("Max_XP")) or 0)
             if checkMaxXP == 0 then checkMaxXP = 999999999 end
             local isReadyToPrestige = (checkLevel >= targetLevelReq and checkXP >= checkMaxXP and checkPrestige < Config.PrestigeTarget)
-            
-            local ownsSpears = _G.OwnsSpears
-            if ownsSpears == nil then
-                pcall(function()
-                    if CoreTable and CoreTable.Cache and CoreTable.Cache.Data and CoreTable.Cache.Data.Slots then
-                        local slotData = CoreTable.Cache.Data.Slots[plr:GetAttribute("Slot") or "A"]
-                        if slotData then ownsSpears = slotData.Has_Spears ~= nil end
-                    end
-                end)
-            end
-            
-            local isThunderSpearQuestActive = Config.AutoThunderSpearQuest and checkPrestige >= Config.ThunderSpearAtPrestige and not ownsSpears
-            
-            if isThunderSpearQuestActive then
-                isReadyToPrestige = false
-                _G.CurrentAction = "Prestige Paused: Auto Thunder Spear Quest Active!"
-            end
+
             if Config.AutoPrestige and isReadyToPrestige then
                 local didPrestige = false
                 pcall(function()
-                    local pSettings = (Config.VenozPrestige and Config.VenozPrestige["P" .. tostring(checkPrestige + 1)]) or { TargetBoost = "Gold Boost", RequiredGold = 0 }
+                    -- ✅ FIXED: Use VenozPrestige instead of PrestigeSettings
+                    -- ✅ FIXED: Use TargetBoost and RequiredGold instead of Boost and Gold
+                    local prestigeKey = "P" .. tostring(checkPrestige + 1)
+                    local pSettings = Config.VenozPrestige and Config.VenozPrestige[prestigeKey] or { TargetBoost = "Gold Boost", RequiredGold = 0 }
                     local reqGold = (pSettings.RequiredGold or 0) * 1000000
                     local gold = _G.LastGold or 0
                     
@@ -957,13 +907,16 @@ if placeId == 14916516914 then
                         
                         for _, tagName in ipairs(MyTalentList) do
                             print("⏳ [PRESTIGE] กำลังลองจุติด้วย Tag: " .. tagName)
-                            pcall(function()
-                                GET:InvokeServer("S_Equipment", "Prestige", {
-                                    Boosts = pSettings.TargetBoost or "Gold Boost",
-                                    Talents = tagName
-                                })
+                            task.spawn(function()
+                                pcall(function()
+                                    GET:InvokeServer("S_Equipment", "Prestige", {
+                                        -- ✅ FIXED: Use TargetBoost instead of Boost
+                                        Boosts = pSettings.TargetBoost or "Gold Boost",
+                                        Talents = tagName
+                                    })
+                                end)
                             end)
-                            task.wait(0.3)
+                            task.wait(0.05) -- ยิงรัวๆ ได้เลยไม่ต้องรอนาน
                         end
                         
                         if tracker then tracker.Enabled = true end
@@ -1031,25 +984,7 @@ if placeId == 14916516914 then
                 _G.PreparingNewMap = true
                 _G.CurrentAction = "Preparing Mission..."
                 local targetMap = Config.MissionMap
-                local targetObjective = Config.MissionObjective
-                
-                local ownsSpears = _G.OwnsSpears
-                if ownsSpears == nil then
-                    pcall(function()
-                        if CoreTable and CoreTable.Cache and CoreTable.Cache.Data and CoreTable.Cache.Data.Slots then
-                            local slotData = CoreTable.Cache.Data.Slots[plr:GetAttribute("Slot") or "A"]
-                            if slotData then ownsSpears = slotData.Has_Spears ~= nil end
-                        end
-                    end)
-                end
-                
-                local isThunderSpearQuestActive = Config.AutoThunderSpearQuest and checkPrestige >= Config.ThunderSpearAtPrestige and not ownsSpears
-                
-                if isThunderSpearQuestActive then
-                    _G.CurrentAction = "Thunder Spear Quest: Targeting Outskirts (Escort)..."
-                    targetMap = "Outskirts"
-                    targetObjective = "Escort"
-                elseif Config.AutoBoostedMap then
+                if Config.AutoBoostedMap then
                     local boostedMapName = workspace:GetAttribute("Boosted_Map")
                     if boostedMapName and type(boostedMapName) == "string" and boostedMapName ~= "" then 
                         if boostedMapName == "Trost" then
@@ -1059,6 +994,8 @@ if placeId == 14916516914 then
                         end
                     end
                 end
+
+                local targetObjective = Config.MissionObjective
                 for _, part in ipairs(char:GetDescendants()) do if part:IsA("BasePart") then part.CanCollide = false end end
                 root.CFrame = CFrame.new(233.395, 8.865, 37.525)
                 root.Anchored = true task.wait(1) root.Anchored = false 
@@ -1117,40 +1054,7 @@ local TitansFolder = workspace:WaitForChild("Titans", 9999)
 local interface = plr:WaitForChild("PlayerGui"):WaitForChild("Interface", 999)
 
 -- ============================================================
--- ⚡ INSTANT WIN EXPLOIT
--- ============================================================
-task.spawn(function()
-    task.wait(5) -- Wait for map load
-    while currentID == _G.VenozScriptID and task.wait(2) do
-        local rewardsUI = interface and interface:FindFirstChild("Rewards")
-        if rewardsUI and rewardsUI.Visible then break end
-        
-        local escortCart = nil
-        pcall(function()
-            local escortFolder = workspace:FindFirstChild("Unclimbable") 
-                and workspace.Unclimbable:FindFirstChild("Objective") 
-                and workspace.Unclimbable.Objective:FindFirstChild("Escort")
-            if escortFolder then
-                for _, child in ipairs(escortFolder:GetChildren()) do
-                    if child.Name == "Cart" and child:IsA("Model") then
-                        escortCart = child
-                        break
-                    end
-                end
-            end
-        end)
-        
-        if Config.InstantWin or escortCart then
-            print("⚡ [Exploit] Sending instant win remote...")
-            pcall(function() 
-                POST:FireServer("Functions", "Finished", Instance.new("Model")) 
-            end)
-        end
-    end
-end)
-
--- ============================================================
--- 🛠️ OPTIMIZED RETRY BUTTON FIX
+-- 🔧 OPTIMIZED RETRY BUTTON FIX
 -- ============================================================
 task.spawn(function()
     local rewardsUI = interface:WaitForChild("Rewards", 999)
@@ -1260,14 +1164,9 @@ task.spawn(function()
                 end
                 
                 local shouldLeaveForPerks = false
-                local isThunderSpearQuestActive = Config.AutoThunderSpearQuest and curPrestige == Config.ThunderSpearAtPrestige
-                if isThunderSpearQuestActive then
-                    shouldLeaveForPerks = true -- force leave to check quest progression/claim
-                elseif Config.AutoDeletePerk then
+                if Config.AutoDeletePerk then
                     local totalPerks = _G.TotalPerksCount or 0
-                    local targetPerksLimit = 100
-                    if curLevel <= 45 then targetPerksLimit = 50 end
-                    if totalPerks >= targetPerksLimit then shouldLeaveForPerks = true end
+                    if totalPerks >= 100 then shouldLeaveForPerks = true end
                 end
 
                 if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
@@ -1394,7 +1293,6 @@ local script_actor = [[
                     
                     result.Inventory = safeInv
                     result.TotalPerksCount = totalPerks
-                    result.Has_Spears = slotData.Has_Spears ~= nil
                 end
             end
         end)
@@ -1432,76 +1330,6 @@ task.spawn(function()
         local aliveTitans = {}
         local currentTotalHealth = 0
         
-        local escortCart = nil
-        pcall(function()
-            local escortFolder = workspace:FindFirstChild("Unclimbable") 
-                and workspace.Unclimbable:FindFirstChild("Objective") 
-                and workspace.Unclimbable.Objective:FindFirstChild("Escort")
-            if escortFolder then
-                for _, child in ipairs(escortFolder:GetChildren()) do
-                    if child.Name == "Cart" and child:IsA("Model") then
-                        escortCart = child
-                        break
-                    end
-                end
-            end
-        end)
-        
-        -- Check for Active Watch Tower (Thunder Spear Quest)
-        local activeTower = nil
-        pcall(function()
-            local CollectionService = game:GetService("CollectionService")
-            local taggedTowers = CollectionService:GetTagged("TS_Towers")
-            if taggedTowers and #taggedTowers > 0 then
-                activeTower = taggedTowers[1]
-            else
-                -- Fallback check in Workspace
-                for _, child in ipairs(workspace:GetChildren()) do
-                    if (string.find(child.Name, "WatchTower_") or string.find(child.Name, "WaterTower_")) and child:FindFirstChild("PrimaryPart") then
-                        activeTower = child
-                        break
-                    end
-                end
-            end
-        end)
-
-        if activeTower and activeTower:FindFirstChild("PrimaryPart") then
-            _G.CurrentAction = "Building Watch Tower: " .. activeTower.Name
-            currentRoot.CFrame = CFrame.new(activeTower.PrimaryPart.Position + Vector3.new(0, 2, 0))
-            currentRoot.Anchored = true
-            
-            -- We can still kill titans while standing on the tower to be safe!
-            local currentTitans = TitansFolder:GetChildren()
-            local aliveTitans = {}
-            for _, titan in ipairs(currentTitans) do
-                local nape = titan:FindFirstChild("Nape", true)
-                local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
-                if nape and humanoid and humanoid.Health > 0 then
-                    table.insert(aliveTitans, { nape = nape })
-                end
-            end
-            
-            if #aliveTitans > 0 then
-                local batchSize = Config.HitAll and 50 or 5
-                local batchTitans = {}
-                for i = 1, math.min(batchSize, #aliveTitans) do
-                    table.insert(batchTitans, aliveTitans[i])
-                end
-                
-                local currentTime = os.clock()
-                if not _G.LastSlashTime or (currentTime - _G.LastSlashTime >= 0.25) then
-                    _G.LastSlashTime = currentTime
-                    pcall(function() bindable:Invoke("CALL", "SlashOnly") end)
-                end
-                for _, target in ipairs(batchTitans) do 
-                    pcall(function() bindable:Invoke("CALL", "RegisterHitOnly", target.nape) end) 
-                end
-                pcall(function() bindable:Invoke("CALL", "ResetState") end)
-            end
-            
-            continue
-        end
-        
         -- Only get direct children, not descendants
         local currentTitans = TitansFolder:GetChildren()
         for _, titan in ipairs(currentTitans) do
@@ -1510,15 +1338,7 @@ task.spawn(function()
             local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
             local titanRoot = titan:FindFirstChild("HumanoidRootPart") or nape
             if nape and humanoid and humanoid.Health > 0 and titanRoot then
-                local distToPlayer = (currentRoot.Position - titanRoot.Position).Magnitude
-                local distToCart = escortCart and (escortCart:GetPivot().Position - titanRoot.Position).Magnitude or distToPlayer
-                table.insert(aliveTitans, { 
-                    titan = titan, 
-                    nape = nape, 
-                    root = titanRoot, 
-                    dist = distToPlayer, 
-                    cartDist = distToCart 
-                })
+                table.insert(aliveTitans, { titan = titan, nape = nape, root = titanRoot, dist = (currentRoot.Position - titanRoot.Position).Magnitude })
                 currentTotalHealth = currentTotalHealth + humanoid.Health
             end
         end
@@ -1526,25 +1346,8 @@ task.spawn(function()
         if #aliveTitans == 0 then 
             if next(blacklistedTitans) ~= nil then blacklistedTitans = {} end
             
-            -- If we are in Escort mode, hover safely above the cart to follow it
-            if escortCart then
-                _G.CurrentAction = "Combat: Escorting Cart (Hovering)..."
-                local cartPos = escortCart:GetPivot().Position
-                currentRoot.CFrame = CFrame.new(cartPos.X, cartPos.Y + 8, cartPos.Z)
-                currentRoot.Anchored = true
-                continue
-            end
-            
             if not _G.WaveClearedRefill then
                 _G.CurrentAction = "Combat: Box Reloading (Between Waves)..."
-                
-                -- EMERGENCY REFILL BYPASS
-                pcall(function() bindable:Invoke("CALL", "BypassRefill") end)
-                pcall(function()
-                    local getRemote = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-                    getRemote:InvokeServer("Blades", "Reload")
-                end)
-                
                 local refillTarget = nil
                 for _, v in ipairs(workspace:GetChildren()) do
                     if v:GetAttribute("Max_Refills") and tonumber(v:GetAttribute("Max_Refills")) > 0 then refillTarget = v break end
@@ -1583,12 +1386,7 @@ task.spawn(function()
             _G.WaveClearedRefill = false
         end
         
-        if escortCart then
-            table.sort(aliveTitans, function(a, b) return a.cartDist < b.cartDist end)
-        else
-            table.sort(aliveTitans, function(a, b) return a.dist < b.dist end)
-        end
-        
+        table.sort(aliveTitans, function(a, b) return a.dist < b.dist end)
         local targetTitan = aliveTitans[1]
         
         if targetTitan and targetTitan.root then
@@ -1643,7 +1441,7 @@ task.spawn(function()
                 end
                 
                 -- Fallback: If we've been attacking for 10 cycles (1.5s) and dealt 0 damage, the blade is probably broken.
-                if cycleStuckCount >= 10 or bladesLeft <= 0 then
+                if cycleStuckCount >= 10 then
                     isBladeBroken = true
                 end
                 
@@ -1657,7 +1455,7 @@ task.spawn(function()
             end
         end)
         
-        local needsBoxRefill = (gasLeft < 0.05 or bladesLeft <= 0 or isBladeBroken)
+        local needsBoxRefill = (gasLeft < 0.05)
 
         -- ============================================================
         -- ⚡ SAFE RELOAD LOGIC (Blade Swap)
@@ -1720,4 +1518,3 @@ task.spawn(function()
         end
     end
 end)
-
