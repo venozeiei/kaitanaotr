@@ -7,45 +7,31 @@
 -- - Increased wait times for non-critical operations
 -- - Optimized getgc() usage
 -- - Added memory management
--- - Reduced remote call frequency
 -- ============================================================
-
-getgenv().Venoz_Config = getgenv().Venoz_Config or {
-    AutoFarm = true,           
-    TargetSlot = "A", 
-    AutoAntiLag = true, 
-    AutoBoostedMap = true,        
-    StartType = "Missions",
-    MissionMap = "Chapel", 
-    MissionObjective = "Skirmish",
-    MissionDifficulty = "Aberrant",
-    AutoUpgrade = true,
-    AutoDeletePerk = true,
-    AntiBanDelay = 10,
-    AutoPrestige = true,
-    PrestigeTarget = 5,
-    PrestigeSettings = {
-        P1 = { Boost = "Gold Boost", Gold = 0 },
-        P2 = { Boost = "Gold Boost", Gold = 0 },
-        P3 = { Boost = "Gold Boost", Gold = 0 },
-        P4 = { Boost = "Gold Boost", Gold = 0 }, 
-        P5 = { Boost = "Gold Boost", Gold = 0 }, 
+-- SYSTEM CONFIGURATION (FALLBACKS)
+-- ============================================================
+local DEFAULT_CONFIG = {
+    AutoFarm = true, TargetSlot = "A", AutoAntiLag = true, AutoBoostedMap = true,
+    StartType = "Missions", MissionMap = "Chapel", MissionObjective = "Skirmish", MissionDifficulty = "Aberrant",
+    AutoUpgrade = true, AutoDeletePerk = true, AntiBanDelay = 10, AutoPrestige = true, PrestigeTarget = 5,
+    VenozPrestige = {
+        P1 = { TargetBoost = "Gold Boost", RequiredGold = 0 },
+        P2 = { TargetBoost = "Gold Boost", RequiredGold = 0 },
+        P3 = { TargetBoost = "Gold Boost", RequiredGold = 0 },
+        P4 = { TargetBoost = "Gold Boost", RequiredGold = 0 },
+        P5 = { TargetBoost = "Gold Boost", RequiredGold = 0 },
     },
-    AutoThunderSpear = true,
-    ThunderSpearAtPrestige = 4, 
-    AutoBoost = true,
-    BoostTypes = {"Gold"}, 
-    BoostExpUntilPrestige = 3,
-    -- New optimization settings
-    TrackerUpdateInterval = 2,
-    BoostCheckInterval = 10,
-    CombatLoopInterval = 0.15,
-    DataFetchInterval = 8,
-    MinGemsToBuyBoosts = 4500, -- 30m Boosts cost 4,499 Gems
-    AutoThunderSpearQuest = true, -- ทะลวงด่านหาเศษหอกสายฟ้าเมื่อถึง Prestige 4
+    AutoThunderSpearQuest = true, ThunderSpearAtPrestige = 4, AutoBoost = true, BoostTypes = {"Gold"}, BoostExpUntilPrestige = 1,
+    TrackerUpdateInterval = 2, BoostCheckInterval = 10, CombatLoopInterval = 0.15, DataFetchInterval = 8, MinGemsToBuyBoosts = 4500,
+    Disable3D = false, Modifiers = {}
 }
 
+getgenv().Venoz_Config = getgenv().Venoz_Config or {}
 local Config = getgenv().Venoz_Config
+for k, v in pairs(DEFAULT_CONFIG) do
+    if Config[k] == nil then Config[k] = v end
+end
+
 _G.AutoFarm = Config.AutoFarm
 _G.TargetSlot = Config.TargetSlot
 _G.CurrentAction = "Initializing..." 
@@ -61,6 +47,20 @@ local plr = Players.LocalPlayer
 local placeId = game.PlaceId
 local Remotes = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes")
 local GET = Remotes:WaitForChild("GET", 10)
+
+-- ============================================================
+-- 🖥️ DISABLE 3D RENDERING (ZERO GPU MODE)
+-- ============================================================
+if Config.Disable3D and not _G.Disabled3D then
+    _G.Disabled3D = true
+    task.spawn(function()
+        pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(false) end)
+        pcall(function()
+            local map = workspace:FindFirstChild("Map") or workspace:FindFirstChild("Map_Elements") or workspace:FindFirstChild("Terrain")
+            if map then map:Destroy() end
+        end)
+    end)
+end
 
 -- ============================================================
 -- 🛠️ SHARED UTILS
@@ -839,10 +839,17 @@ if placeId == 14916516914 then
                 end
                 local gold = amt("Gold")
                 if gold > 0 then _G.LastGold = gold end
+                local requiredPerksToSell = 100
+                local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
+                local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                 
-                -- Only sell perks if inventory was recently fetched
-                if currentTime - lastInventoryCheck < 20 and Config.AutoDeletePerk and _G.PerksUUIDs and #_G.PerksUUIDs > 0 then
-                    _G.CurrentAction = "Auto Selling Perks (Remote)..."
+                if currentPrestige == 0 or (currentPrestige == 1 and currentLevel < 20) then
+                    requiredPerksToSell = 50
+                end
+                
+                -- Only sell perks in bulk to save API calls and time
+                if currentTime - lastInventoryCheck < 20 and Config.AutoDeletePerk and _G.PerksUUIDs and #_G.PerksUUIDs >= requiredPerksToSell then
+                    _G.CurrentAction = "Auto Selling " .. tostring(#_G.PerksUUIDs) .. " Perks (Remote)..."
                     pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perk", _G.PerksUUIDs) end)
                     pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perks", _G.PerksUUIDs) end)
                     
@@ -994,7 +1001,7 @@ if placeId == 14916516914 then
 
                 _G.CurrentAction = "Creating Mission: " .. targetMap
                 local desiredDifficulty = Config.MissionDifficulty
-                local mapData = { Name = targetMap, Type = Config.StartType, Objective = targetObjective, Difficulty = desiredDifficulty }
+                local mapData = { Name = targetMap, Type = Config.StartType, Objective = targetObjective, Difficulty = desiredDifficulty, Modifiers = Config.Modifiers or {} }
                 
                 local actualDifficulty = desiredDifficulty
                 local resCreate = safeInvokeServer(GET, 5, "S_Missions", "Create", mapData)
@@ -1506,3 +1513,4 @@ task.spawn(function()
         end
     end
 end)
+
