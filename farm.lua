@@ -146,6 +146,40 @@ local function executeAutoQuestLogic()
     
     task.spawn(function()
         local oldAction = _G.CurrentAction
+
+        -- ============================================================
+        -- ⚡ AUTO THUNDER SPEAR QUEST (Exploit Remote)
+        -- ============================================================
+        local ownsSpears = _G.OwnsSpears
+        local checkPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
+        if Config.AutoThunderSpearQuest and checkPrestige >= Config.ThunderSpearAtPrestige and not ownsSpears then
+            _G.CurrentAction = "AutoQuest: Thunder Spear - Claiming Quests..."
+            -- 1. Accept all Spear quests
+            local spearQuests = {
+                "ThunderSpear_Towers", "ThunderSpear_Escort",
+                "ThunderSpear_IceBurst", "ThunderSpear_Supplies", "ThunderSpear_DefendSupplies"
+            }
+            for _, q in ipairs(spearQuests) do
+                pcall(function() GET:InvokeServer("Functions", "Quest", q, "Spears") end)
+                task.wait(0.1)
+            end
+
+            -- 2. Exploit Update_Spear_Towers (สร้างหอคอย 3 หลังทันที โดยไม่ต้องเข้าด่าน)
+            _G.CurrentAction = "AutoQuest: Thunder Spear - Building Watch Towers..."
+            for i = 1, 3 do
+                pcall(function() GET:InvokeServer("Quests", "Update_Spear_Towers", true) end)
+                task.wait(0.5)
+            end
+
+            -- 3. Claim rewards
+            _G.CurrentAction = "AutoQuest: Thunder Spear - Claiming Rewards..."
+            for _, q in ipairs(spearQuests) do
+                pcall(function() GET:InvokeServer("Functions", "Quest", q, "Claim") end)
+                task.wait(0.1)
+            end
+            print("⚡ [AutoQuest] Thunder Spear Quests claimed!")
+        end
+
         _G.CurrentAction = "AutoQuest: Accepting Dailies & Weeklies..."
         for i = 1, 4 do
             pcall(function() GET:InvokeServer("Functions", "Quest", "Daily " .. i, "Daily") end)
@@ -1412,6 +1446,61 @@ task.spawn(function()
                 end
             end
         end)
+        
+        -- Check for Active Watch Tower (Thunder Spear Quest)
+        local activeTower = nil
+        pcall(function()
+            local CollectionService = game:GetService("CollectionService")
+            local taggedTowers = CollectionService:GetTagged("TS_Towers")
+            if taggedTowers and #taggedTowers > 0 then
+                activeTower = taggedTowers[1]
+            else
+                -- Fallback check in Workspace
+                for _, child in ipairs(workspace:GetChildren()) do
+                    if (string.find(child.Name, "WatchTower_") or string.find(child.Name, "WaterTower_")) and child:FindFirstChild("PrimaryPart") then
+                        activeTower = child
+                        break
+                    end
+                end
+            end
+        end)
+
+        if activeTower and activeTower:FindFirstChild("PrimaryPart") then
+            _G.CurrentAction = "Building Watch Tower: " .. activeTower.Name
+            currentRoot.CFrame = CFrame.new(activeTower.PrimaryPart.Position + Vector3.new(0, 2, 0))
+            currentRoot.Anchored = true
+            
+            -- We can still kill titans while standing on the tower to be safe!
+            local currentTitans = TitansFolder:GetChildren()
+            local aliveTitans = {}
+            for _, titan in ipairs(currentTitans) do
+                local nape = titan:FindFirstChild("Nape", true)
+                local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
+                if nape and humanoid and humanoid.Health > 0 then
+                    table.insert(aliveTitans, { nape = nape })
+                end
+            end
+            
+            if #aliveTitans > 0 then
+                local batchSize = Config.HitAll and 50 or 5
+                local batchTitans = {}
+                for i = 1, math.min(batchSize, #aliveTitans) do
+                    table.insert(batchTitans, aliveTitans[i])
+                end
+                
+                local currentTime = os.clock()
+                if not _G.LastSlashTime or (currentTime - _G.LastSlashTime >= 0.25) then
+                    _G.LastSlashTime = currentTime
+                    pcall(function() bindable:Invoke("CALL", "SlashOnly") end)
+                end
+                for _, target in ipairs(batchTitans) do 
+                    pcall(function() bindable:Invoke("CALL", "RegisterHitOnly", target.nape) end) 
+                end
+                pcall(function() bindable:Invoke("CALL", "ResetState") end)
+            end
+            
+            continue
+        end
         
         -- Only get direct children, not descendants
         local currentTitans = TitansFolder:GetChildren()
