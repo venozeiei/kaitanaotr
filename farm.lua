@@ -687,7 +687,7 @@ task.spawn(function()
             end
             
             local reqPerksText = 100
-            if level < 25 then reqPerksText = 50 end
+            if level <= 45 then reqPerksText = 50 end
             
             logText.Text = string.format(
                 "🎖️ <b>Level:</b> %d / %d (%s/%s)\n" ..
@@ -844,8 +844,7 @@ if placeId == 14916516914 then
                 if gold > 0 then _G.LastGold = gold end
                 local requiredPerksToSell = 100
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
-                
-                if currentLevel < 25 then
+                if currentLevel <= 45 then
                     requiredPerksToSell = 50
                 end
                 
@@ -1164,7 +1163,9 @@ task.spawn(function()
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
                     local totalPerks = _G.TotalPerksCount or 0
-                    if totalPerks >= 100 then shouldLeaveForPerks = true end
+                    local targetPerksLimit = 100
+                    if curLevel <= 45 then targetPerksLimit = 50 end
+                    if totalPerks >= targetPerksLimit then shouldLeaveForPerks = true end
                 end
 
                 if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
