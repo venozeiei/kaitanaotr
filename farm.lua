@@ -23,7 +23,7 @@ local DEFAULT_CONFIG = {
     },
     AutoThunderSpearQuest = true, ThunderSpearAtPrestige = 4, AutoBoost = true, BoostTypes = {"Gold"}, BoostExpUntilPrestige = 1,
     TrackerUpdateInterval = 2, BoostCheckInterval = 10, CombatLoopInterval = 0.15, DataFetchInterval = 8, MinGemsToBuyBoosts = 4500,
-    Disable3D = false, Modifiers = {}, HitAll = true
+    Disable3D = false, Modifiers = {}, HitAll = true, InstantWin = true
 }
 
 getgenv().Venoz_Config = getgenv().Venoz_Config or {}
@@ -1083,7 +1083,40 @@ local TitansFolder = workspace:WaitForChild("Titans", 9999)
 local interface = plr:WaitForChild("PlayerGui"):WaitForChild("Interface", 999)
 
 -- ============================================================
--- 🔧 OPTIMIZED RETRY BUTTON FIX
+-- ⚡ INSTANT WIN EXPLOIT
+-- ============================================================
+task.spawn(function()
+    task.wait(5) -- Wait for map load
+    while currentID == _G.VenozScriptID and task.wait(2) do
+        local rewardsUI = interface and interface:FindFirstChild("Rewards")
+        if rewardsUI and rewardsUI.Visible then break end
+        
+        local escortCart = nil
+        pcall(function()
+            local escortFolder = workspace:FindFirstChild("Unclimbable") 
+                and workspace.Unclimbable:FindFirstChild("Objective") 
+                and workspace.Unclimbable.Objective:FindFirstChild("Escort")
+            if escortFolder then
+                for _, child in ipairs(escortFolder:GetChildren()) do
+                    if child.Name == "Cart" and child:IsA("Model") then
+                        escortCart = child
+                        break
+                    end
+                end
+            end
+        end)
+        
+        if Config.InstantWin or escortCart then
+            print("⚡ [Exploit] Sending instant win remote...")
+            pcall(function() 
+                POST:FireServer("Functions", "Finished", Instance.new("Model")) 
+            end)
+        end
+    end
+end)
+
+-- ============================================================
+-- 🛠️ OPTIMIZED RETRY BUTTON FIX
 -- ============================================================
 task.spawn(function()
     local rewardsUI = interface:WaitForChild("Rewards", 999)
@@ -1365,7 +1398,20 @@ task.spawn(function()
         local aliveTitans = {}
         local currentTotalHealth = 0
         
-        local escortCart = workspace:FindFirstChild("Cart", true)
+        local escortCart = nil
+        pcall(function()
+            local escortFolder = workspace:FindFirstChild("Unclimbable") 
+                and workspace.Unclimbable:FindFirstChild("Objective") 
+                and workspace.Unclimbable.Objective:FindFirstChild("Escort")
+            if escortFolder then
+                for _, child in ipairs(escortFolder:GetChildren()) do
+                    if child.Name == "Cart" and child:IsA("Model") then
+                        escortCart = child
+                        break
+                    end
+                end
+            end
+        end)
         
         -- Only get direct children, not descendants
         local currentTitans = TitansFolder:GetChildren()
@@ -1395,7 +1441,7 @@ task.spawn(function()
             if escortCart then
                 _G.CurrentAction = "Combat: Escorting Cart (Hovering)..."
                 local cartPos = escortCart:GetPivot().Position
-                currentRoot.CFrame = CFrame.new(cartPos.X, cartPos.Y + 25, cartPos.Z)
+                currentRoot.CFrame = CFrame.new(cartPos.X, cartPos.Y + 8, cartPos.Z)
                 currentRoot.Anchored = true
                 continue
             end
