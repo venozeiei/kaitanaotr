@@ -1175,13 +1175,8 @@ task.spawn(function()
                     -- 🔥 ตรวจสอบ Level สำหรับกำหนดจำนวน Perks สูงสุด
                     local maxPerks = (currentLevel < 45) and 30 or 100
                     
-                    -- กำหนดจำนวนที่ต้องขาย
-                    local requiredPerksToSell
-                    if currentPrestige == 0 or (currentPrestige == 1 and currentLevel < 20) then
-                        requiredPerksToSell = 50
-                    else
-                        requiredPerksToSell = maxPerks
-                    end
+                    -- กำหนดจำนวนที่ต้องขายตาม Level
+                    local requiredPerksToSell = maxPerks
                     
                     print("🔍 [DEBUG] TotalPerks:", totalPerks, "Required:", requiredPerksToSell, "Level:", currentLevel, "Prestige:", currentPrestige, "MaxPerks:", maxPerks)
                     
