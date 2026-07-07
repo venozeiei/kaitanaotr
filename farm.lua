@@ -693,13 +693,13 @@ task.spawn(function()
                 "💰 <b>Gold:</b> %s | 💎 <b>Gems:</b> %s\n" ..
                 "🧪 <b>Gold Boost:</b> %s\n" ..
                 "🧪 <b>XP Boost:</b> %s\n" ..
-                "⚔️ <b>Perks:</b> <font color='%s'>%d</font> / %d\n" ..
+                "⚔️ <b>Perks:</b> <font color='%s'>%d</font> / 100\n" ..
                 "�💰 <b>Auto-Sell:</b> <font color='#ffaa00'>%d pcs</font>\n" ..
                 "�🔍 <b>DEBUG:</b> %s\n\n" ..
                 "📍 <b>Status:</b> %s\n" ..
                 "🗺️ <b>Map:</b> %s\n" ..
                 "🔄 <b>Action:</b> <font color='#00ffff'>%s</font>",
-                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((level < 45) and 50 or 100), ((level < 45) and 50 or 100), debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
+                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((level <= 45) and 50) or 100, debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
             )
         end
     end)
@@ -845,14 +845,13 @@ if placeId == 14916516914 then
                 local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                 
-                -- 🔥 ตรวจสอบ Level สำหรับกำหนดจำนวน Perks สูงสุด
-                local maxPerks = (currentLevel < 45) and 50 or 100
-                
-                -- ขายตามจำนวน Perks สูงสุด
+                -- ขาย 50 ชิ้นสำหรับ Level 0-45, 100 ชิ้นสำหรับ Level มากกว่า 45
                 if currentPrestige == 0 or (currentPrestige == 1 and currentLevel < 20) then
                     requiredPerksToSell = 50
+                elseif currentLevel <= 45 then
+                    requiredPerksToSell = 50
                 else
-                    requiredPerksToSell = maxPerks
+                    requiredPerksToSell = 100
                 end
                 
                 -- Only sell perks in bulk to save API calls and time
@@ -1011,15 +1010,6 @@ if placeId == 14916516914 then
                 _G.CurrentAction = "Leaving Old Group..."
                 safeInvokeServer(GET, 3, "S_Missions", "Leave") task.wait(1)
 
-                -- 🔥 ไม่เล่น Forest เลย ไม่ว่าจะมี Reward Boost หรือไม่
-                if targetMap == "Forest" then
-                    _G.CurrentAction = "⚠️ Skipping Forest (always play Chapel)..."
-                    task.wait(2)
-                    -- สร้าง mission ที่ Chapel แทน
-                    targetMap = "Chapel"
-                    _G.CurrentAction = "Creating Mission: " .. targetMap .. " (skipping Forest)"
-                end
-                
                 _G.CurrentAction = "Creating Mission: " .. targetMap
                 local desiredDifficulty = Config.MissionDifficulty
                 local mapData = { Name = targetMap, Type = Config.StartType, Objective = targetObjective, Difficulty = desiredDifficulty, Modifiers = Config.Modifiers or {} }
@@ -1074,16 +1064,10 @@ local interface = plr:WaitForChild("PlayerGui"):WaitForChild("Interface", 999)
 -- 🔧 OPTIMIZED RETRY BUTTON FIX
 -- ============================================================
 task.spawn(function()
-    while true do
-        local interface = plr.PlayerGui:FindFirstChild("Interface")
-        if not interface then task.wait(1); goto continueLoop end
-        
-        local rewardsUI = interface:FindFirstChild("Rewards")
-        if not rewardsUI then task.wait(1); goto continueLoop end
-        
-        local cachedButtons = nil
-        local cachedMainInfo = nil
-        local cachedBoostElement = nil
+    local rewardsUI = interface:WaitForChild("Rewards", 999)
+    local cachedButtons = nil
+    local cachedMainInfo = nil
+    local cachedBoostElement = nil
     local lastUIUpdate = 0
     
     local function clickButtonAdvanced(btn)
@@ -1155,17 +1139,8 @@ task.spawn(function()
             if buttons then
                 print("✅ [Retry] พบ Buttons container")
                 
-                -- 🔥 หาปุ่มทุกชื่อที่เป็นไปได้
-                local btnRetry = buttons:FindFirstChild("RETRY (0)") or buttons:FindFirstChild("Retry") or buttons:FindFirstChild("RETRY")
-                local btnLeave = buttons:FindFirstChild("LEAVE") or buttons:FindFirstChild("Leave_2") or buttons:FindFirstChild("Leave") or buttons:FindFirstChild("LEAVE_2")
-                
-                print("🎯 [Retry] btnRetry:", btnRetry and btnRetry.Name or "❌", "btnLeave:", btnLeave and btnLeave.Name or "❌")
-                print("🔍 [DEBUG] All buttons in container:")
-                for _, child in ipairs(buttons:GetChildren()) do
-                    if child:IsA("GuiButton") or child:IsA("TextButton") or child:IsA("ImageButton") then
-                        print("  -", child.Name, "Visible:", child.Visible, "Active:", child.Active)
-                    end
-                end
+                local btnRetry = buttons:FindFirstChild("Retry")
+                local btnLeave = buttons:FindFirstChild("Leave_2") or buttons:FindFirstChild("Leave")
                 
                 print("🎯 [Retry] btnRetry:", btnRetry and "✅" or "❌", "btnLeave:", btnLeave and "✅" or "❌")
                 
@@ -1192,65 +1167,40 @@ task.spawn(function()
                 
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
-                    -- 🔥 ใช้ _G.TotalPerksCount แทนการอ่านจาก HUD (HUD ถูกบดบังในหน้า Rewards UI)
                     local totalPerks = _G.TotalPerksCount or 0
-                    
-                    print("🔍 [DEBUG] TotalPerks:", totalPerks, "Required: 100")
-                    
-                    -- ตรวจสอบเงื่อนไขตามจำนวน Perk สูงสุดที่กำหนดไว้ (100 perks)
-                    if totalPerks >= 100 then 
-                        shouldLeaveForPerks = true 
-                        print("✅ [DEBUG] shouldLeaveForPerks = TRUE - กด LEAVE ไปขาย!")
-                    else
-                        shouldLeaveForPerks = false
-                        print("❌ [DEBUG] shouldLeaveForPerks = FALSE - มีแค่ " .. totalPerks .. "/100")
-                    end
+                    if totalPerks >= 100 then shouldLeaveForPerks = true end
                 end
 
                 if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
-                    -- 🔥 ใช้ Remote Call สำหรับ Leave
-                    _G.CurrentAction = "🚪 [Retry] กำลังกด Leave (เลเวลครบ ต้องจุติ)..."
-                    pcall(function()
-                        local args = {"Functions", "Teleport"}
-                        game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST"):FireServer(unpack(args))
-                    end)
-                    print("✅ [Retry] กด Leave สำเร็จ (เลเวลครบ)")
+                    buttonToClick = btnLeave
+                    print("🚪 [Retry] เลือก Leave (เลเวลครบ ต้องจุติ)")
                 elseif shouldLeaveForPerks then
-                    -- 🔥 ใช้ Remote Call สำหรับ Leave (Perks ครบ)
-                    _G.CurrentAction = "🔄 [Retry] กำลังกด Leave (Perks ครบ 100 ชิ้น - ไปขายที่ Lobby)..."
-                    pcall(function()
-                        local args = {"Functions", "Teleport"}
-                        game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST"):FireServer(unpack(args))
-                    end)
-                    print("✅ [Retry] กด Leave สำเร็จ (Perks ครบ)")
+                    buttonToClick = btnLeave
+                    print("🔄 [Retry] เลือกปุ่ม Leave (Perks เต็มกระเป๋า 100+)")
                 elseif btnRetry then
-                    -- 🔥 ใช้ Remote Call สำหรับ Retry
-                    _G.CurrentAction = "🔄 [Retry] กำลังกด Retry (ฟาร์มต่อเนื่อง)..."
-                    pcall(function()
-                        local args = {"Functions", "Retry", "Add"}
-                        game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET"):InvokeServer(unpack(args))
-                    end)
-                    print("✅ [Retry] กด Retry สำเร็จ")
+                    buttonToClick = btnRetry
+                    print("🔄 [Retry] เลือก Retry (ฟาร์มต่อเนื่อง)")
                 else
-                    -- 🔥 ใช้ Remote Call สำหรับ Leave (ไม่มีปุ่ม Retry)
-                    _G.CurrentAction = "🚪 [Retry] กำลังกด Leave (ไม่มีปุ่ม Retry)..."
-                    pcall(function()
-                        local args = {"Functions", "Teleport"}
-                        game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST"):FireServer(unpack(args))
-                    end)
-                    print("✅ [Retry] กด Leave สำเร็จ (ไม่มีปุ่ม Retry)")
+                    buttonToClick = btnLeave
+                    print("🚪 [Retry] เลือก Leave (ไม่มีปุ่ม Retry)")
+                end
+                
+                if buttonToClick then
+                    print("🎯 [Retry] กำลังคลิกปุ่ม:", buttonToClick.Name)
+                    clickButtonAdvanced(buttonToClick)
+                else
+                    print("❌ [Retry] ไม่มีปุ่มให้คลิก!")
                 end
             else
-            print("❌ [Retry] ไม่พบ Buttons container")
-            -- Reset cache if structure changed
-            cachedMainInfo = nil
-            cachedButtons = nil
-            cachedBoostElement = nil
+                print("❌ [Retry] ไม่พบ Buttons container")
+                -- Reset cache if structure changed
+                cachedMainInfo = nil
+                cachedButtons = nil
+                cachedBoostElement = nil
+            end
+            task.wait(3)
         end
-        task.wait(3)
-        ::continueLoop::
     end
-end)
 end)
 
 task.spawn(function()
@@ -1371,38 +1321,6 @@ task.spawn(function()
         
         local hum = plr.Character and plr.Character:FindFirstChildWhichIsA("Humanoid")
         if not TitansFolder or not plr.Character or not plr.Character:FindFirstChild("HumanoidRootPart") or not hum or hum.Health <= 0 then continue end
-        
-        -- 🔥 AURAKILL - ฆ่าไททันใกล้ๆ ตลอดเวลา
-        pcall(function()
-            local workspace = game:GetService("Workspace")
-            local char = plr.Character
-            if char and char:FindFirstChild("HumanoidRootPart") then
-                local root = char.HumanoidRootPart
-                local pos = root.Position
-                
-                -- หาและฆ่าไททันใกล้ๆ (รัศมี 100)
-                for _, obj in ipairs(workspace:GetDescendants()) do
-                    if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and (obj.Name:find("Titan") or obj.Name:find("Titan")) then
-                        local titanPos = obj:FindFirstChild("HumanoidRootPart")
-                        if titanPos and (titanPos.Position - pos).Magnitude < 100 then
-                            local humanoid = obj:FindFirstChild("Humanoid")
-                            if humanoid and humanoid.Health > 0 then
-                                -- AURAKILL - damage สูงๆ
-                                pcall(function()
-                                    local bindable = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteFunction")
-                                    if bindable then
-                                        bindable:Invoke("Hitboxes", "Register", titanPos, 999999, 0)
-                                    end
-                                end)
-                                pcall(function()
-                                    humanoid.Health = 0
-                                end)
-                            end
-                        end
-                    end
-                end
-            end
-        end)
         
         local currentRoot = plr.Character.HumanoidRootPart
         local aliveTitans = {}
