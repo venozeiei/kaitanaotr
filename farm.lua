@@ -693,11 +693,12 @@ task.spawn(function()
                 "🧪 <b>Gold Boost:</b> %s\n" ..
                 "🧪 <b>XP Boost:</b> %s\n" ..
                 "⚔️ <b>Perks:</b> <font color='%s'>%d</font> / 100\n" ..
-                "🔍 <b>DEBUG:</b> %s\n\n" ..
+                "� <b>Auto-Sell:</b> <font color='#ffaa00'>%d pcs</font>\n" ..
+                "� <b>DEBUG:</b> %s\n\n" ..
                 "📍 <b>Status:</b> %s\n" ..
                 "🗺️ <b>Map:</b> %s\n" ..
                 "🔄 <b>Action:</b> <font color='#00ffff'>%s</font>",
-                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
+                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((_G.PerksUUIDs and #_G.PerksUUIDs <= 45) and 50) or 100, debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
             )
         end
     end)
@@ -843,8 +844,13 @@ if placeId == 14916516914 then
                 local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                 
+                -- ขาย 50 ชิ้นสำหรับ 0-45 ชิ้น, 100 ชิ้นสำหรับมากกว่า 45 ชิ้น
                 if currentPrestige == 0 or (currentPrestige == 1 and currentLevel < 20) then
                     requiredPerksToSell = 50
+                elseif (_G.PerksUUIDs and #_G.PerksUUIDs <= 45) then
+                    requiredPerksToSell = 50
+                else
+                    requiredPerksToSell = 100
                 end
                 
                 -- Only sell perks in bulk to save API calls and time
