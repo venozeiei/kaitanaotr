@@ -1074,10 +1074,16 @@ local interface = plr:WaitForChild("PlayerGui"):WaitForChild("Interface", 999)
 -- 🔧 OPTIMIZED RETRY BUTTON FIX
 -- ============================================================
 task.spawn(function()
-    local rewardsUI = interface:WaitForChild("Rewards", 999)
-    local cachedButtons = nil
-    local cachedMainInfo = nil
-    local cachedBoostElement = nil
+    while true do
+        local interface = plr.PlayerGui:FindFirstChild("Interface")
+        if not interface then task.wait(1); goto continueLoop end
+        
+        local rewardsUI = interface:FindFirstChild("Rewards")
+        if not rewardsUI then task.wait(1); goto continueLoop end
+        
+        local cachedButtons = nil
+        local cachedMainInfo = nil
+        local cachedBoostElement = nil
     local lastUIUpdate = 0
     
     local function clickButtonAdvanced(btn)
@@ -1189,18 +1195,15 @@ task.spawn(function()
                     -- 🔥 ใช้ _G.TotalPerksCount แทนการอ่านจาก HUD (HUD ถูกบดบังในหน้า Rewards UI)
                     local totalPerks = _G.TotalPerksCount or 0
                     
-                    local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
-                    local maxPerks = (currentLevel < 45) and 50 or 100
+                    print("🔍 [DEBUG] TotalPerks:", totalPerks, "Required: 100")
                     
-                    print("🔍 [DEBUG] TotalPerks:", totalPerks, "Required:", maxPerks, "Level:", currentLevel, "MaxPerks:", maxPerks)
-                    
-                    -- ตรวจสอบเงื่อนไขตามจำนวน Perk สูงสุดที่กำหนดไว้
-                    if totalPerks >= maxPerks then 
+                    -- ตรวจสอบเงื่อนไขตามจำนวน Perk สูงสุดที่กำหนดไว้ (100 perks)
+                    if totalPerks >= 100 then 
                         shouldLeaveForPerks = true 
                         print("✅ [DEBUG] shouldLeaveForPerks = TRUE - กด LEAVE ไปขาย!")
                     else
                         shouldLeaveForPerks = false
-                        print("❌ [DEBUG] shouldLeaveForPerks = FALSE - มีแค่ " .. totalPerks .. "/" .. maxPerks)
+                        print("❌ [DEBUG] shouldLeaveForPerks = FALSE - มีแค่ " .. totalPerks .. "/100")
                     end
                 end
 
@@ -1214,7 +1217,7 @@ task.spawn(function()
                     print("✅ [Retry] กด Leave สำเร็จ (เลเวลครบ)")
                 elseif shouldLeaveForPerks then
                     -- 🔥 ใช้ Remote Call สำหรับ Leave (Perks ครบ)
-                    _G.CurrentAction = "🔄 [Retry] กำลังกด Leave (Perks ครบ " .. maxPerks .. " ชิ้น - ไปขายที่ Lobby)..."
+                    _G.CurrentAction = "🔄 [Retry] กำลังกด Leave (Perks ครบ 100 ชิ้น - ไปขายที่ Lobby)..."
                     pcall(function()
                         local args = {"Functions", "Teleport"}
                         game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST"):FireServer(unpack(args))
@@ -1238,15 +1241,16 @@ task.spawn(function()
                     print("✅ [Retry] กด Leave สำเร็จ (ไม่มีปุ่ม Retry)")
                 end
             else
-                print("❌ [Retry] ไม่พบ Buttons container")
-                -- Reset cache if structure changed
-                cachedMainInfo = nil
-                cachedButtons = nil
-                cachedBoostElement = nil
-            end
-            task.wait(3)
+            print("❌ [Retry] ไม่พบ Buttons container")
+            -- Reset cache if structure changed
+            cachedMainInfo = nil
+            cachedButtons = nil
+            cachedBoostElement = nil
         end
+        task.wait(3)
+        ::continueLoop::
     end
+end)
 end)
 
 task.spawn(function()
