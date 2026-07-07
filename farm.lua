@@ -11,7 +11,7 @@
 -- SYSTEM CONFIGURATION (FALLBACKS)
 -- ============================================================
 local DEFAULT_CONFIG = {
-    AutoFarm = true, TargetSlot = "A", AutoAntiLag = true, AutoBoostedMap = true,
+    AutoFarm = true, TargetSlot = "A", AutoAntiLag = true, AutoBoostedMap = false,
     StartType = "Missions", MissionMap = "Chapel", MissionObjective = "Skirmish", MissionDifficulty = "Aberrant++",
     AutoUpgrade = true, AutoDeletePerk = true, AntiBanDelay = 10, AutoPrestige = true, PrestigeTarget = 5,
     VenozPrestige = {
@@ -1164,11 +1164,6 @@ task.spawn(function()
                 
                 print("📊 [Retry] Level:", curLevel, "MaxLevel:", maxLevelReq, "HasBoost:", hasBoost)
                 
-                local shouldLeaveForBoostedMap = false
-                if Config.AutoBoostedMap and not hasBoost then
-                    shouldLeaveForBoostedMap = true
-                end
-                
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
                     local totalPerks = _G.TotalPerksCount or 0
@@ -1178,18 +1173,12 @@ task.spawn(function()
                 if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
                     buttonToClick = btnLeave
                     print("🚪 [Retry] เลือก Leave (เลเวลครบ ต้องจุติ)")
-                elseif shouldLeaveForBoostedMap then
-                    buttonToClick = btnLeave
-                    print("🚪 [Retry] เลือก Leave (ย้ายไปหาด่าน Boost ใหม่)")
                 elseif shouldLeaveForPerks then
                     buttonToClick = btnLeave
                     print("🔄 [Retry] เลือกปุ่ม Leave (Perks เต็มกระเป๋า 100+)")
-                elseif hasBoost then
-                    buttonToClick = btnRetry
-                    print("🔄 [Retry] เลือก Retry (มี Reward Boost)")
                 elseif btnRetry then
                     buttonToClick = btnRetry
-                    print("🔄 [Retry] เลือก Retry (ไม่มีบัฟก็ลุยต่อ)")
+                    print("🔄 [Retry] เลือก Retry (ฟาร์มต่อเนื่อง)")
                 else
                     buttonToClick = btnLeave
                     print("🚪 [Retry] เลือก Leave (ไม่มีปุ่ม Retry)")
