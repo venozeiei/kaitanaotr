@@ -1388,7 +1388,7 @@ task.spawn(function()
         if targetTitan and targetTitan.root then
             local targetPos = Vector3.new(targetTitan.root.Position.X, targetTitan.root.Position.Y + FloatHeight, targetTitan.root.Position.Z)
             local dist = (currentRoot.Position - targetPos).Magnitude
-            if dist > 80 then
+            if dist > 200 then
                 local ts = game:GetService("TweenService")
                 local ti = TweenInfo.new(dist / 1800, Enum.EasingStyle.Linear) -- 1800 studs per second bypass
                 local tw = ts:Create(currentRoot, ti, {CFrame = CFrame.new(targetPos)})
@@ -1397,7 +1397,7 @@ task.spawn(function()
                 -- ไม่รอให้บินถึง ตีทันทีเมื่อถึงหัวไททัน
             else
                 local ts = game:GetService("TweenService")
-                local ti = TweenInfo.new(0.15, Enum.EasingStyle.Linear)
+                local ti = TweenInfo.new(0.1, Enum.EasingStyle.Linear)
                 local tw = ts:Create(currentRoot, ti, {CFrame = CFrame.new(targetPos)})
                 currentRoot.Anchored = true 
                 tw:Play()
@@ -1405,7 +1405,7 @@ task.spawn(function()
             end
         end
         
-        local batchSize = Config.HitAll and 50 or 5
+        local batchSize = Config.HitAll and 100 or 20
         local batchTitans = {} for i = 1, math.min(batchSize, #aliveTitans) do table.insert(batchTitans, aliveTitans[i]) end
         if lastTotalHealth - currentTotalHealth <= 0 then cycleStuckCount = cycleStuckCount + 1 else cycleStuckCount = 0 end
         lastTotalHealth = currentTotalHealth
