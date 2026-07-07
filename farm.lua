@@ -774,12 +774,12 @@ if placeId == 14916516914 then
             end
 
             pcall(function()
-                _G.CurrentAction = "Checking Stats & Inventory..."
                 local currentTime = os.time()
                 
                 -- Only fetch inventory every 15 seconds instead of every loop
                 if currentTime - lastInventoryCheck > 15 then
                     lastInventoryCheck = currentTime
+                    _G.CurrentAction = "Checking Stats & Inventory..."
                     local serverData = safeInvokeServer(GET, 3, "Functions", "Settings", "Blur", "Off")
                     local inventory = {}
                     if serverData and type(serverData) == "table" and serverData.Slots then
@@ -958,7 +958,7 @@ if placeId == 14916516914 then
                     local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
                     
                     -- อัปเกรดดาบจนเงินหมด/อัพไม่ได้ (วนลูป 20 รอบ)
-                    for i = 1, 20 do 
+                    for i = 1, 10 do 
                         pcall(function() GET:InvokeServer("Equipment", "Upgrade_All") end)
                         pcall(function() GET:InvokeServer("Equipment", "Upgrade", {"All"}) end)
                         pcall(function() GET:InvokeServer("Equipment", "Grade_Up") end)
