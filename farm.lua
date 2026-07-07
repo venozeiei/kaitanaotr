@@ -1208,10 +1208,15 @@ task.spawn(function()
                     local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                     
                     -- 🔥 ตรวจสอบ Level สำหรับกำหนดจำนวน Perks สูงสุด
-                    local maxPerks = (currentLevel < 45) and 50 or 100
+                    local maxPerks = 50
+                    if currentLevel >= 45 then
+                        maxPerks = 100
+                    end
                     
                     -- กำหนดจำนวนที่ต้องขายตาม Level
                     local requiredPerksToSell = maxPerks
+                    
+                    print("🔍 [DEBUG] Level Check:", currentLevel, "<45?", (currentLevel < 45), "maxPerks:", maxPerks)
                     
                     print("🔍 [DEBUG] TotalPerks:", totalPerks, "Required:", requiredPerksToSell, "Level:", currentLevel, "Prestige:", currentPrestige, "MaxPerks:", maxPerks)
                     
