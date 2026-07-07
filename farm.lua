@@ -693,13 +693,13 @@ task.spawn(function()
                 "💰 <b>Gold:</b> %s | 💎 <b>Gems:</b> %s\n" ..
                 "🧪 <b>Gold Boost:</b> %s\n" ..
                 "🧪 <b>XP Boost:</b> %s\n" ..
-                "⚔️ <b>Perks:</b> <font color='%s'>%d</font> / 100\n" ..
+                "⚔️ <b>Perks:</b> <font color='%s'>%d</font> / %d\n" ..
                 "�💰 <b>Auto-Sell:</b> <font color='#ffaa00'>%d pcs</font>\n" ..
                 "�🔍 <b>DEBUG:</b> %s\n\n" ..
                 "📍 <b>Status:</b> %s\n" ..
                 "🗺️ <b>Map:</b> %s\n" ..
                 "🔄 <b>Action:</b> <font color='#00ffff'>%s</font>",
-                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((level <= 45) and 50) or 100, debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
+                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((prestige >= 1) and 100 or 50), ((prestige >= 1) and 100 or 50), debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
             )
         end
     end)
@@ -845,13 +845,23 @@ if placeId == 14916516914 then
                 local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                 
-                -- ขาย 50 ชิ้นสำหรับ Level 0-45, 100 ชิ้นสำหรับ Level มากกว่า 45
+                -- 🔥 ตรวจสอบว่าเล่น Hard Mode ได้จริงหรือไม่
+                local currentDiff = "Unknown"
+                pcall(function()
+                    if workspace:GetAttribute("Difficulty") then
+                        currentDiff = workspace:GetAttribute("Difficulty")
+                    end
+                end)
+                
+                -- ตรวจสอบว่าเล่น Hard Mode หรือสูงกว่าได้หรือไม่
+                local hasHardModeUnlocked = (currentDiff == "Hard" or currentDiff == "Severe" or currentDiff == "Aberrant" or currentDiff == "Aberrant++")
+                local maxPerks = hasHardModeUnlocked and 100 or 50
+                
+                -- ขายตามจำนวน Perks สูงสุด
                 if currentPrestige == 0 or (currentPrestige == 1 and currentLevel < 20) then
                     requiredPerksToSell = 50
-                elseif currentLevel <= 45 then
-                    requiredPerksToSell = 50
                 else
-                    requiredPerksToSell = 100
+                    requiredPerksToSell = maxPerks
                 end
                 
                 -- Only sell perks in bulk to save API calls and time
@@ -1168,7 +1178,37 @@ task.spawn(function()
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
                     local totalPerks = _G.TotalPerksCount or 0
-                    if totalPerks >= 100 then shouldLeaveForPerks = true end
+                    local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
+                    local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
+                    
+                    -- 🔥 ตรวจสอบว่าเล่น Hard Mode ได้จริงหรือไม่
+                    local currentDiff = "Unknown"
+                    pcall(function()
+                        if workspace:GetAttribute("Difficulty") then
+                            currentDiff = workspace:GetAttribute("Difficulty")
+                        end
+                    end)
+                    
+                    -- ตรวจสอบว่าเล่น Hard Mode หรือสูงกว่าได้หรือไม่
+                    local hasHardModeUnlocked = (currentDiff == "Hard" or currentDiff == "Severe" or currentDiff == "Aberrant" or currentDiff == "Aberrant++")
+                    local maxPerks = hasHardModeUnlocked and 100 or 50
+                    
+                    -- กำหนดจำนวนที่ต้องขาย
+                    local requiredPerksToSell
+                    if currentPrestige == 0 or (currentPrestige == 1 and currentLevel < 20) then
+                        requiredPerksToSell = 50
+                    else
+                        requiredPerksToSell = maxPerks
+                    end
+                    
+                    print("🔍 [DEBUG] TotalPerks:", totalPerks, "Required:", requiredPerksToSell, "Level:", currentLevel, "Prestige:", currentPrestige, "Difficulty:", currentDiff, "HardMode:", hasHardModeUnlocked)
+                    
+                    if totalPerks >= requiredPerksToSell then 
+                        shouldLeaveForPerks = true 
+                        print("✅ [DEBUG] shouldLeaveForPerks = TRUE - กด LEAVE ไปขาย!")
+                    else
+                        print("❌ [DEBUG] shouldLeaveForPerks = FALSE - ยังไม่ครบ")
+                    end
                 end
 
                 if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
@@ -1176,7 +1216,7 @@ task.spawn(function()
                     print("🚪 [Retry] เลือก Leave (เลเวลครบ ต้องจุติ)")
                 elseif shouldLeaveForPerks then
                     buttonToClick = btnLeave
-                    print("🔄 [Retry] เลือกปุ่ม Leave (Perks เต็มกระเป๋า 100+)")
+                    print("🔄 [Retry] เลือกปุ่ม Leave (Perks ครบ " .. requiredPerksToSell .. " ชิ้น - ไปขายที่ Lobby)")
                 elseif btnRetry then
                     buttonToClick = btnRetry
                     print("🔄 [Retry] เลือก Retry (ฟาร์มต่อเนื่อง)")
