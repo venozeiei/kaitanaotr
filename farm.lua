@@ -699,7 +699,7 @@ task.spawn(function()
                 "📍 <b>Status:</b> %s\n" ..
                 "🗺️ <b>Map:</b> %s\n" ..
                 "🔄 <b>Action:</b> <font color='#00ffff'>%s</font>",
-                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((prestige >= 1) and 100 or 50), ((prestige >= 1) and 100 or 50), debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
+                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((level < 45) and 50 or 100), ((level < 45) and 50 or 100), debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
             )
         end
     end)
@@ -845,17 +845,8 @@ if placeId == 14916516914 then
                 local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                 
-                -- 🔥 ตรวจสอบว่าเล่น Hard Mode ได้จริงหรือไม่
-                local currentDiff = "Unknown"
-                pcall(function()
-                    if workspace:GetAttribute("Difficulty") then
-                        currentDiff = workspace:GetAttribute("Difficulty")
-                    end
-                end)
-                
-                -- ตรวจสอบว่าเล่น Hard Mode หรือสูงกว่าได้หรือไม่
-                local hasHardModeUnlocked = (currentDiff == "Hard" or currentDiff == "Severe" or currentDiff == "Aberrant" or currentDiff == "Aberrant++")
-                local maxPerks = hasHardModeUnlocked and 100 or 50
+                -- 🔥 ตรวจสอบ Level สำหรับกำหนดจำนวน Perks สูงสุด
+                local maxPerks = (currentLevel < 45) and 50 or 100
                 
                 -- ขายตามจำนวน Perks สูงสุด
                 if currentPrestige == 0 or (currentPrestige == 1 and currentLevel < 20) then
@@ -1181,17 +1172,8 @@ task.spawn(function()
                     local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                     local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                     
-                    -- 🔥 ตรวจสอบว่าเล่น Hard Mode ได้จริงหรือไม่
-                    local currentDiff = "Unknown"
-                    pcall(function()
-                        if workspace:GetAttribute("Difficulty") then
-                            currentDiff = workspace:GetAttribute("Difficulty")
-                        end
-                    end)
-                    
-                    -- ตรวจสอบว่าเล่น Hard Mode หรือสูงกว่าได้หรือไม่
-                    local hasHardModeUnlocked = (currentDiff == "Hard" or currentDiff == "Severe" or currentDiff == "Aberrant" or currentDiff == "Aberrant++")
-                    local maxPerks = hasHardModeUnlocked and 100 or 50
+                    -- 🔥 ตรวจสอบ Level สำหรับกำหนดจำนวน Perks สูงสุด
+                    local maxPerks = (currentLevel < 45) and 50 or 100
                     
                     -- กำหนดจำนวนที่ต้องขาย
                     local requiredPerksToSell
@@ -1201,7 +1183,7 @@ task.spawn(function()
                         requiredPerksToSell = maxPerks
                     end
                     
-                    print("🔍 [DEBUG] TotalPerks:", totalPerks, "Required:", requiredPerksToSell, "Level:", currentLevel, "Prestige:", currentPrestige, "Difficulty:", currentDiff, "HardMode:", hasHardModeUnlocked)
+                    print("🔍 [DEBUG] TotalPerks:", totalPerks, "Required:", requiredPerksToSell, "Level:", currentLevel, "Prestige:", currentPrestige, "MaxPerks:", maxPerks)
                     
                     if totalPerks >= requiredPerksToSell then 
                         shouldLeaveForPerks = true 
