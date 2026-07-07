@@ -1140,7 +1140,7 @@ task.spawn(function()
                 print("✅ [Retry] พบ Buttons container")
                 
                 local btnRetry = buttons:FindFirstChild("Retry")
-                local btnLeave = buttons:FindFirstChild("Leave_2") or buttons:FindFirstChild("Leave")
+                local btnLeave = buttons:FindFirstChild("LEAVE") or buttons:FindFirstChild("Leave_2") or buttons:FindFirstChild("Leave")
                 
                 print("🎯 [Retry] btnRetry:", btnRetry and "✅" or "❌", "btnLeave:", btnLeave and "✅" or "❌")
                 
