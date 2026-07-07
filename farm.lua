@@ -1149,8 +1149,17 @@ task.spawn(function()
             if buttons then
                 print("✅ [Retry] พบ Buttons container")
                 
-                local btnRetry = buttons:FindFirstChild("Retry")
-                local btnLeave = buttons:FindFirstChild("Leave_2") or buttons:FindFirstChild("Leave")
+                -- 🔥 หาปุ่มทุกชื่อที่เป็นไปได้
+                local btnRetry = buttons:FindFirstChild("RETRY (0)") or buttons:FindFirstChild("Retry") or buttons:FindFirstChild("RETRY")
+                local btnLeave = buttons:FindFirstChild("LEAVE") or buttons:FindFirstChild("Leave_2") or buttons:FindFirstChild("Leave") or buttons:FindFirstChild("LEAVE_2")
+                
+                print("🎯 [Retry] btnRetry:", btnRetry and btnRetry.Name or "❌", "btnLeave:", btnLeave and btnLeave.Name or "❌")
+                print("🔍 [DEBUG] All buttons in container:")
+                for _, child in ipairs(buttons:GetChildren()) do
+                    if child:IsA("GuiButton") or child:IsA("TextButton") or child:IsA("ImageButton") then
+                        print("  -", child.Name, "Visible:", child.Visible, "Active:", child.Active)
+                    end
+                end
                 
                 print("🎯 [Retry] btnRetry:", btnRetry and "✅" or "❌", "btnLeave:", btnLeave and "✅" or "❌")
                 
