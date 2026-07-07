@@ -1186,45 +1186,21 @@ task.spawn(function()
                 
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
-                    -- 🔥 อ่านค่า Perks จาก HUD แทน _G.TotalPerksCount ที่อาจจะผิด
-                    local totalPerks = 0
-                    pcall(function()
-                        local hud = plr:FindFirstChild("PlayerGui") and plr.PlayerGui:FindFirstChild("Interface") and plr.PlayerGui.Interface:FindFirstChild("HUD")
-                        local top = hud and hud:FindFirstChild("Main") and hud.Main:FindFirstChild("Top")
-                        local seven = top and top:FindFirstChild("7")
-                        local perksHUD = seven and seven:FindFirstChild("Perks")
-                        if perksHUD then
-                            local perkCount = perksHUD:FindFirstChild("Count")
-                            if perkCount and perkCount:IsA("TextLabel") then
-                                local parts = string.split(perkCount.Text, "/")
-                                if #parts >= 1 then 
-                                    totalPerks = tonumber(string.match(parts[1], "%d+")) or 0
-                                end
-                            end
-                        end
-                    end)
+                    -- 🔥 ใช้ _G.TotalPerksCount แทนการอ่านจาก HUD (HUD ถูกบดบังในหน้า Rewards UI)
+                    local totalPerks = _G.TotalPerksCount or 0
                     
-                    local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                     local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
+                    local maxPerks = (currentLevel < 45) and 50 or 100
                     
-                    -- 🔥 ตรวจสอบ Level สำหรับกำหนดจำนวน Perks สูงสุด
-                    local maxPerks = 50
-                    if currentLevel >= 45 then
-                        maxPerks = 100
-                    end
+                    print("🔍 [DEBUG] TotalPerks:", totalPerks, "Required:", maxPerks, "Level:", currentLevel, "MaxPerks:", maxPerks)
                     
-                    -- กำหนดจำนวนที่ต้องขายตาม Level
-                    local requiredPerksToSell = maxPerks
-                    
-                    print("🔍 [DEBUG] Level Check:", currentLevel, "<45?", (currentLevel < 45), "maxPerks:", maxPerks)
-                    
-                    print("🔍 [DEBUG] TotalPerks:", totalPerks, "Required:", requiredPerksToSell, "Level:", currentLevel, "Prestige:", currentPrestige, "MaxPerks:", maxPerks)
-                    
-                    if totalPerks >= requiredPerksToSell then 
+                    -- ตรวจสอบเงื่อนไขตามจำนวน Perk สูงสุดที่กำหนดไว้
+                    if totalPerks >= maxPerks then 
                         shouldLeaveForPerks = true 
                         print("✅ [DEBUG] shouldLeaveForPerks = TRUE - กด LEAVE ไปขาย!")
                     else
-                        print("❌ [DEBUG] shouldLeaveForPerks = FALSE - ยังไม่ครบ")
+                        shouldLeaveForPerks = false
+                        print("❌ [DEBUG] shouldLeaveForPerks = FALSE - มีแค่ " .. totalPerks .. "/" .. maxPerks)
                     end
                 end
 
