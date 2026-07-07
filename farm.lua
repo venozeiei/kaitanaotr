@@ -693,8 +693,8 @@ task.spawn(function()
                 "🧪 <b>Gold Boost:</b> %s\n" ..
                 "🧪 <b>XP Boost:</b> %s\n" ..
                 "⚔️ <b>Perks:</b> <font color='%s'>%d</font> / 100\n" ..
-                "� <b>Auto-Sell:</b> <font color='#ffaa00'>%d pcs</font>\n" ..
-                "� <b>DEBUG:</b> %s\n\n" ..
+                "�💰 <b>Auto-Sell:</b> <font color='#ffaa00'>%d pcs</font>\n" ..
+                "�🔍 <b>DEBUG:</b> %s\n\n" ..
                 "📍 <b>Status:</b> %s\n" ..
                 "🗺️ <b>Map:</b> %s\n" ..
                 "🔄 <b>Action:</b> <font color='#00ffff'>%s</font>",
