@@ -1506,11 +1506,7 @@ task.spawn(function()
         
         if cycleStuckCount < 4 then
             _G.CurrentAction = "Combat: Slashing Nape!"
-            local currentTime = os.clock()
-            if not _G.LastSlashTime or (currentTime - _G.LastSlashTime >= 0.25) then
-                _G.LastSlashTime = currentTime
-                pcall(function() bindable:Invoke("CALL", "SlashOnly") end)
-            end
+            pcall(function() bindable:Invoke("CALL", "SlashOnly") end)
             for _, target in ipairs(batchTitans) do 
                 pcall(function() bindable:Invoke("CALL", "RegisterHitOnly", target.nape) end) 
             end
