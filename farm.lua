@@ -1394,7 +1394,7 @@ task.spawn(function()
                 local tw = ts:Create(currentRoot, ti, {CFrame = CFrame.new(targetPos)})
                 currentRoot.Anchored = true
                 tw:Play()
-                tw.Completed:Wait()
+                -- ไม่รอให้บินถึง ตีทันทีเมื่อถึงหัวไททัน
             else
                 local ts = game:GetService("TweenService")
                 local ti = TweenInfo.new(0.15, Enum.EasingStyle.Linear)
