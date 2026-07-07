@@ -1441,17 +1441,21 @@ task.spawn(function()
                     isBladeBroken = true
                 end
                 
+                -- 🔥 INFINITE GAS HACK - บังคับให้มีแก๊สเสมอ
                 local gasHUD = seven and seven:FindFirstChild("Gas")
                 if gasHUD then
                     local gasBar = gasHUD:FindFirstChild("Inner") and gasHUD.Inner:FindFirstChild("Bar")
                     if gasBar and gasBar:IsA("Frame") then
-                        gasLeft = gasBar.Size.X.Scale
+                        gasBar.Size = UDim2.new(1, 0, 1, 0) -- บังคับให้เต็มเสมอ
                     end
                 end
+                
+                -- แก้ไขค่า gasLeft ให้เป็น 1 เสมอ (เต็มเสมอ)
+                gasLeft = 1
             end
         end)
         
-        local needsBoxRefill = (gasLeft < 0.05)
+        local needsBoxRefill = false -- ไม่ต้องเติมแก๊สอีกต่อไป (Infinite Gas)
 
         -- ============================================================
         -- ⚡ SAFE RELOAD LOGIC (Blade Swap)
