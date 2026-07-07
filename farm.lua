@@ -855,7 +855,7 @@ if placeId == 14916516914 then
                 end
                 
                 -- Only sell perks in bulk to save API calls and time
-                if currentTime - lastInventoryCheck < 20 and Config.AutoDeletePerk and _G.PerksUUIDs and #_G.PerksUUIDs >= requiredPerksToSell then
+                if Config.AutoDeletePerk and _G.PerksUUIDs and #_G.PerksUUIDs >= requiredPerksToSell then
                     _G.CurrentAction = "Auto Selling " .. tostring(#_G.PerksUUIDs) .. " Perks (Remote)..."
                     pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perk", _G.PerksUUIDs) end)
                     pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perks", _G.PerksUUIDs) end)
@@ -1168,7 +1168,9 @@ task.spawn(function()
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
                     local totalPerks = _G.TotalPerksCount or 0
-                    if totalPerks >= 100 then shouldLeaveForPerks = true end
+                    local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
+                    local requiredPerksToSell = (currentLevel <= 45) and 50 or 100
+                    if totalPerks >= requiredPerksToSell then shouldLeaveForPerks = true end
                 end
 
                 if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
@@ -1176,7 +1178,7 @@ task.spawn(function()
                     print("🚪 [Retry] เลือก Leave (เลเวลครบ ต้องจุติ)")
                 elseif shouldLeaveForPerks then
                     buttonToClick = btnLeave
-                    print("🔄 [Retry] เลือกปุ่ม Leave (Perks เต็มกระเป๋า 100+)")
+                    print("🔄 [Retry] เลือกปุ่ม Leave (Perks ครบ " .. requiredPerksToSell .. " ชิ้น - ไปขายที่ Lobby)")
                 elseif btnRetry then
                     buttonToClick = btnRetry
                     print("🔄 [Retry] เลือก Retry (ฟาร์มต่อเนื่อง)")
