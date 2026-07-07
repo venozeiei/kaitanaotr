@@ -1326,6 +1326,18 @@ task.spawn(function()
         local aliveTitans = {}
         local currentTotalHealth = 0
         
+        -- หาจุดเกิด (spawn point) เพื่อใช้เป็นจุดอ้างอิงในการเลือกเป้าหมาย
+        local spawnPoint = currentRoot.Position
+        for _, v in ipairs(workspace:GetChildren()) do
+            if v:GetAttribute("Max_Refills") and tonumber(v:GetAttribute("Max_Refills")) > 0 then
+                local refillPart = v:FindFirstChildWhichIsA("BasePart", true)
+                if refillPart then
+                    spawnPoint = refillPart.Position
+                    break
+                end
+            end
+        end
+        
         -- Only get direct children, not descendants
         local currentTitans = TitansFolder:GetChildren()
         for _, titan in ipairs(currentTitans) do
@@ -1334,7 +1346,10 @@ task.spawn(function()
             local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
             local titanRoot = titan:FindFirstChild("HumanoidRootPart") or nape
             if nape and humanoid and humanoid.Health > 0 and titanRoot then
-                table.insert(aliveTitans, { titan = titan, nape = nape, root = titanRoot, dist = (currentRoot.Position - titanRoot.Position).Magnitude })
+                -- คำนวณระยะห่างจากจุดเกิดแทนจากตัวเรา เพื่อไล่ฆ่าไททันที่ใกล้จุดเกิดก่อน
+                local distFromSpawn = (spawnPoint - titanRoot.Position).Magnitude
+                local distFromPlayer = (currentRoot.Position - titanRoot.Position).Magnitude
+                table.insert(aliveTitans, { titan = titan, nape = nape, root = titanRoot, dist = distFromSpawn, distFromPlayer = distFromPlayer })
                 currentTotalHealth = currentTotalHealth + humanoid.Health
             end
         end
