@@ -12,7 +12,7 @@
 -- ============================================================
 local DEFAULT_CONFIG = {
     AutoFarm = true, TargetSlot = "A", AutoAntiLag = true, AutoBoostedMap = true,
-    StartType = "Missions", MissionMap = "Chapel", MissionObjective = "Skirmish", MissionDifficulty = "Aberrant",
+    StartType = "Missions", MissionMap = "Chapel", MissionObjective = "Skirmish", MissionDifficulty = "Aberrant++",
     AutoUpgrade = true, AutoDeletePerk = true, AntiBanDelay = 10, AutoPrestige = true, PrestigeTarget = 5,
     VenozPrestige = {
         P1 = { TargetBoost = "Gold Boost", RequiredGold = 0 },
@@ -21,8 +21,8 @@ local DEFAULT_CONFIG = {
         P4 = { TargetBoost = "Gold Boost", RequiredGold = 0 },
         P5 = { TargetBoost = "Gold Boost", RequiredGold = 0 },
     },
-    AutoThunderSpearQuest = true, ThunderSpearAtPrestige = 4, AutoBoost = true, BoostTypes = {"Gold"}, BoostExpUntilPrestige = 1,
-    TrackerUpdateInterval = 2, BoostCheckInterval = 10, CombatLoopInterval = 0.15, DataFetchInterval = 8, MinGemsToBuyBoosts = 4500,
+    AutoThunderSpearQuest = true, ThunderSpearAtPrestige = 4, AutoBoost = false, BoostTypes = {}, BoostExpUntilPrestige = 0,
+    TrackerUpdateInterval = 2, BoostCheckInterval = 10, CombatLoopInterval = 0.15, DataFetchInterval = 8, MinGemsToBuyBoosts = 999999,
     Disable3D = false, Modifiers = {}, HitAll = true
 }
 
