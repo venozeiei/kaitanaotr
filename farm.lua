@@ -855,7 +855,7 @@ if placeId == 14916516914 then
                 end
                 
                 -- Only sell perks in bulk to save API calls and time
-                if Config.AutoDeletePerk and _G.PerksUUIDs and #_G.PerksUUIDs >= requiredPerksToSell then
+                if currentTime - lastInventoryCheck < 20 and Config.AutoDeletePerk and _G.PerksUUIDs and #_G.PerksUUIDs >= requiredPerksToSell then
                     _G.CurrentAction = "Auto Selling " .. tostring(#_G.PerksUUIDs) .. " Perks (Remote)..."
                     pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perk", _G.PerksUUIDs) end)
                     pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perks", _G.PerksUUIDs) end)
@@ -1139,8 +1139,8 @@ task.spawn(function()
             if buttons then
                 print("✅ [Retry] พบ Buttons container")
                 
-                local btnRetry = buttons:FindFirstChild("RETRY (0)") or buttons:FindFirstChild("Retry")
-                local btnLeave = buttons:FindFirstChild("LEAVE") or buttons:FindFirstChild("Leave_2") or buttons:FindFirstChild("Leave")
+                local btnRetry = buttons:FindFirstChild("Retry")
+                local btnLeave = buttons:FindFirstChild("Leave_2") or buttons:FindFirstChild("Leave")
                 
                 print("🎯 [Retry] btnRetry:", btnRetry and "✅" or "❌", "btnLeave:", btnLeave and "✅" or "❌")
                 
@@ -1167,35 +1167,8 @@ task.spawn(function()
                 
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
-                    -- 🔥 ใช้ค่าจาก HUD แทน _G.TotalPerksCount ที่อาจจะผิด
-                    local totalPerks = 0
-                    pcall(function()
-                        local hud = plr:FindFirstChild("PlayerGui") and plr.PlayerGui:FindFirstChild("Interface") and plr.PlayerGui.Interface:FindFirstChild("HUD")
-                        local top = hud and hud:FindFirstChild("Main") and hud.Main:FindFirstChild("Top")
-                        local seven = top and top:FindFirstChild("7")
-                        local perksHUD = seven and seven:FindFirstChild("Perks")
-                        if perksHUD then
-                            local perkCount = perksHUD:FindFirstChild("Count")
-                            if perkCount and perkCount:IsA("TextLabel") then
-                                local parts = string.split(perkCount.Text, "/")
-                                if #parts >= 1 then 
-                                    totalPerks = tonumber(string.match(parts[1], "%d+")) or 0
-                                end
-                            end
-                        end
-                    end)
-                    
-                    local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
-                    local requiredPerksToSell = (currentLevel <= 45) and 50 or 100
-                    
-                    print("🔍 [DEBUG] TotalPerks:", totalPerks, "Required:", requiredPerksToSell, "Level:", currentLevel)
-                    
-                    if totalPerks >= requiredPerksToSell then 
-                        shouldLeaveForPerks = true 
-                        print("✅ [DEBUG] shouldLeaveForPerks = TRUE")
-                    else
-                        print("❌ [DEBUG] shouldLeaveForPerks = FALSE")
-                    end
+                    local totalPerks = _G.TotalPerksCount or 0
+                    if totalPerks >= 100 then shouldLeaveForPerks = true end
                 end
 
                 if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
@@ -1203,7 +1176,7 @@ task.spawn(function()
                     print("🚪 [Retry] เลือก Leave (เลเวลครบ ต้องจุติ)")
                 elseif shouldLeaveForPerks then
                     buttonToClick = btnLeave
-                    print("🔄 [Retry] เลือกปุ่ม Leave (Perks ครบ " .. requiredPerksToSell .. " ชิ้น - ไปขายที่ Lobby)")
+                    print("🔄 [Retry] เลือกปุ่ม Leave (Perks เต็มกระเป๋า 100+)")
                 elseif btnRetry then
                     buttonToClick = btnRetry
                     print("🔄 [Retry] เลือก Retry (ฟาร์มต่อเนื่อง)")
