@@ -699,7 +699,7 @@ task.spawn(function()
                 "📍 <b>Status:</b> %s\n" ..
                 "🗺️ <b>Map:</b> %s\n" ..
                 "🔄 <b>Action:</b> <font color='#00ffff'>%s</font>",
-                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((level < 45) and 30 or 100), ((level < 45) and 30 or 100), debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
+                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((level < 45) and 50 or 100), ((level < 45) and 50 or 100), debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
             )
         end
     end)
@@ -846,7 +846,7 @@ if placeId == 14916516914 then
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                 
                 -- 🔥 ตรวจสอบ Level สำหรับกำหนดจำนวน Perks สูงสุด
-                local maxPerks = (currentLevel < 45) and 30 or 100
+                local maxPerks = (currentLevel < 45) and 50 or 100
                 
                 -- ขายตามจำนวน Perks สูงสุด
                 if currentPrestige == 0 or (currentPrestige == 1 and currentLevel < 20) then
@@ -1173,7 +1173,7 @@ task.spawn(function()
                     local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                     
                     -- 🔥 ตรวจสอบ Level สำหรับกำหนดจำนวน Perks สูงสุด
-                    local maxPerks = (currentLevel < 45) and 30 or 100
+                    local maxPerks = (currentLevel < 45) and 50 or 100
                     
                     -- กำหนดจำนวนที่ต้องขายตาม Level
                     local requiredPerksToSell = maxPerks
@@ -1338,6 +1338,38 @@ task.spawn(function()
         
         local hum = plr.Character and plr.Character:FindFirstChildWhichIsA("Humanoid")
         if not TitansFolder or not plr.Character or not plr.Character:FindFirstChild("HumanoidRootPart") or not hum or hum.Health <= 0 then continue end
+        
+        -- 🔥 AURAKILL - ฆ่าไททันใกล้ๆ ตลอดเวลา
+        pcall(function()
+            local workspace = game:GetService("Workspace")
+            local char = plr.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local root = char.HumanoidRootPart
+                local pos = root.Position
+                
+                -- หาและฆ่าไททันใกล้ๆ (รัศมี 100)
+                for _, obj in ipairs(workspace:GetDescendants()) do
+                    if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and (obj.Name:find("Titan") or obj.Name:find("Titan")) then
+                        local titanPos = obj:FindFirstChild("HumanoidRootPart")
+                        if titanPos and (titanPos.Position - pos).Magnitude < 100 then
+                            local humanoid = obj:FindFirstChild("Humanoid")
+                            if humanoid and humanoid.Health > 0 then
+                                -- AURAKILL - damage สูงๆ
+                                pcall(function()
+                                    local bindable = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteFunction")
+                                    if bindable then
+                                        bindable:Invoke("Hitboxes", "Register", titanPos, 999999, 0)
+                                    end
+                                end)
+                                pcall(function()
+                                    humanoid.Health = 0
+                                end)
+                            end
+                        end
+                    end
+                end
+            end
+        end)
         
         local currentRoot = plr.Character.HumanoidRootPart
         local aliveTitans = {}
