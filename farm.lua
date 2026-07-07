@@ -699,7 +699,7 @@ task.spawn(function()
                 "📍 <b>Status:</b> %s\n" ..
                 "🗺️ <b>Map:</b> %s\n" ..
                 "🔄 <b>Action:</b> <font color='#00ffff'>%s</font>",
-                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((level < 45) and 50 or 100), ((level < 45) and 50 or 100), debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
+                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((level < 45) and 30 or 100), ((level < 45) and 30 or 100), debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
             )
         end
     end)
@@ -846,7 +846,7 @@ if placeId == 14916516914 then
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                 
                 -- 🔥 ตรวจสอบ Level สำหรับกำหนดจำนวน Perks สูงสุด
-                local maxPerks = (currentLevel < 45) and 50 or 100
+                local maxPerks = (currentLevel < 45) and 30 or 100
                 
                 -- ขายตามจำนวน Perks สูงสุด
                 if currentPrestige == 0 or (currentPrestige == 1 and currentLevel < 20) then
@@ -1173,7 +1173,7 @@ task.spawn(function()
                     local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                     
                     -- 🔥 ตรวจสอบ Level สำหรับกำหนดจำนวน Perks สูงสุด
-                    local maxPerks = (currentLevel < 45) and 50 or 100
+                    local maxPerks = (currentLevel < 45) and 30 or 100
                     
                     -- กำหนดจำนวนที่ต้องขาย
                     local requiredPerksToSell
