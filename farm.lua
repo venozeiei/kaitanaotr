@@ -1011,6 +1011,15 @@ if placeId == 14916516914 then
                 _G.CurrentAction = "Leaving Old Group..."
                 safeInvokeServer(GET, 3, "S_Missions", "Leave") task.wait(1)
 
+                -- 🔥 ไม่เล่น Forest เลย ไม่ว่าจะมี Reward Boost หรือไม่
+                if targetMap == "Forest" then
+                    _G.CurrentAction = "⚠️ Skipping Forest (always play Chapel)..."
+                    task.wait(2)
+                    -- สร้าง mission ที่ Chapel แทน
+                    targetMap = "Chapel"
+                    _G.CurrentAction = "Creating Mission: " .. targetMap .. " (skipping Forest)"
+                end
+                
                 _G.CurrentAction = "Creating Mission: " .. targetMap
                 local desiredDifficulty = Config.MissionDifficulty
                 local mapData = { Name = targetMap, Type = Config.StartType, Objective = targetObjective, Difficulty = desiredDifficulty, Modifiers = Config.Modifiers or {} }
@@ -1168,7 +1177,24 @@ task.spawn(function()
                 
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
-                    local totalPerks = _G.TotalPerksCount or 0
+                    -- 🔥 อ่านค่า Perks จาก HUD แทน _G.TotalPerksCount ที่อาจจะผิด
+                    local totalPerks = 0
+                    pcall(function()
+                        local hud = plr:FindFirstChild("PlayerGui") and plr.PlayerGui:FindFirstChild("Interface") and plr.PlayerGui.Interface:FindFirstChild("HUD")
+                        local top = hud and hud:FindFirstChild("Main") and hud.Main:FindFirstChild("Top")
+                        local seven = top and top:FindFirstChild("7")
+                        local perksHUD = seven and seven:FindFirstChild("Perks")
+                        if perksHUD then
+                            local perkCount = perksHUD:FindFirstChild("Count")
+                            if perkCount and perkCount:IsA("TextLabel") then
+                                local parts = string.split(perkCount.Text, "/")
+                                if #parts >= 1 then 
+                                    totalPerks = tonumber(string.match(parts[1], "%d+")) or 0
+                                end
+                            end
+                        end
+                    end)
+                    
                     local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                     local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                     
