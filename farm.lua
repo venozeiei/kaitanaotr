@@ -1205,24 +1205,37 @@ task.spawn(function()
                 end
 
                 if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
-                    buttonToClick = btnLeave
-                    print("🚪 [Retry] เลือก Leave (เลเวลครบ ต้องจุติ)")
+                    -- 🔥 ใช้ Remote Call สำหรับ Leave
+                    _G.CurrentAction = "🚪 [Retry] กำลังกด Leave (เลเวลครบ ต้องจุติ)..."
+                    pcall(function()
+                        local args = {"Functions", "Teleport"}
+                        game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST"):FireServer(unpack(args))
+                    end)
+                    print("✅ [Retry] กด Leave สำเร็จ (เลเวลครบ)")
                 elseif shouldLeaveForPerks then
-                    buttonToClick = btnLeave
-                    print("🔄 [Retry] เลือกปุ่ม Leave (Perks ครบ " .. requiredPerksToSell .. " ชิ้น - ไปขายที่ Lobby)")
+                    -- 🔥 ใช้ Remote Call สำหรับ Leave (Perks ครบ)
+                    _G.CurrentAction = "🔄 [Retry] กำลังกด Leave (Perks ครบ " .. maxPerks .. " ชิ้น - ไปขายที่ Lobby)..."
+                    pcall(function()
+                        local args = {"Functions", "Teleport"}
+                        game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST"):FireServer(unpack(args))
+                    end)
+                    print("✅ [Retry] กด Leave สำเร็จ (Perks ครบ)")
                 elseif btnRetry then
-                    buttonToClick = btnRetry
-                    print("🔄 [Retry] เลือก Retry (ฟาร์มต่อเนื่อง)")
+                    -- 🔥 ใช้ Remote Call สำหรับ Retry
+                    _G.CurrentAction = "🔄 [Retry] กำลังกด Retry (ฟาร์มต่อเนื่อง)..."
+                    pcall(function()
+                        local args = {"Functions", "Retry", "Add"}
+                        game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET"):InvokeServer(unpack(args))
+                    end)
+                    print("✅ [Retry] กด Retry สำเร็จ")
                 else
-                    buttonToClick = btnLeave
-                    print("🚪 [Retry] เลือก Leave (ไม่มีปุ่ม Retry)")
-                end
-                
-                if buttonToClick then
-                    print("🎯 [Retry] กำลังคลิกปุ่ม:", buttonToClick.Name)
-                    clickButtonAdvanced(buttonToClick)
-                else
-                    print("❌ [Retry] ไม่มีปุ่มให้คลิก!")
+                    -- 🔥 ใช้ Remote Call สำหรับ Leave (ไม่มีปุ่ม Retry)
+                    _G.CurrentAction = "🚪 [Retry] กำลังกด Leave (ไม่มีปุ่ม Retry)..."
+                    pcall(function()
+                        local args = {"Functions", "Teleport"}
+                        game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST"):FireServer(unpack(args))
+                    end)
+                    print("✅ [Retry] กด Leave สำเร็จ (ไม่มีปุ่ม Retry)")
                 end
             else
                 print("❌ [Retry] ไม่พบ Buttons container")
