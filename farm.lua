@@ -172,12 +172,21 @@ local function executeAutoBoostLogic()
     
     pcall(function()
         local prestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
+        local level = _G.LastLevel or plr:GetAttribute("Level") or 0
         local boostsNeeded = {}
-        if Config.BoostExpUntilPrestige and prestige <= Config.BoostExpUntilPrestige then
+        
+        if prestige <= 3 then
             table.insert(boostsNeeded, "XP")
+        elseif prestige == 4 then
+            -- No XP
+        elseif prestige >= 5 then
+            if level < 150 then
+                table.insert(boostsNeeded, "XP")
+            end
         end
-        for _, bType in ipairs(Config.BoostTypes or {"Gold"}) do
-            if not table.find(boostsNeeded, bType) then table.insert(boostsNeeded, bType) end
+        
+        if prestige <= 4 then
+            table.insert(boostsNeeded, "Gold")
         end
         
         local actionTaken = false
@@ -262,13 +271,23 @@ task.spawn(function()
             if Config.AutoBoost and not _G.IsPrestigeing then
                 pcall(function()
                     local prestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
+                    local level = _G.LastLevel or plr:GetAttribute("Level") or 0
                     local boostsNeeded = {}
-                    if Config.BoostExpUntilPrestige and prestige <= Config.BoostExpUntilPrestige then
+                    
+                    if prestige <= 3 then
                         table.insert(boostsNeeded, "XP")
+                    elseif prestige == 4 then
+                        -- No XP
+                    elseif prestige >= 5 then
+                        if level < 150 then
+                            table.insert(boostsNeeded, "XP")
+                        end
                     end
-                    for _, bType in ipairs(Config.BoostTypes or {"Gold"}) do
-                        if not table.find(boostsNeeded, bType) then table.insert(boostsNeeded, bType) end
+                    
+                    if prestige <= 4 then
+                        table.insert(boostsNeeded, "Gold")
                     end
+                    
                     local bf = plr:FindFirstChild("Boosts")
                     if bf then
                         local needsBoost = false
