@@ -1137,8 +1137,9 @@ task.spawn(function()
             
             local shouldLeaveForPerks = false
             if Config.AutoDeletePerk then
+                local sellTarget = (curLevel <= 45) and 50 or 100
                 local totalPerks = _G.TotalPerksCount or 0
-                if totalPerks >= 100 then shouldLeaveForPerks = true end
+                if totalPerks >= sellTarget then shouldLeaveForPerks = true end
             end
 
             local POST = Remotes:FindFirstChild("POST")
@@ -1147,7 +1148,7 @@ task.spawn(function()
                 print("🚪 [Retry] ยิงรีโมท Leave (เลเวลครบ และ เงินพอจุติแล้ว)")
                 pcall(function() if POST then POST:FireServer("Functions", "Teleport") end end)
             elseif shouldLeaveForPerks then
-                print("🔄 [Retry] ยิงรีโมท Leave (Perks เต็มกระเป๋า 100+)")
+                print("🔄 [Retry] ยิงรีโมท Leave (Perks เต็มกระเป๋า " .. tostring(_G.TotalPerksCount or 0) .. "+)")
                 pcall(function() if POST then POST:FireServer("Functions", "Teleport") end end)
             else
                 print("🔄 [Retry] ยิงรีโมท Retry (ฟาร์มต่อเนื่อง)")
