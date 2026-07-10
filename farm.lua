@@ -998,8 +998,13 @@ if placeId == 14916516914 then
                     _G.CurrentAction = "Upgrading All Equipment..."
                     local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
                     
-                    -- อัปเกรดอาวุธแบบส่ง Array รวดเดียว (แบบที่เซิร์ฟเวอร์ต้องการจริงๆ)
-                    for i = 1, 3 do 
+                    local oldGold = _G.LastGold or 0
+                    -- อัปเกรดอาวุธ (ดันดาเมจนำก่อน แล้วค่อยอัปแบบรวม) วนลูปจนกว่าเงินจะหมดหรือตัน
+                    for i = 1, 15 do 
+                        -- ดันดาเมจเป็นอันดับแรก
+                        pcall(function() GET:InvokeServer("Equipment", "Upgrade", {"ODM_Damage"}) end)
+                        pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {"ODM_Damage"}) end)
+                        
                         pcall(function() GET:InvokeServer("Equipment", "Upgrade_All") end)
                         pcall(function() GET:InvokeServer("Equipment", "Grade_Up") end)
                         pcall(function() GET:InvokeServer("Equipment", "Tier_Up") end)
@@ -1009,7 +1014,18 @@ if placeId == 14916516914 then
                         pcall(function() GET:InvokeServer("S_Equipment", "Grade_Up") end)
                         pcall(function() GET:InvokeServer("S_Equipment", "Tier_Up") end)
                         pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", bladeUpgrades) end)
+                        
                         task.wait(0.1)
+                        -- อัปเดตเช็คเงินล่าสุด ถ้าเงินไม่ลดแปลว่าอัปไม่ได้แล้ว
+                        pcall(function()
+                            local serverData = bindable:Invoke("CALL", "GetSlotData")
+                            if serverData and serverData.Currency then _G.LastGold = serverData.Currency.Gold end
+                        end)
+                        
+                        if _G.LastGold == oldGold then
+                            break -- หลุดลูปทันที เอาเวลาไปลงด่านต่อ
+                        end
+                        oldGold = _G.LastGold
                     end
                     
                     _G.CurrentAction = "Upgrading Skill Tree..."
