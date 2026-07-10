@@ -1101,15 +1101,17 @@ task.spawn(function()
                 if totalPerks >= 100 then shouldLeaveForPerks = true end
             end
 
+            local POST = Remotes:FindFirstChild("POST")
+
             if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
                 print("🚪 [Retry] ยิงรีโมท Leave (เลเวลครบ ต้องจุติ)")
-                pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
+                pcall(function() if POST then POST:FireServer("Functions", "Teleport") end end)
             elseif shouldLeaveForPerks then
                 print("🔄 [Retry] ยิงรีโมท Leave (Perks เต็มกระเป๋า 100+)")
-                pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
+                pcall(function() if POST then POST:FireServer("Functions", "Teleport") end end)
             else
                 print("🔄 [Retry] ยิงรีโมท Retry (ฟาร์มต่อเนื่อง)")
-                pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
+                pcall(function() GET:InvokeServer("Functions", "Retry", "Add") end)
             end
             
             task.wait(3)
