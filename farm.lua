@@ -1501,17 +1501,20 @@ task.spawn(function()
             if dist > 200 then
                 isFlying = true
                 local ts = game:GetService("TweenService")
-                local ti = TweenInfo.new(dist / 1800, Enum.EasingStyle.Linear) -- 1800 studs per second bypass
+                local speed = 800 -- ลดจาก 1800 เหลือ 800 studs/sec เพื่อตบตา Anti-Cheat
+                local ti = TweenInfo.new(dist / speed, Enum.EasingStyle.Linear) 
                 local tw = ts:Create(currentRoot, ti, {CFrame = CFrame.new(targetPos)})
                 currentRoot.Anchored = true
                 tw:Play()
-                -- ไม่รอให้บินถึง ตีทันที
+                -- รอให้บินไปถึงจริงๆ ก่อน ค่อยตี (ป้องกันตีทะลุมิติ/ตีระยะไกลเกินไป)
+                tw.Completed:Wait() 
             else
                 local ts = game:GetService("TweenService")
                 local ti = TweenInfo.new(0.1, Enum.EasingStyle.Linear)
                 local tw = ts:Create(currentRoot, ti, {CFrame = CFrame.new(targetPos)})
                 currentRoot.Anchored = true 
                 tw:Play()
+                tw.Completed:Wait()
             end
         end
         
@@ -1630,6 +1633,10 @@ task.spawn(function()
         if cycleStuckCount < 4 then
             _G.CurrentAction = "Combat: Slashing Nape!"
             pcall(function() bindable:Invoke("CALL", "SlashOnly") end)
+            
+            -- หน่วงเวลาเล็กน้อยหลังจากง้างดาบ เพื่อตบตาระบบเหมือนคนจริงๆ ก่อนฟัน
+            task.wait(0.15)
+            
             for _, target in ipairs(batchTitans) do 
                 pcall(function() bindable:Invoke("CALL", "RegisterHitOnly", target.nape) end) 
             end
