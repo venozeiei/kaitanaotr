@@ -391,19 +391,23 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
             end)
             
             -- ฟังก์ชันตรวจสอบว่าเป็นสิ่งมีชีวิต (ผู้เล่น/ไททัน) หรือไม่
+            local Players = game:GetService("Players")
             local function isEntity(part)
-                local p = part
-                while p and p.Parent ~= nil and p ~= workspace do
-                    if p:IsA("Model") then
-                        if p:FindFirstChildOfClass("Humanoid") or p:FindFirstChild("nape") or p:FindFirstChild("root") then
-                            return true
-                        end
-                    end
-                    if p:IsA("Accessory") or p:IsA("Tool") then
-                        return true
-                    end
-                    p = p.Parent
-                end
+                local p = part.Parent
+                if not p then return false end
+                
+                -- เช็คว่าเป็นผู้เล่น (Player)
+                if p:FindFirstChildOfClass("Humanoid") and Players:GetPlayerFromCharacter(p) then return true end
+                if p.Parent and p.Parent:FindFirstChildOfClass("Humanoid") and Players:GetPlayerFromCharacter(p.Parent) then return true end
+                
+                -- เช็คว่าเป็นไททัน (Titan) ปกติไททันจะมีชิ้นส่วน nape หรือชื่อโมเดลไททัน
+                if p:FindFirstChild("nape") or (p.Parent and p.Parent:FindFirstChild("nape")) then return true end
+                if p:FindFirstChild("TitanHealth") or (p.Parent and p.Parent:FindFirstChild("TitanHealth")) then return true end
+                if p.Name == "Titans" or (p.Parent and p.Parent.Name == "Titans") then return true end
+                
+                -- เช็คว่าเป็นอาวุธ/อุปกรณ์ที่ติดอยู่กับตัว
+                if p:IsA("Accessory") or p:IsA("Tool") or part:IsA("Accessory") or part:IsA("Tool") then return true end
+                
                 return false
             end
             
