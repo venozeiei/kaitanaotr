@@ -1400,7 +1400,6 @@ if actor then task.spawn(function() pcall(function() run_on_actor(actor, script_
 
 task.spawn(function()
     if not _G.AutoFarm then return end
-    local FloatHeight = 250
     local lastTotalHealth = 999999999
     local cycleStuckCount = 0
     local blacklistedTitans = {} 
@@ -1489,32 +1488,27 @@ task.spawn(function()
             _G.WaveClearedRefill = false
         end
         
-        -- จัดเรียงให้เป้าหมายคือ ไททันที่อยู่ "ใกล้ตัวเราที่สุด" (ป้องกันการบินข้ามแมพแล้วติดตึก)
-        table.sort(aliveTitans, function(a, b) return a.distFromPlayer < b.distFromPlayer end)
+        table.sort(aliveTitans, function(a, b) return a.dist < b.dist end)
         local targetTitan = aliveTitans[1]
         
-        local isFlying = false
         if targetTitan and targetTitan.root then
             local FloatHeight = 250
             local targetPos = Vector3.new(targetTitan.root.Position.X, targetTitan.root.Position.Y + FloatHeight, targetTitan.root.Position.Z)
             local dist = (currentRoot.Position - targetPos).Magnitude
             if dist > 200 then
-                isFlying = true
                 local ts = game:GetService("TweenService")
-                local speed = 800 -- ลดจาก 1800 เหลือ 800 studs/sec เพื่อตบตา Anti-Cheat
-                local ti = TweenInfo.new(dist / speed, Enum.EasingStyle.Linear) 
+                local ti = TweenInfo.new(dist / 1800, Enum.EasingStyle.Linear) -- 1800 studs per second bypass
                 local tw = ts:Create(currentRoot, ti, {CFrame = CFrame.new(targetPos)})
                 currentRoot.Anchored = true
                 tw:Play()
-                -- รอให้บินไปถึงจริงๆ ก่อน ค่อยตี (ป้องกันตีทะลุมิติ/ตีระยะไกลเกินไป)
-                tw.Completed:Wait() 
+                -- ไม่รอให้บินถึง ตีทันทีเมื่อถึงหัวไททัน
             else
                 local ts = game:GetService("TweenService")
                 local ti = TweenInfo.new(0.1, Enum.EasingStyle.Linear)
                 local tw = ts:Create(currentRoot, ti, {CFrame = CFrame.new(targetPos)})
                 currentRoot.Anchored = true 
                 tw:Play()
-                tw.Completed:Wait()
+                -- ไม่ต้องรอ (Completed:Wait()) เพื่อให้ลูปทำงานต่อได้ทันที และตัวละครจะไหลลื่นตามคอไททัน
             end
         end
         
@@ -1527,8 +1521,7 @@ task.spawn(function()
             cycleStuckCount = 0 
         end
         
-        -- 🔥 ป้องกันการนับ Stuck พลาดตอนกำลังบินไกลๆ
-        if isFlying then cycleStuckCount = 0 end
+
         
         lastTotalHealth = currentTotalHealth
         
@@ -1632,10 +1625,11 @@ task.spawn(function()
         
         if cycleStuckCount < 4 then
             _G.CurrentAction = "Combat: Slashing Nape!"
-            pcall(function() bindable:Invoke("CALL", "SlashOnly") end)
-            
-            -- หน่วงเวลาเล็กน้อยหลังจากง้างดาบ เพื่อตบตาระบบเหมือนคนจริงๆ ก่อนฟัน
-            task.wait(0.15)
+            local currentTime = os.clock()
+            if not _G.LastSlashTime or (currentTime - _G.LastSlashTime >= 0.25) then
+                _G.LastSlashTime = currentTime
+                pcall(function() bindable:Invoke("CALL", "SlashOnly") end)
+            end
             
             for _, target in ipairs(batchTitans) do 
                 pcall(function() bindable:Invoke("CALL", "RegisterHitOnly", target.nape) end) 
