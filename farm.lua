@@ -155,16 +155,31 @@ local function executeAutoQuestLogic()
     
     task.spawn(function()
         local oldAction = _G.CurrentAction
-        _G.CurrentAction = "AutoQuest: Fast Accepting..."
+        _G.QuestCache = _G.QuestCache or {}
+        _G.CurrentAction = "AutoQuest: Accepting Dailies & Weeklies..."
         for i = 1, 4 do
-            pcall(function() GET:InvokeServer("Functions", "Quest", "Daily " .. i, "Daily") end)
-            pcall(function() GET:InvokeServer("Functions", "Quest", "Weekly " .. i, "Weekly") end)
-            task.wait(0.01)
+            local d = "Daily " .. i
+            if not _G.QuestCache[d] then
+                pcall(function() GET:InvokeServer("Functions", "Quest", d, "Daily") end)
+                _G.QuestCache[d] = true
+                task.wait(0.05)
+            end
+            local w = "Weekly " .. i
+            if not _G.QuestCache[w] then
+                pcall(function() GET:InvokeServer("Functions", "Quest", w, "Weekly") end)
+                _G.QuestCache[w] = true
+                task.wait(0.05)
+            end
         end
-        for i, quest in ipairs(allQuestTags) do
-            pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end)
-            pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end)
-            task.wait(0.01)
+        _G.CurrentAction = "AutoQuest: Accepting Main & Side Quests..."
+        for _, quest in ipairs(allQuestTags) do
+            if not _G.QuestCache[quest] then
+                pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end)
+                task.wait(0.01)
+                pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end)
+                _G.QuestCache[quest] = true
+                task.wait(0.01)
+            end
         end
         _G.CurrentAction = oldAction
     end)
@@ -972,6 +987,9 @@ if placeId == 14916516914 then
                         _G.LastPrestige = nil
                         _G.LastXP = nil
                         _G.HasUpgradedOnce = false
+                        _G.HighestLevelUpgraded = 0
+                        _G.SkillCache = {}
+                        _G.QuestCache = {}
                         _G.IsPrestigeing = false 
                         task.wait(5)
                     end
@@ -998,40 +1016,48 @@ if placeId == 14916516914 then
                     _G.CurrentAction = "Upgrading All Equipment..."
                     local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
                     
-                    -- อัปเกรดอาวุธ (ดันดาเมจนำก่อน แล้วค่อยอัปแบบรวม) ทำ 5 รอบชัวร์ๆ
-                    for i = 1, 5 do 
-                        -- ดันดาเมจเป็นอันดับแรก
-                        pcall(function() GET:InvokeServer("Equipment", "Upgrade", {"ODM_Damage"}) end)
-                        pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {"ODM_Damage"}) end)
-                        
+                    for i = 1, 3 do 
                         pcall(function() GET:InvokeServer("Equipment", "Upgrade_All") end)
+                        pcall(function() GET:InvokeServer("Equipment", "Upgrade", {"All"}) end)
                         pcall(function() GET:InvokeServer("Equipment", "Grade_Up") end)
                         pcall(function() GET:InvokeServer("Equipment", "Tier_Up") end)
-                        pcall(function() GET:InvokeServer("Equipment", "Upgrade", bladeUpgrades) end)
+                        for _, stat in ipairs(bladeUpgrades) do 
+                            pcall(function() GET:InvokeServer("Equipment", "Upgrade", {stat}) end)
+                        end
                         
                         pcall(function() GET:InvokeServer("S_Equipment", "Upgrade_All") end)
+                        pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {"All"}) end)
                         pcall(function() GET:InvokeServer("S_Equipment", "Grade_Up") end)
                         pcall(function() GET:InvokeServer("S_Equipment", "Tier_Up") end)
-                        pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", bladeUpgrades) end)
-                        
-                        task.wait(0.3)
+                        for _, stat in ipairs(bladeUpgrades) do 
+                            pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {stat}) end)
+                        end
                     end
                     
                     _G.CurrentAction = "Upgrading Skill Tree..."
-                    -- อัปเกรด Skill Tree
+                    -- ระบบแคชอัปสกิล: เช็คเฉพาะอันที่ยังไม่เคยเช็ค ถ้าเลเวลอัปให้รีเซ็ตแคชเพื่อลองอัปสกิลใหม่
+                    local currentLevel = _G.LastLevel or 0
+                    if not _G.HighestLevelUpgraded or currentLevel > _G.HighestLevelUpgraded then
+                        _G.SkillCache = {} 
+                        _G.HighestLevelUpgraded = currentLevel
+                    end
+                    
+                    _G.SkillCache = _G.SkillCache or {}
                     local bannedSkills = {
                         ["76"]=true, ["93"]=true, ["95"]=true, ["97"]=true, 
                         ["103"]=true, ["158"]=true, ["163"]=true
                     }
+                    
+                    local countYield = 0
                     for s = 1, 168 do
                         local sStr = tostring(s)
-                        if not (s >= 38 and s <= 69) and not bannedSkills[sStr] then
-                            -- ยิงทีละอันแต่ใส่ spawn + ดีเลย์นิดนึงกันเซิร์ฟเวอร์เตะคำสั่งทิ้ง
-                            task.spawn(function() pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end) end)
+                        if not (s >= 38 and s <= 69) and not bannedSkills[sStr] and not _G.SkillCache[sStr] then
+                            pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
+                            _G.SkillCache[sStr] = true
+                            countYield = countYield + 1
+                            if countYield % 10 == 0 then task.wait(0.05) end
                         end
-                        if s % 10 == 0 then task.wait(0.1) end
                     end
-                    task.wait(1)
                 end
 
                 _G.PreparingNewMap = true
