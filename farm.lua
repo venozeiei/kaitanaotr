@@ -442,6 +442,11 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
             end
 
             task.spawn(function()
+                -- ลบ Terrain ทั้งหมด (เสาหิน ภูเขา ต้นไม้ยักษ์ ที่สร้างจาก Terrain จะหายวับ)
+                pcall(function()
+                    workspace.Terrain:Clear()
+                end)
+                
                 -- ลบกราฟิกเดิมที่มีอยู่
                 for _, v in ipairs(workspace:GetDescendants()) do
                     optimizePart(v)
