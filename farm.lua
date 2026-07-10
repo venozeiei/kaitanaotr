@@ -147,19 +147,15 @@ local function executeAutoQuestLogic()
     
     task.spawn(function()
         local oldAction = _G.CurrentAction
-        _G.CurrentAction = "AutoQuest: Accepting Dailies & Weeklies..."
+        _G.CurrentAction = "AutoQuest: Fast Accepting..."
         for i = 1, 4 do
-            pcall(function() GET:InvokeServer("Functions", "Quest", "Daily " .. i, "Daily") end)
-            task.wait(0.05)
-            pcall(function() GET:InvokeServer("Functions", "Quest", "Weekly " .. i, "Weekly") end)
-            task.wait(0.05)
+            task.spawn(function() pcall(function() GET:InvokeServer("Functions", "Quest", "Daily " .. i, "Daily") end) end)
+            task.spawn(function() pcall(function() GET:InvokeServer("Functions", "Quest", "Weekly " .. i, "Weekly") end) end)
         end
-        _G.CurrentAction = "AutoQuest: Accepting Main & Side Quests..."
-        for _, quest in ipairs(allQuestTags) do
-            pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end)
-            task.wait(0.02)
-            pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end)
-            task.wait(0.02)
+        for i, quest in ipairs(allQuestTags) do
+            task.spawn(function() pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end) end)
+            task.spawn(function() pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end) end)
+            if i % 10 == 0 then task.wait() end
         end
         _G.CurrentAction = oldAction
     end)
@@ -799,40 +795,51 @@ if placeId == 14916516914 then
                 if currentTime - lastInventoryCheck > 15 then
                     lastInventoryCheck = currentTime
                     _G.CurrentAction = "Checking Stats & Inventory..."
-                    local serverData = safeInvokeServer(GET, 3, "Functions", "Settings", "Blur", "Off")
-                    local inventory = {}
-                    if serverData and type(serverData) == "table" and serverData.Slots then
-                        local slotData = serverData.Slots[plr:GetAttribute("Slot") or "A"]
-                        if slotData then
-                            if slotData.Inventory then 
-                                inventory = slotData.Inventory 
-                                _G.LastInventory = inventory 
-                            end
-                            
-                            if slotData.Perks and type(slotData.Perks.Storage) == "table" then
-                                _G.LastInventory = _G.LastInventory or {}
-                                _G.LastInventory.Perks = {}
-                                _G.PerksUUIDs = {}
-                                local pcount = 0
-                                for k, v in pairs(slotData.Perks.Storage) do
-                                    pcount = pcount + 1
-                                    if type(v) == "table" and v.Name then
-                                        _G.LastInventory.Perks[v.Name] = (_G.LastInventory.Perks[v.Name] or 0) + 1
-                                        if not v.Equipped then
-                                            table.insert(_G.PerksUUIDs, k)
+                    local serverData = nil
+                    pcall(function() serverData = bindable:Invoke("CALL", "GetSlotData") end)
+                    
+                    if not serverData then
+                        serverData = safeInvokeServer(GET, 3, "Functions", "Settings", "Blur", "Off")
+                        if serverData and type(serverData) == "table" and serverData.Slots then
+                            local slotData = serverData.Slots[plr:GetAttribute("Slot") or "A"]
+                            if slotData then
+                                local mapped = {}
+                                if slotData.Currency then mapped.Currency = { Gold = slotData.Currency.Gold } end
+                                if slotData.Progression then mapped.Progression = slotData.Progression end
+                                mapped.Inventory = { Perks = {} }
+                                mapped.TotalPerksCount = 0
+                                mapped.PerksUUIDs = {}
+                                if slotData.Perks and type(slotData.Perks.Storage) == "table" then
+                                    for k, v in pairs(slotData.Perks.Storage) do
+                                        mapped.TotalPerksCount = mapped.TotalPerksCount + 1
+                                        if type(v) == "table" and v.Name then
+                                            mapped.Inventory.Perks[v.Name] = (mapped.Inventory.Perks[v.Name] or 0) + 1
+                                            if not v.Equipped then
+                                                table.insert(mapped.PerksUUIDs, k)
+                                            end
                                         end
                                     end
                                 end
-                                _G.TotalPerksCount = pcount
+                                serverData = mapped
                             end
-                            if slotData.Progression then
-                                _G.LastLevel = slotData.Progression.Level
-                                _G.LastPrestige = slotData.Progression.Prestige
-                                _G.LastMaxXP = slotData.Progression.Max_XP
-                                _G.LastXP = slotData.Progression.XP
-                            end
-                            if slotData.Currency then _G.LastGold = slotData.Currency.Gold end
                         end
+                    end
+                    
+                    if serverData and type(serverData) == "table" then
+                        if serverData.Inventory then 
+                            _G.LastInventory = serverData.Inventory 
+                        end
+                        if serverData.PerksUUIDs then
+                            _G.PerksUUIDs = serverData.PerksUUIDs
+                            _G.TotalPerksCount = serverData.TotalPerksCount or 0
+                        end
+                        if serverData.Progression then
+                            _G.LastLevel = serverData.Progression.Level
+                            _G.LastPrestige = serverData.Progression.Prestige
+                            _G.LastMaxXP = serverData.Progression.Max_XP
+                            _G.LastXP = serverData.Progression.XP
+                        end
+                        if serverData.Currency then _G.LastGold = serverData.Currency.Gold end
                     end
                 end
                 
@@ -982,37 +989,31 @@ if placeId == 14916516914 then
                     _G.CurrentAction = "Upgrading All Equipment..."
                     local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
                     
-                    -- อัปเกรดดาบจนเงินหมด/อัพไม่ได้ (วนลูป 20 รอบ)
-                    for i = 1, 10 do 
-                        pcall(function() GET:InvokeServer("Equipment", "Upgrade_All") end)
-                        pcall(function() GET:InvokeServer("Equipment", "Upgrade", {"All"}) end)
-                        pcall(function() GET:InvokeServer("Equipment", "Grade_Up") end)
-                        pcall(function() GET:InvokeServer("Equipment", "Tier_Up") end)
-                        for _, stat in ipairs(bladeUpgrades) do 
-                            pcall(function() GET:InvokeServer("Equipment", "Upgrade", {stat}) end)
-                        end
-                        
-                        pcall(function() GET:InvokeServer("S_Equipment", "Upgrade_All") end)
-                        pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {"All"}) end)
-                        pcall(function() GET:InvokeServer("S_Equipment", "Grade_Up") end)
-                        pcall(function() GET:InvokeServer("S_Equipment", "Tier_Up") end)
-                        for _, stat in ipairs(bladeUpgrades) do 
-                            pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {stat}) end)
-                        end
+                    -- อัปเกรด 2 รอบพร้อมกันเพื่อลดอาการกระตุก
+                    for i = 1, 2 do 
+                        task.spawn(function()
+                            pcall(function() GET:InvokeServer("Equipment", "Upgrade_All") end)
+                            pcall(function() GET:InvokeServer("Equipment", "Grade_Up") end)
+                            pcall(function() GET:InvokeServer("Equipment", "Tier_Up") end)
+                            pcall(function() GET:InvokeServer("S_Equipment", "Upgrade_All") end)
+                            pcall(function() GET:InvokeServer("S_Equipment", "Grade_Up") end)
+                            pcall(function() GET:InvokeServer("S_Equipment", "Tier_Up") end)
+                        end)
                     end
                     
-                    -- อัปเกรด Skill Tree เฉพาะสาย 1 (Damage) และ สาย 2 (ODM)
-                    local bannedSkills = {
-                        ["76"]=true, ["93"]=true, ["95"]=true, ["97"]=true, 
-                        ["103"]=true, ["158"]=true, ["163"]=true
-                    }
-                    -- วนลูปแค่ 1 รอบก็พอ เพราะไล่จาก 1 ไป 168 สกิลก่อนหน้าจะถูกอัพก่อนเสมอ
-                    for s = 1, 168 do
-                        local sStr = tostring(s)
-                        if not (s >= 38 and s <= 69) and not bannedSkills[sStr] then
-                            pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
+                    task.spawn(function()
+                        local bannedSkills = {
+                            ["76"]=true, ["93"]=true, ["95"]=true, ["97"]=true, 
+                            ["103"]=true, ["158"]=true, ["163"]=true
+                        }
+                        for s = 1, 168 do
+                            local sStr = tostring(s)
+                            if not (s >= 38 and s <= 69) and not bannedSkills[sStr] then
+                                task.spawn(function() pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end) end)
+                            end
+                            if s % 20 == 0 then task.wait() end
                         end
-                    end
+                    end)
                 end
 
                 _G.PreparingNewMap = true
@@ -1058,15 +1059,16 @@ if placeId == 14916516914 then
                 
                 if resCreate ~= nil or typeof(resCreate) == "table" then
                     _G.CurrentAction = "Mission Created! Starting..."
-                    task.wait(1)
-                    safeInvokeServer(GET, 3, "S_Missions", "Modify", actualDifficulty) task.wait(1)
+                    task.wait(0.5)
+                    safeInvokeServer(GET, 3, "S_Missions", "Modify", actualDifficulty)
                     safeInvokeServer(GET, 3, "S_Missions", "Start")
                     _G.CurrentAction = "Teleporting to Map..."
-                    _G.MissionTeleporting = true task.delay(20, function() _G.MissionTeleporting = false end) task.wait(15) 
+                    _G.MissionTeleporting = true task.delay(10, function() _G.MissionTeleporting = false end)
+                    task.wait(1) 
                 end
                 _G.PreparingNewMap = false
             end)
-            task.wait(5) 
+            task.wait(1) 
         end
     end)
     return 
@@ -1204,18 +1206,23 @@ local script_actor = [[
                     
                     local safeInv = { Perks = {} }
                     local totalPerks = 0
+                    local uuids = {}
                     
                     if slotData.Perks and type(slotData.Perks.Storage) == "table" then
                         for k, v in pairs(slotData.Perks.Storage) do
                             totalPerks = totalPerks + 1
                             if type(v) == "table" and v.Name then
                                 safeInv.Perks[v.Name] = (safeInv.Perks[v.Name] or 0) + 1
+                                if not v.Equipped then
+                                    table.insert(uuids, k)
+                                end
                             end
                         end
                     end
                     
                     result.Inventory = safeInv
                     result.TotalPerksCount = totalPerks
+                    result.PerksUUIDs = uuids
                 end
             end
         end)
