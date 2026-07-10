@@ -1082,58 +1082,10 @@ local TitansFolder = workspace:WaitForChild("Titans", 9999)
 local interface = plr:WaitForChild("PlayerGui"):WaitForChild("Interface", 999)
 
 -- ============================================================
--- 🔧 OPTIMIZED RETRY BUTTON FIX
+-- 🔧 OPTIMIZED RETRY BUTTON FIX (REMOTE ONLY)
 -- ============================================================
 task.spawn(function()
     local rewardsUI = interface:WaitForChild("Rewards", 999)
-    local cachedButtons = nil
-    local cachedMainInfo = nil
-    local cachedBoostElement = nil
-    local lastUIUpdate = 0
-    
-    local function clickButtonAdvanced(btn)
-        if not btn then return false end
-        print("🎯 [Retry] กำลังคลิก:", btn.Name, btn:GetFullName())
-        
-        local isDisabled = false
-        if btn:IsA("GuiButton") then
-            isDisabled = (btn.Active == false)
-            print("🔍 [Retry] ปุ่ม Active:", btn.Active, "Visible:", btn.Visible)
-        end
-        
-        if isDisabled then
-            print("❌ [Retry] ปุ่มถูก Disabled! ใช้ Remote Call แทน")
-            pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
-            return true
-        end
-        
-        if getconnections then
-            for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do pcall(function() conn:Fire() end) end
-            for _, conn in ipairs(getconnections(btn.Activated)) do pcall(function() conn:Fire() end) end
-            for _, conn in ipairs(getconnections(btn.MouseButton1Down)) do pcall(function() conn:Fire() end) end
-        end
-        
-        if firesignal then
-            pcall(function() firesignal(btn.MouseButton1Click) end)
-            pcall(function() firesignal(btn.Activated) end)
-        end
-        
-        local VirtualInputManager = game:GetService("VirtualInputManager")
-        local absPos = btn.AbsolutePosition
-        local absSize = btn.AbsoluteSize
-        local inset = game:GetService("GuiService"):GetGuiInset()
-        local centerX = absPos.X + (absSize.X / 2)
-        local centerY = absPos.Y + (absSize.Y / 2) + inset.Y
-        VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-        task.wait(0.1)
-        VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
-        
-        task.wait(0.2)
-        pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
-        
-        print("✅ [Retry] คลิกเสร็จแล้ว")
-        return true
-    end
     
     while currentID == _G.VenozScriptID and task.wait(2) do
         if rewardsUI and rewardsUI.Visible then
@@ -1143,82 +1095,23 @@ task.spawn(function()
             local curPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
             local maxLevelReq = 100 + (curPrestige * 25)
             
-            -- Cache UI references
-            if not cachedMainInfo then
-                cachedMainInfo = rewardsUI:FindFirstChild("Main") and rewardsUI.Main:FindFirstChild("Info") and rewardsUI.Main.Info:FindFirstChild("Main")
+            local shouldLeaveForPerks = false
+            if Config.AutoDeletePerk then
+                local totalPerks = _G.TotalPerksCount or 0
+                if totalPerks >= 100 then shouldLeaveForPerks = true end
             end
-            if cachedMainInfo and not cachedButtons then
-                cachedButtons = cachedMainInfo:FindFirstChild("Buttons")
-            end
-            if cachedMainInfo and not cachedBoostElement then
-                cachedBoostElement = cachedMainInfo:FindFirstChild("Boost")
-            end
-            
-            local buttons = cachedButtons
-            local boostElement = cachedBoostElement
-            
-            if buttons then
-                print("✅ [Retry] พบ Buttons container")
-                
-                local btnRetry = buttons:FindFirstChild("Retry")
-                local btnLeave = buttons:FindFirstChild("Leave_2") or buttons:FindFirstChild("Leave")
-                
-                print("🎯 [Retry] btnRetry:", btnRetry and "✅" or "❌", "btnLeave:", btnLeave and "✅" or "❌")
-                
-                local function checkVisible(gui)
-                    local curr = gui
-                    while curr and curr:IsA("GuiObject") do
-                        if not curr.Visible then return false end
-                        curr = curr.Parent
-                    end
-                    return true
-                end
 
-                local hasBoost = false
-                if boostElement and checkVisible(boostElement) then
-                    hasBoost = true
-                    print("✅ [Retry] พบ Boost element (มี Reward Boost)")
-                else
-                    print("❌ [Retry] ไม่พบ Boost element (ไม่มี Reward Boost)")
-                end
-                
-                local buttonToClick = nil
-                
-                print("📊 [Retry] Level:", curLevel, "MaxLevel:", maxLevelReq, "HasBoost:", hasBoost)
-                
-                local shouldLeaveForPerks = false
-                if Config.AutoDeletePerk then
-                    local totalPerks = _G.TotalPerksCount or 0
-                    if totalPerks >= 100 then shouldLeaveForPerks = true end
-                end
-
-                if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
-                    buttonToClick = btnLeave
-                    print("🚪 [Retry] เลือก Leave (เลเวลครบ ต้องจุติ)")
-                elseif shouldLeaveForPerks then
-                    buttonToClick = btnLeave
-                    print("🔄 [Retry] เลือกปุ่ม Leave (Perks เต็มกระเป๋า 100+)")
-                elseif btnRetry then
-                    buttonToClick = btnRetry
-                    print("🔄 [Retry] เลือก Retry (ฟาร์มต่อเนื่อง)")
-                else
-                    buttonToClick = btnLeave
-                    print("🚪 [Retry] เลือก Leave (ไม่มีปุ่ม Retry)")
-                end
-                
-                if buttonToClick then
-                    print("🎯 [Retry] กำลังคลิกปุ่ม:", buttonToClick.Name)
-                    clickButtonAdvanced(buttonToClick)
-                else
-                    print("❌ [Retry] ไม่มีปุ่มให้คลิก!")
-                end
+            if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
+                print("🚪 [Retry] ยิงรีโมท Leave (เลเวลครบ ต้องจุติ)")
+                pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
+            elseif shouldLeaveForPerks then
+                print("🔄 [Retry] ยิงรีโมท Leave (Perks เต็มกระเป๋า 100+)")
+                pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
             else
-                print("❌ [Retry] ไม่พบ Buttons container")
-                -- Reset cache if structure changed
-                cachedMainInfo = nil
-                cachedButtons = nil
-                cachedBoostElement = nil
+                print("🔄 [Retry] ยิงรีโมท Retry (ฟาร์มต่อเนื่อง)")
+                pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
             end
+            
             task.wait(3)
         end
     end
