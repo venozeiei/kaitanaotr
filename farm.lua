@@ -1325,10 +1325,10 @@ task.spawn(function()
             local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
             local titanRoot = titan:FindFirstChild("HumanoidRootPart") or nape
             if nape and humanoid and humanoid.Health > 0 and titanRoot then
-                -- คำนวณระยะห่างจากจุดเกิดแทนจากตัวเรา เพื่อไล่ฆ่าไททันที่ใกล้จุดเกิดก่อน
+                -- เก็บระยะห่างจากตัวเรา (Player) เพื่อใช้เป็นเกณฑ์หลักในการไล่ฆ่า
                 local distFromSpawn = (spawnPoint - titanRoot.Position).Magnitude
                 local distFromPlayer = (currentRoot.Position - titanRoot.Position).Magnitude
-                table.insert(aliveTitans, { titan = titan, nape = nape, root = titanRoot, dist = distFromSpawn, distFromPlayer = distFromPlayer })
+                table.insert(aliveTitans, { titan = titan, nape = nape, root = titanRoot, distFromSpawn = distFromSpawn, distFromPlayer = distFromPlayer })
                 currentTotalHealth = currentTotalHealth + humanoid.Health
             end
         end
@@ -1376,7 +1376,8 @@ task.spawn(function()
             _G.WaveClearedRefill = false
         end
         
-        table.sort(aliveTitans, function(a, b) return a.dist < b.dist end)
+        -- จัดเรียงให้เป้าหมายคือ ไททันที่อยู่ "ใกล้ตัวเราที่สุด" (ป้องกันการบินข้ามแมพแล้วติดตึก)
+        table.sort(aliveTitans, function(a, b) return a.distFromPlayer < b.distFromPlayer end)
         local targetTitan = aliveTitans[1]
         
         if targetTitan and targetTitan.root then
