@@ -379,23 +379,71 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
                 if setfpscap then setfpscap(15) end -- ล็อค FPS ที่ 15 เพื่อลดการกิน CPU
             end)
             
+            -- เอาจอดำออก เพื่อให้เห็นน้ำและท้องฟ้าเหมือนใน Blox Fruits
+            -- pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(false) end)
+            
+            -- ปิดแอนิเมชั่นน้ำ (Disable water animation)
             pcall(function()
-                game:GetService("RunService"):Set3dRenderingEnabled(false) -- ปิดการเรนเดอร์ 3D (จอดำเห็นแต่ UI) ช่วยประหยัดสเปคคอมได้มหาศาล
+                workspace.Terrain.WaterWaveSize = 0
+                workspace.Terrain.WaterWaveSpeed = 0
+                workspace.Terrain.WaterReflectance = 0
+                workspace.Terrain.WaterTransparency = 0
             end)
             
-            -- ถ้า Set3dRenderingEnabled ใช้ไม่ได้ ให้ลด Material แทน
-            task.spawn(function()
+            -- ฟังก์ชันตรวจสอบว่าเป็นสิ่งมีชีวิต (ผู้เล่น/ไททัน) หรือไม่
+            local function isEntity(part)
+                local p = part
+                while p and p.Parent ~= nil and p ~= workspace do
+                    if p:IsA("Model") then
+                        if p:FindFirstChildOfClass("Humanoid") or p:FindFirstChild("nape") or p:FindFirstChild("root") then
+                            return true
+                        end
+                    end
+                    if p:IsA("Accessory") or p:IsA("Tool") then
+                        return true
+                    end
+                    p = p.Parent
+                end
+                return false
+            end
+            
+            -- ฟังก์ชันปรับกราฟิกขั้นสุดแบบ Blox Fruits (แมพหายหมด)
+            local function optimizePart(v)
                 pcall(function()
-                    for _, v in ipairs(workspace:GetDescendants()) do
-                        if v:IsA("BasePart") then
-                            v.Material = Enum.Material.SmoothPlastic
-                            v.Reflectance = 0
-                            v.CastShadow = false
-                        elseif v:IsA("Texture") or v:IsA("Decal") then
+                    if v:IsA("BasePart") then
+                        v.Material = Enum.Material.Plastic -- change Material to Plastic
+                        v.Reflectance = 0
+                        v.CastShadow = false
+                        
+                        if v:IsA("MeshPart") then
+                            v.TextureID = "" -- remove texture
+                        end
+                        
+                        -- ทำให้ชิ้นส่วนทั้งหมดล่องหน ยกเว้นตัวละครและไททัน
+                        if not isEntity(v) then
+                            v.Transparency = 1
+                        end
+                    elseif v:IsA("Decal") or v:IsA("Texture") then
+                        v.Transparency = 1 -- disable transparency / hide textures
+                    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") then
+                        v.Enabled = false -- disable particle / vfx
+                        v:Destroy()
+                    elseif v:IsA("BillboardGui") or v:IsA("SurfaceGui") then
+                        if v.Name:lower():find("damage") or v.Name:lower():find("kill") or v.Name:lower():find("text") then
+                            v.Enabled = false -- remove kill mob text
                             v:Destroy()
                         end
                     end
                 end)
+            end
+
+            task.spawn(function()
+                -- ลบกราฟิกเดิมที่มีอยู่
+                for _, v in ipairs(workspace:GetDescendants()) do
+                    optimizePart(v)
+                end
+                -- ดักลบกราฟิกใหม่ที่เกิดมาเรื่อยๆ (เช่น เลือดไททัน, text ดาเมจ)
+                workspace.DescendantAdded:Connect(optimizePart)
             end)
             
             -- 🔥 ปิด Camera Shake โดยตรงจาก Module ของเกม
