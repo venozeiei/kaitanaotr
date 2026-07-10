@@ -135,16 +135,15 @@ local allQuestTags = {
     "Novice Adventurer", "Novice Wrecker", "Penny Pincher", "Player's Champion", 
     "Precise Striker", "Prestige Aspirant", "Prestige Challenger", "Prestige Enthusiast", 
     "Prestige Expert", "Prestige Grandmaster", "Raid Commander", "Raid Conqueror", 
-    "Raid Overlord", "Raid Veteran", "Raid Warlord", "Rescuer Extraordinaire", 
-    "Retrieve Missing Supplies", "Rookie Adventurer", "Rookie Raider", "Savior Supreme", 
-    "Seasoned Gamer", "Seasoned Operative", "Seasoned Warrior", "Shifting Adept", 
-    "Shifting Apprentice", "Shifting Expert", "Shifting Guru", "Shifting Master", 
-    "Shifting Virtuoso", "Skill Expert", "Skill Master", "Skill Novice", "Skill Practitioner", 
-    "Skill Prodigy", "Skill Virtuoso", "Team Player", "Teamwork Enthusiast", "Teamwork Maestro", 
-    "Teamwork Specialist", "Teamwork Virtuoso", "Timeless Immortal", "Titan Annihilator", 
-    "Titan Butcher", "Titan Conqueror", "Titan Dominator", "Titan Executioner", "Titan Hunter", 
+    "A New Beginning", "Abnormal Encounters", "Brave the Unknown", "Clearing the Path", "Combat Master", 
+    "Defend the Walls", "Eliminate the Threat", "Endless Fight", "Explore the Unknown", "First Blood",
+    "Giant Slayer", "Humanity's Hope", "Into the Fray", "Master of Maneuvers", "No Rest for the Weary",
+    "On the Offensive", "Path to Victory", "Protect the Innocent", "Reclaim the Territory", "Relentless Assault",
+    "Scout's Honor", "Securing the Future", "Stand Your Ground", "Survival Instinct", "Swift Justice", 
+    "The Vanguard", "Titan Bane", "Titan Buster", "Titan Hunter", "Titan Killer", 
     "Titan Slayer", "Titan Torturer", "Titan's Nightmare", "Towers", "Treasure Hunter", 
-    "Ultimate Champion", "Ultimate Protector", "Wealth Accumulator"
+    "Ultimate Champion", "Ultimate Protector", "Wealth Accumulator",
+    "Penny Pincher", "Novice Adventurer", "Thunder Spear 1", "Thunder Spear 2", "Thunder Spear 3", "Thunder Spear 4", "Thunder Spear 5"
 }
 
 local lastQuestCheck = 0
@@ -158,13 +157,14 @@ local function executeAutoQuestLogic()
         local oldAction = _G.CurrentAction
         _G.CurrentAction = "AutoQuest: Fast Accepting..."
         for i = 1, 4 do
-            task.spawn(function() pcall(function() GET:InvokeServer("Functions", "Quest", "Daily " .. i, "Daily") end) end)
-            task.spawn(function() pcall(function() GET:InvokeServer("Functions", "Quest", "Weekly " .. i, "Weekly") end) end)
+            pcall(function() GET:InvokeServer("Functions", "Quest", "Daily " .. i, "Daily") end)
+            pcall(function() GET:InvokeServer("Functions", "Quest", "Weekly " .. i, "Weekly") end)
+            task.wait(0.01)
         end
         for i, quest in ipairs(allQuestTags) do
-            task.spawn(function() pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end) end)
-            task.spawn(function() pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end) end)
-            if i % 10 == 0 then task.wait() end
+            pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end)
+            pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end)
+            task.wait(0.01)
         end
         _G.CurrentAction = oldAction
     end)
@@ -998,26 +998,21 @@ if placeId == 14916516914 then
                     _G.CurrentAction = "Upgrading All Equipment..."
                     local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
                     
-                    -- อัปเกรดอาวุธแบบเร็ว
+                    -- อัปเกรดอาวุธแบบส่ง Array รวดเดียว (แบบที่เซิร์ฟเวอร์ต้องการจริงๆ)
                     for i = 1, 3 do 
-                        task.spawn(function() pcall(function() GET:InvokeServer("Equipment", "Upgrade_All") end) end)
-                        task.spawn(function() pcall(function() GET:InvokeServer("Equipment", "Upgrade", {"All"}) end) end)
-                        task.spawn(function() pcall(function() GET:InvokeServer("Equipment", "Grade_Up") end) end)
-                        task.spawn(function() pcall(function() GET:InvokeServer("Equipment", "Tier_Up") end) end)
-                        for _, stat in ipairs(bladeUpgrades) do 
-                            task.spawn(function() pcall(function() GET:InvokeServer("Equipment", "Upgrade", {stat}) end) end)
-                        end
+                        pcall(function() GET:InvokeServer("Equipment", "Upgrade_All") end)
+                        pcall(function() GET:InvokeServer("Equipment", "Grade_Up") end)
+                        pcall(function() GET:InvokeServer("Equipment", "Tier_Up") end)
+                        pcall(function() GET:InvokeServer("Equipment", "Upgrade", bladeUpgrades) end)
                         
-                        task.spawn(function() pcall(function() GET:InvokeServer("S_Equipment", "Upgrade_All") end) end)
-                        task.spawn(function() pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {"All"}) end) end)
-                        task.spawn(function() pcall(function() GET:InvokeServer("S_Equipment", "Grade_Up") end) end)
-                        task.spawn(function() pcall(function() GET:InvokeServer("S_Equipment", "Tier_Up") end) end)
-                        for _, stat in ipairs(bladeUpgrades) do 
-                            task.spawn(function() pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {stat}) end) end)
-                        end
-                        task.wait(0.2)
+                        pcall(function() GET:InvokeServer("S_Equipment", "Upgrade_All") end)
+                        pcall(function() GET:InvokeServer("S_Equipment", "Grade_Up") end)
+                        pcall(function() GET:InvokeServer("S_Equipment", "Tier_Up") end)
+                        pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", bladeUpgrades) end)
+                        task.wait(0.1)
                     end
                     
+                    _G.CurrentAction = "Upgrading Skill Tree..."
                     -- อัปเกรด Skill Tree
                     local bannedSkills = {
                         ["76"]=true, ["93"]=true, ["95"]=true, ["97"]=true, 
@@ -1026,11 +1021,10 @@ if placeId == 14916516914 then
                     for s = 1, 168 do
                         local sStr = tostring(s)
                         if not (s >= 38 and s <= 69) and not bannedSkills[sStr] then
-                            task.spawn(function() pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end) end)
+                            pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
                         end
-                        if s % 20 == 0 then task.wait() end
                     end
-                    task.wait(1)
+                    task.wait(0.5)
                 end
 
                 _G.PreparingNewMap = true
