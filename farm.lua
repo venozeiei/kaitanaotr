@@ -998,9 +998,8 @@ if placeId == 14916516914 then
                     _G.CurrentAction = "Upgrading All Equipment..."
                     local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
                     
-                    local oldGold = _G.LastGold or 0
-                    -- อัปเกรดอาวุธ (ดันดาเมจนำก่อน แล้วค่อยอัปแบบรวม) วนลูปจนกว่าเงินจะหมดหรือตัน
-                    for i = 1, 15 do 
+                    -- อัปเกรดอาวุธ (ดันดาเมจนำก่อน แล้วค่อยอัปแบบรวม) ทำ 5 รอบชัวร์ๆ
+                    for i = 1, 5 do 
                         -- ดันดาเมจเป็นอันดับแรก
                         pcall(function() GET:InvokeServer("Equipment", "Upgrade", {"ODM_Damage"}) end)
                         pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {"ODM_Damage"}) end)
@@ -1015,17 +1014,7 @@ if placeId == 14916516914 then
                         pcall(function() GET:InvokeServer("S_Equipment", "Tier_Up") end)
                         pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", bladeUpgrades) end)
                         
-                        task.wait(0.1)
-                        -- อัปเดตเช็คเงินล่าสุด ถ้าเงินไม่ลดแปลว่าอัปไม่ได้แล้ว
-                        pcall(function()
-                            local serverData = bindable:Invoke("CALL", "GetSlotData")
-                            if serverData and serverData.Currency then _G.LastGold = serverData.Currency.Gold end
-                        end)
-                        
-                        if _G.LastGold == oldGold then
-                            break -- หลุดลูปทันที เอาเวลาไปลงด่านต่อ
-                        end
-                        oldGold = _G.LastGold
+                        task.wait(0.3)
                     end
                     
                     _G.CurrentAction = "Upgrading Skill Tree..."
@@ -1037,10 +1026,12 @@ if placeId == 14916516914 then
                     for s = 1, 168 do
                         local sStr = tostring(s)
                         if not (s >= 38 and s <= 69) and not bannedSkills[sStr] then
-                            pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
+                            -- ยิงทีละอันแต่ใส่ spawn + ดีเลย์นิดนึงกันเซิร์ฟเวอร์เตะคำสั่งทิ้ง
+                            task.spawn(function() pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end) end)
                         end
+                        if s % 10 == 0 then task.wait(0.1) end
                     end
-                    task.wait(0.5)
+                    task.wait(1)
                 end
 
                 _G.PreparingNewMap = true
