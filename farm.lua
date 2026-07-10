@@ -22,7 +22,7 @@ local DEFAULT_CONFIG = {
         P5 = { TargetBoost = "Gold Boost", RequiredGold = 0 },
     },
     AutoThunderSpearQuest = true, ThunderSpearAtPrestige = 4, AutoBoost = false, BoostTypes = {}, BoostExpUntilPrestige = 0,
-    TrackerUpdateInterval = 2, BoostCheckInterval = 10, CombatLoopInterval = 0.05, DataFetchInterval = 8, MinGemsToBuyBoosts = 999999,
+    TrackerUpdateInterval = 2, BoostCheckInterval = 10, CombatLoopInterval = 0.15, DataFetchInterval = 8, MinGemsToBuyBoosts = 999999,
     Disable3D = false, Modifiers = {}, HitAll = true
 }
 
@@ -373,6 +373,30 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
                     v.Enabled = false
                 end
             end
+            
+            -- 🔥 EXTREME ANTI-LAG (ลดภาระ CPU/GPU สำหรับเปิด 40+ จอ)
+            pcall(function()
+                if setfpscap then setfpscap(15) end -- ล็อค FPS ที่ 15 เพื่อลดการกิน CPU
+            end)
+            
+            pcall(function()
+                game:GetService("RunService"):Set3dRenderingEnabled(false) -- ปิดการเรนเดอร์ 3D (จอดำเห็นแต่ UI) ช่วยประหยัดสเปคคอมได้มหาศาล
+            end)
+            
+            -- ถ้า Set3dRenderingEnabled ใช้ไม่ได้ ให้ลด Material แทน
+            task.spawn(function()
+                pcall(function()
+                    for _, v in ipairs(workspace:GetDescendants()) do
+                        if v:IsA("BasePart") then
+                            v.Material = Enum.Material.SmoothPlastic
+                            v.Reflectance = 0
+                            v.CastShadow = false
+                        elseif v:IsA("Texture") or v:IsA("Decal") then
+                            v:Destroy()
+                        end
+                    end
+                end)
+            end)
             
             -- 🔥 ปิด Camera Shake โดยตรงจาก Module ของเกม
             pcall(function()
