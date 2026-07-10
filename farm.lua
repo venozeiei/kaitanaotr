@@ -514,12 +514,12 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
             
             local safePlat = Instance.new("Part")
             safePlat.Name = "VenozSafePlat"
-            safePlat.Size = Vector3.new(1000, 10, 1000)
-            safePlat.Position = Vector3.new(233, 3, 37) 
+            safePlat.Size = Vector3.new(50000, 10, 50000) -- ขยายให้คลุมทั้งแมพ (ป้องกันตกโลก)
+            safePlat.Position = Vector3.new(0, 5, 0) -- วางไว้ที่ระดับพื้นฐาน
             safePlat.Anchored = true
-            safePlat.Transparency = 0.5
+            safePlat.Transparency = 1 -- ซ่อนพื้นนี้ไว้
             safePlat.Color = Color3.fromRGB(0, 255, 0)
-            safePlat.Material = Enum.Material.Neon
+            safePlat.Material = Enum.Material.Plastic
             safePlat.Parent = workspace
             
             -- Optimized: Only process workspace children once, not descendants
