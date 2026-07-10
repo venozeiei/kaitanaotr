@@ -1380,29 +1380,40 @@ task.spawn(function()
         table.sort(aliveTitans, function(a, b) return a.distFromPlayer < b.distFromPlayer end)
         local targetTitan = aliveTitans[1]
         
+        local isFlying = false
         if targetTitan and targetTitan.root then
+            local FloatHeight = 250
             local targetPos = Vector3.new(targetTitan.root.Position.X, targetTitan.root.Position.Y + FloatHeight, targetTitan.root.Position.Z)
             local dist = (currentRoot.Position - targetPos).Magnitude
             if dist > 200 then
+                isFlying = true
                 local ts = game:GetService("TweenService")
                 local ti = TweenInfo.new(dist / 1800, Enum.EasingStyle.Linear) -- 1800 studs per second bypass
                 local tw = ts:Create(currentRoot, ti, {CFrame = CFrame.new(targetPos)})
                 currentRoot.Anchored = true
                 tw:Play()
-                -- ไม่รอให้บินถึง ตีทันทีเมื่อถึงหัวไททัน
+                -- ไม่รอให้บินถึง ตีทันที
             else
                 local ts = game:GetService("TweenService")
                 local ti = TweenInfo.new(0.1, Enum.EasingStyle.Linear)
                 local tw = ts:Create(currentRoot, ti, {CFrame = CFrame.new(targetPos)})
                 currentRoot.Anchored = true 
                 tw:Play()
-                -- ไม่ต้องรอ (Completed:Wait()) เพื่อให้ลูปทำงานต่อได้ทันที และตัวละครจะไหลลื่นตามคอไททัน
             end
         end
         
         local batchSize = Config.HitAll and 100 or 20
         local batchTitans = {} for i = 1, math.min(batchSize, #aliveTitans) do table.insert(batchTitans, aliveTitans[i]) end
-        if lastTotalHealth - currentTotalHealth <= 0 then cycleStuckCount = cycleStuckCount + 1 else cycleStuckCount = 0 end
+        
+        if lastTotalHealth - currentTotalHealth <= 0 then 
+            cycleStuckCount = cycleStuckCount + 1 
+        else 
+            cycleStuckCount = 0 
+        end
+        
+        -- 🔥 ป้องกันการนับ Stuck พลาดตอนกำลังบินไกลๆ
+        if isFlying then cycleStuckCount = 0 end
+        
         lastTotalHealth = currentTotalHealth
         
         local bladesLeft = 3
