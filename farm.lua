@@ -895,7 +895,13 @@ if placeId == 14916516914 then
             local checkXP = math.max(tonumber(_G.LastXP) or 0, tonumber(plr:GetAttribute("XP")) or 0)
             local checkMaxXP = math.max(tonumber(_G.LastMaxXP) or 0, tonumber(plr:GetAttribute("Max_XP")) or 0)
             if checkMaxXP == 0 then checkMaxXP = 999999999 end
-            local isReadyToPrestige = (checkLevel >= targetLevelReq and checkXP >= checkMaxXP and checkPrestige < Config.PrestigeTarget)
+            
+            local prestigeKey = "P" .. tostring(checkPrestige + 1)
+            local pSettings = Config.VenozPrestige and Config.VenozPrestige[prestigeKey] or { TargetBoost = "Gold Boost", RequiredGold = 0 }
+            local reqGold = (pSettings.RequiredGold or 0) * 1000000
+            local currentGold = _G.LastGold or 0
+            
+            local isReadyToPrestige = (checkLevel >= targetLevelReq and checkXP >= checkMaxXP and checkPrestige < Config.PrestigeTarget and currentGold >= reqGold)
 
             if Config.AutoPrestige and isReadyToPrestige then
                 local didPrestige = false
@@ -1095,6 +1101,11 @@ task.spawn(function()
             local curPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
             local maxLevelReq = 100 + (curPrestige * 25)
             
+            local prestigeKey = "P" .. tostring(curPrestige + 1)
+            local pSettings = Config.VenozPrestige and Config.VenozPrestige[prestigeKey] or { TargetBoost = "Gold Boost", RequiredGold = 0 }
+            local reqGold = (pSettings.RequiredGold or 0) * 1000000
+            local currentGold = _G.LastGold or 0
+            
             local shouldLeaveForPerks = false
             if Config.AutoDeletePerk then
                 local totalPerks = _G.TotalPerksCount or 0
@@ -1103,8 +1114,8 @@ task.spawn(function()
 
             local POST = Remotes:FindFirstChild("POST")
 
-            if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
-                print("🚪 [Retry] ยิงรีโมท Leave (เลเวลครบ ต้องจุติ)")
+            if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget and currentGold >= reqGold then
+                print("🚪 [Retry] ยิงรีโมท Leave (เลเวลครบ และ เงินพอจุติแล้ว)")
                 pcall(function() if POST then POST:FireServer("Functions", "Teleport") end end)
             elseif shouldLeaveForPerks then
                 print("🔄 [Retry] ยิงรีโมท Leave (Perks เต็มกระเป๋า 100+)")
