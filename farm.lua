@@ -393,21 +393,18 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
             -- ฟังก์ชันตรวจสอบว่าเป็นสิ่งมีชีวิต (ผู้เล่น/ไททัน) หรือไม่
             local Players = game:GetService("Players")
             local function isEntity(part)
-                local p = part.Parent
-                if not p then return false end
-                
-                -- เช็คว่าเป็นผู้เล่น (Player)
-                if p:FindFirstChildOfClass("Humanoid") and Players:GetPlayerFromCharacter(p) then return true end
-                if p.Parent and p.Parent:FindFirstChildOfClass("Humanoid") and Players:GetPlayerFromCharacter(p.Parent) then return true end
-                
-                -- เช็คว่าเป็นไททัน (Titan) ปกติไททันจะมีชิ้นส่วน nape หรือชื่อโมเดลไททัน
-                if p:FindFirstChild("nape") or (p.Parent and p.Parent:FindFirstChild("nape")) then return true end
-                if p:FindFirstChild("TitanHealth") or (p.Parent and p.Parent:FindFirstChild("TitanHealth")) then return true end
-                if p.Name == "Titans" or (p.Parent and p.Parent.Name == "Titans") then return true end
-                
-                -- เช็คว่าเป็นอาวุธ/อุปกรณ์ที่ติดอยู่กับตัว
-                if p:IsA("Accessory") or p:IsA("Tool") or part:IsA("Accessory") or part:IsA("Tool") then return true end
-                
+                local current = part
+                while current and current ~= workspace do
+                    -- เช็คว่าเป็นผู้เล่น (Player)
+                    if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") and Players:GetPlayerFromCharacter(current) then
+                        return true
+                    end
+                    -- เช็คว่าเป็นอาวุธ/อุปกรณ์ที่ติดอยู่กับตัว
+                    if current:IsA("Accessory") or current:IsA("Tool") then
+                        return true
+                    end
+                    current = current.Parent
+                end
                 return false
             end
             
@@ -442,17 +439,52 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
             end
 
             task.spawn(function()
-                -- ลบ Terrain ทั้งหมด (เสาหิน ภูเขา ต้นไม้ยักษ์ ที่สร้างจาก Terrain จะหายวับ)
-                pcall(function()
-                    workspace.Terrain:Clear()
-                end)
-                
-                -- ลบกราฟิกเดิมที่มีอยู่
-                for _, v in ipairs(workspace:GetDescendants()) do
-                    optimizePart(v)
+                -- รันลูปเช็คและลบกราฟิกซ้ำๆ ทุก 1 วินาที (ป้องกันเกมพยายามโหลดแมพกลับมาเวลาวาร์ป)
+                while task.wait(1) do
+                    -- ลบ Terrain ทั้งหมด (เสาหิน ภูเขา ต้นไม้ยักษ์ ที่สร้างจาก Terrain จะหายวับ)
+                    pcall(function()
+                        workspace.Terrain:Clear()
+                    end)
+                    
+                    -- ซ่อนแมพและสิ่งของรบกวนสายตาทันที (บังคับซ่อนแบบเจาะจง)
+                    local lobbyTargets = {
+                        workspace:FindFirstChild("World"),
+                        workspace:FindFirstChild("Climbable"),
+                        workspace:FindFirstChild("Debris"),
+                        workspace:FindFirstChild("Hooks"),
+                        workspace:FindFirstChild("Unclimbable"),
+                        workspace:FindFirstChild("Points"),
+                        workspace:FindFirstChild("Map"),
+                        workspace:FindFirstChild("Titans")
+                    }
+                    
+                    for _, target in ipairs(lobbyTargets) do
+                        if target then
+                            for _, v in ipairs(target:GetDescendants()) do
+                                pcall(function()
+                                    if v:IsA("BasePart") and v.Transparency ~= 1 then
+                                        v.Transparency = 1
+                                        v.Material = Enum.Material.Plastic
+                                        v.CastShadow = false
+                                        if v:IsA("MeshPart") then v.TextureID = "" end
+                                    elseif (v:IsA("Decal") or v:IsA("Texture")) and v.Transparency ~= 1 then
+                                        v.Transparency = 1
+                                    end
+                                end)
+                            end
+                        end
+                    end
                 end
-                -- ดักลบกราฟิกใหม่ที่เกิดมาเรื่อยๆ (เช่น เลือดไททัน, text ดาเมจ)
-                workspace.DescendantAdded:Connect(optimizePart)
+            end)
+            
+            -- ลบกราฟิกเดิมที่มีอยู่ทั่วแมพตอนเริ่ม
+            for _, v in ipairs(workspace:GetDescendants()) do
+                pcall(function() optimizePart(v) end)
+            end
+            
+            -- ดักลบกราฟิกใหม่ที่เกิดมาเรื่อยๆ (เช่น เลือดไททัน, text ดาเมจ)
+            workspace.DescendantAdded:Connect(function(v)
+                pcall(function() optimizePart(v) end)
             end)
             
             -- 🔥 ปิด Camera Shake โดยตรงจาก Module ของเกม
