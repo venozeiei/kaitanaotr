@@ -50,6 +50,15 @@ local Remotes = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes")
 local GET = Remotes:WaitForChild("GET", 10)
 
 -- ============================================================
+-- 🚫 ANTI-AFK (ป้องกันการหลุดเมื่อพับจอ/ไม่ขยับเมาส์)
+-- ============================================================
+local VirtualUser = game:GetService("VirtualUser")
+plr.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
+end)
+
+-- ============================================================
 -- 🖥️ DISABLE 3D RENDERING (ZERO GPU MODE)
 -- ============================================================
 if Config.Disable3D and not _G.Disabled3D then
@@ -986,22 +995,28 @@ if placeId == 14916516914 then
             
             pcall(function()
                 if Config.AutoUpgrade then
-                    _G.CurrentAction = "Upgrading All Equipment..."
-                    local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
-                    
-                    -- อัปเกรด 2 รอบพร้อมกันเพื่อลดอาการกระตุก
-                    for i = 1, 2 do 
-                        task.spawn(function()
+                    task.spawn(function()
+                        -- อัปเกรดแบบเรียงลำดับ (แต่ทำเบื้องหลังไม่ให้ล็อบบี้ค้าง)
+                        local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
+                        for i = 1, 5 do 
                             pcall(function() GET:InvokeServer("Equipment", "Upgrade_All") end)
+                            pcall(function() GET:InvokeServer("Equipment", "Upgrade", {"All"}) end)
                             pcall(function() GET:InvokeServer("Equipment", "Grade_Up") end)
                             pcall(function() GET:InvokeServer("Equipment", "Tier_Up") end)
+                            for _, stat in ipairs(bladeUpgrades) do 
+                                pcall(function() GET:InvokeServer("Equipment", "Upgrade", {stat}) end)
+                            end
+                            
                             pcall(function() GET:InvokeServer("S_Equipment", "Upgrade_All") end)
+                            pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {"All"}) end)
                             pcall(function() GET:InvokeServer("S_Equipment", "Grade_Up") end)
                             pcall(function() GET:InvokeServer("S_Equipment", "Tier_Up") end)
-                        end)
-                    end
-                    
-                    task.spawn(function()
+                            for _, stat in ipairs(bladeUpgrades) do 
+                                pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {stat}) end)
+                            end
+                        end
+                        
+                        -- อัปเกรด Skill Tree
                         local bannedSkills = {
                             ["76"]=true, ["93"]=true, ["95"]=true, ["97"]=true, 
                             ["103"]=true, ["158"]=true, ["163"]=true
@@ -1009,9 +1024,8 @@ if placeId == 14916516914 then
                         for s = 1, 168 do
                             local sStr = tostring(s)
                             if not (s >= 38 and s <= 69) and not bannedSkills[sStr] then
-                                task.spawn(function() pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end) end)
+                                pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
                             end
-                            if s % 20 == 0 then task.wait() end
                         end
                     end)
                 end
