@@ -1446,6 +1446,11 @@ task.spawn(function()
                     isBladeBroken = true
                 end
                 
+                -- Fallback: If we've been attacking for 10 cycles and dealt 0 damage, the blade is probably broken.
+                if cycleStuckCount >= 10 then
+                    isBladeBroken = true
+                end
+                
                 -- 🔥 INFINITE GAS HACK - บังคับให้มีแก๊สเสมอ
                 local gasHUD = seven and seven:FindFirstChild("Gas")
                 if gasHUD then
@@ -1468,38 +1473,48 @@ task.spawn(function()
         if isBladeBroken then
             _G.CurrentAction = "Combat: Swapping Broken Blade..."
             local currentTime = os.clock()
-            if not _G.LastReloadTime or (currentTime - _G.LastReloadTime >= 1.0) then
+            if not _G.LastReloadTime or (currentTime - _G.LastReloadTime >= 1.5) then
                 _G.LastReloadTime = currentTime
+                
                 pcall(function() bindable:Invoke("CALL", "ResetState") end)
                 
-                _G.CurrentAction = "Combat: Emergency Bypass Refill..."
-                pcall(function() bindable:Invoke("CALL", "BypassRefill") end)
+                if bladesLeft <= 0 then
+                    _G.CurrentAction = "Combat: Emergency Bypass Refill..."
+                    pcall(function() bindable:Invoke("CALL", "BypassRefill") end)
+                end
                 
                 pcall(function()
                     local getRemote = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
                     getRemote:InvokeServer("Blades", "Reload")
                 end)
             end
+            task.wait(0.1)
         end
 
-        if cycleStuckCount == 3 then 
+        if cycleStuckCount == 4 then 
             pcall(function() bindable:Invoke("CALL", "ResetState") end)
-            _G.CurrentAction = "Combat: Resetting State (Stuck 3)..."
-        elseif cycleStuckCount == 5 then
+            _G.CurrentAction = "Combat: Resetting State (Stuck 4)..."
+        elseif cycleStuckCount == 8 then
             pcall(function() bindable:Invoke("CALL", "ResetState") end)
-            _G.CurrentAction = "Combat: Bypass Refilling..."
-            pcall(function() bindable:Invoke("CALL", "BypassRefill") end)
-            pcall(function()
-                local getRemote = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-                getRemote:InvokeServer("Blades", "Reload")
-            end)
-        elseif cycleStuckCount >= 7 then
+            if needsBoxRefill then
+                -- ดาบหมด 0/3 หรือ แก๊สหมด -> BypassRefill เติมเต็มทันที
+                _G.CurrentAction = "Combat: Bypass Refilling..."
+                pcall(function() bindable:Invoke("CALL", "BypassRefill") end)
+                pcall(function()
+                    local getRemote = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                    getRemote:InvokeServer("Blades", "Reload")
+                end)
+                task.wait(0.3)
+            else
+                _G.CurrentAction = "Combat: Resetting State (Stuck 8)..."
+            end
+        elseif cycleStuckCount >= 12 then
             _G.CurrentAction = "Combat: Titan Blacklisted!"
             if targetTitan and targetTitan.titan then blacklistedTitans[targetTitan.titan] = true end
             cycleStuckCount = 0 lastTotalHealth = 999999999
         end
         
-        if cycleStuckCount < 3 then
+        if cycleStuckCount < 4 then
             _G.CurrentAction = "Combat: Slashing Nape!"
             pcall(function() bindable:Invoke("CALL", "SlashOnly") end)
             for _, target in ipairs(batchTitans) do 
