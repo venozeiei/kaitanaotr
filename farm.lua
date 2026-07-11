@@ -514,14 +514,13 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
             
             local safePlat = Instance.new("Part")
             safePlat.Name = "VenozSafePlat"
-            safePlat.Size = Vector3.new(50000, 10, 50000) -- ขยายให้คลุมทั้งแมพ (ป้องกันตกโลก)
-            safePlat.Position = Vector3.new(0, 5, 0) -- วางไว้ที่ระดับพื้นฐาน
+            safePlat.Size = Vector3.new(1000, 10, 1000)
+            safePlat.Position = Vector3.new(233, 3, 37) 
             safePlat.Anchored = true
-            safePlat.Transparency = 1 -- ซ่อนพื้นนี้ไว้
+            safePlat.Transparency = 0.5
             safePlat.Color = Color3.fromRGB(0, 255, 0)
-            safePlat.Material = Enum.Material.Plastic
+            safePlat.Material = Enum.Material.Neon
             safePlat.Parent = workspace
-            
             -- Optimized: Only process workspace children once, not descendants
             for _, v in ipairs(workspace:GetChildren()) do
                 if v == safePlat then continue end
@@ -1437,10 +1436,8 @@ task.spawn(function()
             local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
             local titanRoot = titan:FindFirstChild("HumanoidRootPart") or nape
             if nape and humanoid and humanoid.Health > 0 and titanRoot then
-                -- เก็บระยะห่างจากตัวเรา (Player) เพื่อใช้เป็นเกณฑ์หลักในการไล่ฆ่า
-                local distFromSpawn = (spawnPoint - titanRoot.Position).Magnitude
-                local distFromPlayer = (currentRoot.Position - titanRoot.Position).Magnitude
-                table.insert(aliveTitans, { titan = titan, nape = nape, root = titanRoot, distFromSpawn = distFromSpawn, distFromPlayer = distFromPlayer })
+                local dist = (currentRoot.Position - titanRoot.Position).Magnitude
+                table.insert(aliveTitans, { titan = titan, nape = nape, root = titanRoot, dist = dist })
                 currentTotalHealth = currentTotalHealth + humanoid.Health
             end
         end
