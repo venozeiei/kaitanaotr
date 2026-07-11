@@ -372,9 +372,9 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
             safePlat.Material = Enum.Material.SmoothPlastic
             safePlat.Parent = workspace
             
-            -- ลบของในแมพตามที่ผู้ใช้ระบุ (ปลอดภัย 100% และไม่กระทบ GUI)
+            -- ลบของในแมพตามที่ผู้ใช้ระบุ (ยกเว้น Titans เพื่อไม่ให้สคริปต์พังและมองไม่เห็นมาร์คเกอร์)
             pcall(function()
-                local foldersToClear = {"Climbable", "Debris", "Hooks", "Unclimbable", "Points", "Titans"}
+                local foldersToClear = {"Climbable", "Debris", "Hooks", "Unclimbable", "Points"}
                 for _, name in ipairs(foldersToClear) do
                     local folder = workspace:FindFirstChild(name)
                     if folder then
@@ -1341,6 +1341,22 @@ task.spawn(function()
             if blacklistedTitans[titan] then continue end 
             local nape = titan:FindFirstChild("Nape", true)
             local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
+            
+            -- ทำให้ไททันล่องหนเพื่อลดแลค (แต่เหลือสัญลักษณ์ Marker ไว้)
+            if not titan:GetAttribute("VenozInvisible") then
+                titan:SetAttribute("VenozInvisible", true)
+                task.spawn(function()
+                    pcall(function()
+                        for _, desc in ipairs(titan:GetDescendants()) do
+                            if desc:IsA("BasePart") then
+                                desc.Transparency = 1
+                            elseif desc:IsA("Decal") or desc:IsA("Texture") or desc:IsA("Clothing") or desc:IsA("ShirtGraphic") or desc:IsA("ParticleEmitter") then
+                                desc:Destroy()
+                            end
+                        end
+                    end)
+                end)
+            end
             local titanRoot = titan:FindFirstChild("HumanoidRootPart") or nape
             if nape and humanoid and humanoid.Health > 0 and titanRoot then
                 -- คำนวณระยะห่างจากจุดเกิดแทนจากตัวเรา เพื่อไล่ฆ่าไททันที่ใกล้จุดเกิดก่อน
