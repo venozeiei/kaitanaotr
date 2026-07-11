@@ -23,7 +23,7 @@ local DEFAULT_CONFIG = {
     },
     AutoThunderSpearQuest = true, ThunderSpearAtPrestige = 4, AutoBoost = false, BoostTypes = {}, BoostExpUntilPrestige = 0,
     TrackerUpdateInterval = 2, BoostCheckInterval = 10, CombatLoopInterval = 0.15, DataFetchInterval = 8, MinGemsToBuyBoosts = 999999,
-    Disable3D = false, Modifiers = {}, HitAll = true
+    Disable3D = false, Modifiers = {"No Perks", "No Skills", "No Memories", "Nightmare", "Oddball", "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"}, HitAll = true
 }
 
 getgenv().Venoz_Config = getgenv().Venoz_Config or {}
