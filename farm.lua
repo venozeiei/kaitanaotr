@@ -1261,8 +1261,7 @@ task.spawn(function()
             game:GetService("GuiService").SelectedObject = btn
         end)
         
-        local tracker = game:GetService("CoreGui"):FindFirstChild("VenozTracker") or game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("VenozTracker")
-        if tracker then pcall(function() tracker.Enabled = false end) end
+        local isLeave = string.find(string.lower(btn.Name), "leave") ~= nil
         
         local isDisabled = false
         if btn:IsA("GuiButton") then
@@ -1270,8 +1269,13 @@ task.spawn(function()
         end
         
         if isDisabled then
-            pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
-            if tracker then pcall(function() tracker.Enabled = true end) end
+            pcall(function() 
+                if isLeave then
+                    GET:InvokeServer("S_Missions", "Leave")
+                else
+                    GET:InvokeServer("S_Missions", "Retry") 
+                end
+            end)
             return true
         end
         
@@ -1288,27 +1292,16 @@ task.spawn(function()
             end
         end)
         
-        pcall(function()
-            local VirtualInputManager = game:GetService("VirtualInputManager")
-            
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-            task.wait(0.05)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-            
-            local absPos = btn.AbsolutePosition
-            local absSize = btn.AbsoluteSize
-            local inset = game:GetService("GuiService"):GetGuiInset()
-            local centerX = absPos.X + (absSize.X / 2)
-            local centerY = absPos.Y + (absSize.Y / 2) + inset.Y
-            VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-            task.wait(0.1)
-            VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+        task.wait(0.2)
+        -- Fallback Remote if UI connections fail
+        pcall(function() 
+            if isLeave then
+                GET:InvokeServer("S_Missions", "Leave")
+            else
+                GET:InvokeServer("S_Missions", "Retry") 
+            end
         end)
         
-        task.wait(0.2)
-        pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
-        
-        if tracker then pcall(function() tracker.Enabled = true end) end
         return true
     end
     
