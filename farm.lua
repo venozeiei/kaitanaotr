@@ -1271,26 +1271,30 @@ task.spawn(function()
             return true
         end
         
-        if getconnections then
-            for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do pcall(function() conn:Fire() end) end
-            for _, conn in ipairs(getconnections(btn.Activated)) do pcall(function() conn:Fire() end) end
-            for _, conn in ipairs(getconnections(btn.MouseButton1Down)) do pcall(function() conn:Fire() end) end
-        end
+        pcall(function()
+            if getconnections then
+                for _, conn in ipairs(getconnections(btn.MouseButton1Click) or {}) do pcall(function() conn:Fire() end) end
+                for _, conn in ipairs(getconnections(btn.Activated) or {}) do pcall(function() conn:Fire() end) end
+                for _, conn in ipairs(getconnections(btn.MouseButton1Down) or {}) do pcall(function() conn:Fire() end) end
+            end
+            
+            if firesignal then
+                pcall(function() firesignal(btn.MouseButton1Click) end)
+                pcall(function() firesignal(btn.Activated) end)
+            end
+        end)
         
-        if firesignal then
-            pcall(function() firesignal(btn.MouseButton1Click) end)
-            pcall(function() firesignal(btn.Activated) end)
-        end
-        
-        local VirtualInputManager = game:GetService("VirtualInputManager")
-        local absPos = btn.AbsolutePosition
-        local absSize = btn.AbsoluteSize
-        local inset = game:GetService("GuiService"):GetGuiInset()
-        local centerX = absPos.X + (absSize.X / 2)
-        local centerY = absPos.Y + (absSize.Y / 2) + inset.Y
-        VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-        task.wait(0.1)
-        VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+        pcall(function()
+            local VirtualInputManager = game:GetService("VirtualInputManager")
+            local absPos = btn.AbsolutePosition
+            local absSize = btn.AbsoluteSize
+            local inset = game:GetService("GuiService"):GetGuiInset()
+            local centerX = absPos.X + (absSize.X / 2)
+            local centerY = absPos.Y + (absSize.Y / 2) + inset.Y
+            VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
+            task.wait(0.1)
+            VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+        end)
         
         task.wait(0.2)
         pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
@@ -1306,15 +1310,19 @@ task.spawn(function()
             local maxLevelReq = 100 + (curPrestige * 25)
             
             -- Cache UI references
-            if not cachedMainInfo then
-                cachedMainInfo = rewardsUI:FindFirstChild("Main") and rewardsUI.Main:FindFirstChild("Info") and rewardsUI.Main.Info:FindFirstChild("Main")
-            end
-            if cachedMainInfo and not cachedButtons then
-                cachedButtons = cachedMainInfo:FindFirstChild("Buttons")
-            end
-            if cachedMainInfo and not cachedBoostElement then
-                cachedBoostElement = cachedMainInfo:FindFirstChild("Boost")
-            end
+            pcall(function()
+                if not cachedMainInfo then
+                    local rMain = rewardsUI:FindFirstChild("Main")
+                    local rInfo = rMain and rMain:FindFirstChild("Info")
+                    cachedMainInfo = rInfo and rInfo:FindFirstChild("Main")
+                end
+                if cachedMainInfo and not cachedButtons then
+                    cachedButtons = cachedMainInfo:FindFirstChild("Buttons")
+                end
+                if cachedMainInfo and not cachedBoostElement then
+                    cachedBoostElement = cachedMainInfo:FindFirstChild("Boost")
+                end
+            end)
             
             local buttons = cachedButtons
             local boostElement = cachedBoostElement
