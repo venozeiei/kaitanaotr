@@ -1261,6 +1261,9 @@ task.spawn(function()
             game:GetService("GuiService").SelectedObject = btn
         end)
         
+        local tracker = game:GetService("CoreGui"):FindFirstChild("VenozTracker") or game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("VenozTracker")
+        if tracker then pcall(function() tracker.Enabled = false end) end
+        
         local isDisabled = false
         if btn:IsA("GuiButton") then
             isDisabled = (btn.Active == false)
@@ -1268,6 +1271,7 @@ task.spawn(function()
         
         if isDisabled then
             pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
+            if tracker then pcall(function() tracker.Enabled = true end) end
             return true
         end
         
@@ -1286,6 +1290,11 @@ task.spawn(function()
         
         pcall(function()
             local VirtualInputManager = game:GetService("VirtualInputManager")
+            
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+            task.wait(0.05)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+            
             local absPos = btn.AbsolutePosition
             local absSize = btn.AbsoluteSize
             local inset = game:GetService("GuiService"):GetGuiInset()
@@ -1299,6 +1308,7 @@ task.spawn(function()
         task.wait(0.2)
         pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
         
+        if tracker then pcall(function() tracker.Enabled = true end) end
         return true
     end
     
