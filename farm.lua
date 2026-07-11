@@ -1247,6 +1247,7 @@ local interface = plr:WaitForChild("PlayerGui"):WaitForChild("Interface", 999)
 -- 🔧 OPTIMIZED RETRY BUTTON FIX (REMOTE ONLY)
 -- ============================================================
 task.spawn(function()
+    local rewardsUI = interface:WaitForChild("Rewards", 999)
     local cachedButtons = nil
     local cachedMainInfo = nil
     local cachedBoostElement = nil
@@ -1254,6 +1255,11 @@ task.spawn(function()
     
     local function clickButtonAdvanced(btn)
         if not btn then return false end
+        
+        _G.CurrentAction = "Locking on: " .. btn.Name
+        pcall(function()
+            game:GetService("GuiService").SelectedObject = btn
+        end)
         
         local isDisabled = false
         if btn:IsA("GuiButton") then
