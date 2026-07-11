@@ -608,6 +608,21 @@ task.spawn(function()
         local cachedTopbar = nil
 
         while task.wait(Config.TrackerUpdateInterval) do 
+            pcall(function() 
+                game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, false) 
+                local coreGui = game:GetService("CoreGui")
+                local hideList = {"TopBarApp", "ThemeProvider", "ExperienceChat", "Chat"}
+                for _, name in ipairs(hideList) do
+                    local gui = coreGui:FindFirstChild(name)
+                    if gui and gui:IsA("ScreenGui") then gui.Enabled = false end
+                end
+                local robloxGui = coreGui:FindFirstChild("RobloxGui")
+                if robloxGui then
+                    for _, child in ipairs(robloxGui:GetChildren()) do
+                        if child:IsA("GuiObject") then child.Visible = false end
+                    end
+                end
+            end)
             local p = game.Players.LocalPlayer
             if not p then continue end
             local currentTick = os.time()
