@@ -1263,6 +1263,14 @@ task.spawn(function()
         
         local isLeave = string.find(string.lower(btn.Name), "leave") ~= nil
         
+        -- Hide ALL Trackers securely so they don't block VirtualInputManager
+        local trackers = {}
+        pcall(function()
+            for _, v in ipairs(game:GetService("CoreGui"):GetChildren()) do if v.Name == "VenozTracker" then table.insert(trackers, v) end end
+            for _, v in ipairs(game:GetService("Players").LocalPlayer.PlayerGui:GetChildren()) do if v.Name == "VenozTracker" then table.insert(trackers, v) end end
+            for _, t in ipairs(trackers) do t.Enabled = false end
+        end)
+        
         local isDisabled = false
         if btn:IsA("GuiButton") then
             isDisabled = (btn.Active == false)
@@ -1270,12 +1278,9 @@ task.spawn(function()
         
         if isDisabled then
             pcall(function() 
-                if isLeave then
-                    GET:InvokeServer("S_Missions", "Leave")
-                else
-                    GET:InvokeServer("S_Missions", "Retry") 
-                end
+                if isLeave then GET:InvokeServer("S_Missions", "Leave") else GET:InvokeServer("S_Missions", "Retry") end
             end)
+            pcall(function() for _, t in ipairs(trackers) do t.Enabled = true end end)
             return true
         end
         
@@ -1292,16 +1297,35 @@ task.spawn(function()
             end
         end)
         
+        pcall(function()
+            local vu = game:GetService("VirtualUser")
+            vu:CaptureController()
+            vu:ClickButton1(Vector2.new(btn.AbsolutePosition.X + btn.AbsoluteSize.X/2, btn.AbsolutePosition.Y + btn.AbsoluteSize.Y/2))
+        end)
+        
+        pcall(function()
+            local vim = game:GetService("VirtualInputManager")
+            vim:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+            task.wait(0.05)
+            vim:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+            
+            local absPos = btn.AbsolutePosition
+            local absSize = btn.AbsoluteSize
+            local inset = game:GetService("GuiService"):GetGuiInset()
+            local cx = absPos.X + (absSize.X / 2)
+            local cy = absPos.Y + (absSize.Y / 2) + inset.Y
+            vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+            task.wait(0.1)
+            vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+        end)
+        
         task.wait(0.2)
         -- Fallback Remote if UI connections fail
         pcall(function() 
-            if isLeave then
-                GET:InvokeServer("S_Missions", "Leave")
-            else
-                GET:InvokeServer("S_Missions", "Retry") 
-            end
+            if isLeave then GET:InvokeServer("S_Missions", "Leave") else GET:InvokeServer("S_Missions", "Retry") end
         end)
         
+        pcall(function() for _, t in ipairs(trackers) do t.Enabled = true end end)
         return true
     end
     
