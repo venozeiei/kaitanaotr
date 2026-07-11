@@ -392,60 +392,102 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
                 workspace.Terrain.WaterTransparency = 0
             end)
             
-            local safePlat = Instance.new("Part")
-            safePlat.Name = "VenozSafePlat"
-            safePlat.Size = Vector3.new(5000, 10, 5000)
-            safePlat.Anchored = true
-            safePlat.Transparency = 0.5
-            safePlat.Color = Color3.fromRGB(0, 255, 0)
-            safePlat.Material = Enum.Material.Neon
-            safePlat.Parent = workspace
+            -- ฟังก์ชันตรวจสอบว่าเป็นสิ่งมีชีวิต (ผู้เล่น/ไททัน) หรือไม่
+            local Players = game:GetService("Players")
+            local function isEntity(part)
+                local current = part
+                while current and current ~= workspace do
+                    -- เช็คว่าเป็นผู้เล่น (Player)
+                    if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") and Players:GetPlayerFromCharacter(current) then
+                        return true
+                    end
+                    -- เช็คว่าเป็นอาวุธ/อุปกรณ์ที่ติดอยู่กับตัว
+                    if current:IsA("Accessory") or current:IsA("Tool") then
+                        return true
+                    end
+                    current = current.Parent
+                end
+                return false
+            end
             
-            task.spawn(function()
-                while task.wait(0.1) do
-                    pcall(function()
-                        local p = game:GetService("Players").LocalPlayer
-                        local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-                        if hrp and safePlat.Parent then
-                            -- ถ้าไม่ได้ถูกล็อกตัวไว้ (กำลังรอมอนสเตอร์) ให้สร้างพื้นรองรับไว้ใต้เท้าเสมอ
-                            if not hrp.Anchored then
-                                safePlat.Position = Vector3.new(hrp.Position.X, hrp.Position.Y - 15, hrp.Position.Z)
-                            end
+            -- ฟังก์ชันปรับกราฟิกขั้นสุดแบบ Blox Fruits (แมพหายหมด)
+            local function optimizePart(v)
+                pcall(function()
+                    if v:IsA("BasePart") then
+                        v.Material = Enum.Material.Plastic -- change Material to Plastic
+                        v.Reflectance = 0
+                        v.CastShadow = false
+                        
+                        if v:IsA("MeshPart") then
+                            v.TextureID = "" -- remove texture
                         end
-                    end)
-                end
-            end)
-            
-            -- 🔥 ลบโฟลเดอร์ขยะทั้งหมดทิ้งแบบถอนรากถอนโคน (ลดแลคขั้นสุด)
-            pcall(function()
-                local foldersToDelete = {"World", "Climbable", "Debris", "Hooks", "Unclimbable", "Map", "Walls"}
-                for _, name in ipairs(foldersToDelete) do
-                    local folder = workspace:FindFirstChild(name)
-                    if folder then
-                        folder:ClearAllChildren()
-                        folder:Destroy()
+                        
+                        -- ทำให้ชิ้นส่วนทั้งหมดล่องหน ยกเว้นตัวละครและไททัน
+                        if not isEntity(v) then
+                            v.Transparency = 1
+                        end
+                    elseif v:IsA("Decal") or v:IsA("Texture") then
+                        v.Transparency = 1 -- disable transparency / hide textures
+                    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") then
+                        v.Enabled = false -- disable particle / vfx
+                        v:Destroy()
+                    elseif v:IsA("BillboardGui") or v:IsA("SurfaceGui") then
+                        if v.Name:lower():find("damage") or v.Name:lower():find("kill") or v.Name:lower():find("text") then
+                            v.Enabled = false -- remove kill mob text
+                            v:Destroy()
+                        end
                     end
-                end
-            end)
-            
-            -- Optimized: Only process workspace children once, not descendants
-            for _, v in ipairs(workspace:GetChildren()) do
-                if v == safePlat then continue end
-                if v:IsA("Texture") or v:IsA("Decal") then
-                    pcall(function() v:Destroy() end)
-                elseif v:IsA("BasePart") then
-                    if not v.Parent:FindFirstChild("Humanoid") and not string.find(v.Name, "Titan") and not v:GetAttribute("Max_Refills") then
-                        pcall(function()
-                            v.Material = Enum.Material.SmoothPlastic
-                            v.Reflectance = 0
-                            v.Transparency = 1 
-                            v.CanCollide = false 
-                            v.CastShadow = false
-                        end)
-                    end
-                end
+                end)
             end
 
+            task.spawn(function()
+                -- รันลูปเช็คและลบกราฟิกซ้ำๆ ทุก 1 วินาที (ป้องกันเกมพยายามโหลดแมพกลับมาเวลาวาร์ป)
+                while task.wait(1) do
+                    -- ลบ Terrain ทั้งหมด (เสาหิน ภูเขา ต้นไม้ยักษ์ ที่สร้างจาก Terrain จะหายวับ)
+                    pcall(function()
+                        workspace.Terrain:Clear()
+                    end)
+                    
+                    -- ซ่อนแมพและสิ่งของรบกวนสายตาทันที (บังคับซ่อนแบบเจาะจง)
+                    local lobbyTargets = {
+                        workspace:FindFirstChild("World"),
+                        workspace:FindFirstChild("Climbable"),
+                        workspace:FindFirstChild("Debris"),
+                        workspace:FindFirstChild("Hooks"),
+                        workspace:FindFirstChild("Unclimbable"),
+                        workspace:FindFirstChild("Points"),
+                        workspace:FindFirstChild("Map"),
+                        workspace:FindFirstChild("Titans")
+                    }
+                    
+                    for _, target in ipairs(lobbyTargets) do
+                        if target then
+                            for _, v in ipairs(target:GetDescendants()) do
+                                pcall(function()
+                                    if v:IsA("BasePart") and v.Transparency ~= 1 then
+                                        v.Transparency = 1
+                                        v.Material = Enum.Material.Plastic
+                                        v.CastShadow = false
+                                        if v:IsA("MeshPart") then v.TextureID = "" end
+                                    elseif (v:IsA("Decal") or v:IsA("Texture")) and v.Transparency ~= 1 then
+                                        v.Transparency = 1
+                                    end
+                                end)
+                            end
+                        end
+                    end
+                end
+            end)
+            
+            -- ลบกราฟิกเดิมที่มีอยู่ทั่วแมพตอนเริ่ม
+            for _, v in ipairs(workspace:GetDescendants()) do
+                pcall(function() optimizePart(v) end)
+            end
+            
+            -- ดักลบกราฟิกใหม่ที่เกิดมาเรื่อยๆ (เช่น เลือดไททัน, text ดาเมจ)
+            workspace.DescendantAdded:Connect(function(v)
+                pcall(function() optimizePart(v) end)
+            end)
             
             -- 🔥 ปิด Camera Shake โดยตรงจาก Module ของเกม
             pcall(function()
