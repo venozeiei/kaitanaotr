@@ -10,6 +10,8 @@
 -- ============================================================
 -- SYSTEM CONFIGURATION (FALLBACKS)
 -- ============================================================
+pcall(function() game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, false) end)
+
 local DEFAULT_CONFIG = {
     AutoFarm = true, TargetSlot = "A", AutoAntiLag = true, AutoBoostedMap = false,
     StartType = "Missions", MissionMap = "Chapel", MissionObjective = "Skirmish", MissionDifficulty = "Aberrant++",
@@ -48,6 +50,15 @@ local plr = Players.LocalPlayer
 local placeId = game.PlaceId
 local Remotes = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes")
 local GET = Remotes:WaitForChild("GET", 10)
+
+-- ============================================================
+-- 🚫 ANTI-AFK (ป้องกันการหลุดเมื่อพับจอ/ไม่ขยับเมาส์)
+-- ============================================================
+local VirtualUser = game:GetService("VirtualUser")
+plr.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
+end)
 
 -- ============================================================
 -- 🖥️ DISABLE 3D RENDERING (ZERO GPU MODE)
@@ -126,16 +137,15 @@ local allQuestTags = {
     "Novice Adventurer", "Novice Wrecker", "Penny Pincher", "Player's Champion", 
     "Precise Striker", "Prestige Aspirant", "Prestige Challenger", "Prestige Enthusiast", 
     "Prestige Expert", "Prestige Grandmaster", "Raid Commander", "Raid Conqueror", 
-    "Raid Overlord", "Raid Veteran", "Raid Warlord", "Rescuer Extraordinaire", 
-    "Retrieve Missing Supplies", "Rookie Adventurer", "Rookie Raider", "Savior Supreme", 
-    "Seasoned Gamer", "Seasoned Operative", "Seasoned Warrior", "Shifting Adept", 
-    "Shifting Apprentice", "Shifting Expert", "Shifting Guru", "Shifting Master", 
-    "Shifting Virtuoso", "Skill Expert", "Skill Master", "Skill Novice", "Skill Practitioner", 
-    "Skill Prodigy", "Skill Virtuoso", "Team Player", "Teamwork Enthusiast", "Teamwork Maestro", 
-    "Teamwork Specialist", "Teamwork Virtuoso", "Timeless Immortal", "Titan Annihilator", 
-    "Titan Butcher", "Titan Conqueror", "Titan Dominator", "Titan Executioner", "Titan Hunter", 
+    "A New Beginning", "Abnormal Encounters", "Brave the Unknown", "Clearing the Path", "Combat Master", 
+    "Defend the Walls", "Eliminate the Threat", "Endless Fight", "Explore the Unknown", "First Blood",
+    "Giant Slayer", "Humanity's Hope", "Into the Fray", "Master of Maneuvers", "No Rest for the Weary",
+    "On the Offensive", "Path to Victory", "Protect the Innocent", "Reclaim the Territory", "Relentless Assault",
+    "Scout's Honor", "Securing the Future", "Stand Your Ground", "Survival Instinct", "Swift Justice", 
+    "The Vanguard", "Titan Bane", "Titan Buster", "Titan Hunter", "Titan Killer", 
     "Titan Slayer", "Titan Torturer", "Titan's Nightmare", "Towers", "Treasure Hunter", 
-    "Ultimate Champion", "Ultimate Protector", "Wealth Accumulator"
+    "Ultimate Champion", "Ultimate Protector", "Wealth Accumulator",
+    "Penny Pincher", "Novice Adventurer", "Thunder Spear 1", "Thunder Spear 2", "Thunder Spear 3", "Thunder Spear 4", "Thunder Spear 5"
 }
 
 local lastQuestCheck = 0
@@ -147,19 +157,31 @@ local function executeAutoQuestLogic()
     
     task.spawn(function()
         local oldAction = _G.CurrentAction
+        _G.QuestCache = _G.QuestCache or {}
         _G.CurrentAction = "AutoQuest: Accepting Dailies & Weeklies..."
         for i = 1, 4 do
-            pcall(function() GET:InvokeServer("Functions", "Quest", "Daily " .. i, "Daily") end)
-            task.wait(0.05)
-            pcall(function() GET:InvokeServer("Functions", "Quest", "Weekly " .. i, "Weekly") end)
-            task.wait(0.05)
+            local d = "Daily " .. i
+            if not _G.QuestCache[d] then
+                pcall(function() GET:InvokeServer("Functions", "Quest", d, "Daily") end)
+                _G.QuestCache[d] = true
+                task.wait(0.05)
+            end
+            local w = "Weekly " .. i
+            if not _G.QuestCache[w] then
+                pcall(function() GET:InvokeServer("Functions", "Quest", w, "Weekly") end)
+                _G.QuestCache[w] = true
+                task.wait(0.05)
+            end
         end
         _G.CurrentAction = "AutoQuest: Accepting Main & Side Quests..."
         for _, quest in ipairs(allQuestTags) do
-            pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end)
-            task.wait(0.02)
-            pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end)
-            task.wait(0.02)
+            if not _G.QuestCache[quest] then
+                pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end)
+                task.wait(0.01)
+                pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end)
+                _G.QuestCache[quest] = true
+                task.wait(0.01)
+            end
         end
         _G.CurrentAction = oldAction
     end)
@@ -172,12 +194,21 @@ local function executeAutoBoostLogic()
     
     pcall(function()
         local prestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
+        local level = _G.LastLevel or plr:GetAttribute("Level") or 0
         local boostsNeeded = {}
-        if Config.BoostExpUntilPrestige and prestige <= Config.BoostExpUntilPrestige then
+        
+        if prestige <= 3 then
             table.insert(boostsNeeded, "XP")
+        elseif prestige == 4 then
+            -- No XP
+        elseif prestige >= 5 then
+            if level < 150 then
+                table.insert(boostsNeeded, "XP")
+            end
         end
-        for _, bType in ipairs(Config.BoostTypes or {"Gold"}) do
-            if not table.find(boostsNeeded, bType) then table.insert(boostsNeeded, bType) end
+        
+        if prestige <= 4 then
+            table.insert(boostsNeeded, "Gold")
         end
         
         local actionTaken = false
@@ -262,13 +293,23 @@ task.spawn(function()
             if Config.AutoBoost and not _G.IsPrestigeing then
                 pcall(function()
                     local prestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
+                    local level = _G.LastLevel or plr:GetAttribute("Level") or 0
                     local boostsNeeded = {}
-                    if Config.BoostExpUntilPrestige and prestige <= Config.BoostExpUntilPrestige then
+                    
+                    if prestige <= 3 then
                         table.insert(boostsNeeded, "XP")
+                    elseif prestige == 4 then
+                        -- No XP
+                    elseif prestige >= 5 then
+                        if level < 150 then
+                            table.insert(boostsNeeded, "XP")
+                        end
                     end
-                    for _, bType in ipairs(Config.BoostTypes or {"Gold"}) do
-                        if not table.find(boostsNeeded, bType) then table.insert(boostsNeeded, bType) end
+                    
+                    if prestige <= 4 then
+                        table.insert(boostsNeeded, "Gold")
                     end
+                    
                     local bf = plr:FindFirstChild("Boosts")
                     if bf then
                         local needsBoost = false
@@ -335,6 +376,119 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
                 end
             end
             
+            -- 🔥 EXTREME ANTI-LAG (ลดภาระ CPU/GPU สำหรับเปิด 40+ จอ)
+            pcall(function()
+                if setfpscap then setfpscap(15) end -- ล็อค FPS ที่ 15 เพื่อลดการกิน CPU
+            end)
+            
+            -- เอาจอดำออก เพื่อให้เห็นน้ำและท้องฟ้าเหมือนใน Blox Fruits
+            -- pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(false) end)
+            
+            -- ปิดแอนิเมชั่นน้ำ (Disable water animation)
+            pcall(function()
+                workspace.Terrain.WaterWaveSize = 0
+                workspace.Terrain.WaterWaveSpeed = 0
+                workspace.Terrain.WaterReflectance = 0
+                workspace.Terrain.WaterTransparency = 0
+            end)
+            
+            -- ฟังก์ชันตรวจสอบว่าเป็นสิ่งมีชีวิต (ผู้เล่น/ไททัน) หรือไม่
+            local Players = game:GetService("Players")
+            local function isEntity(part)
+                local current = part
+                while current and current ~= workspace do
+                    -- เช็คว่าเป็นผู้เล่น (Player)
+                    if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") and Players:GetPlayerFromCharacter(current) then
+                        return true
+                    end
+                    -- เช็คว่าเป็นอาวุธ/อุปกรณ์ที่ติดอยู่กับตัว
+                    if current:IsA("Accessory") or current:IsA("Tool") then
+                        return true
+                    end
+                    current = current.Parent
+                end
+                return false
+            end
+            
+            -- ฟังก์ชันปรับกราฟิกขั้นสุดแบบ Blox Fruits (แมพหายหมด)
+            local function optimizePart(v)
+                pcall(function()
+                    if v:IsA("BasePart") then
+                        v.Material = Enum.Material.Plastic -- change Material to Plastic
+                        v.Reflectance = 0
+                        v.CastShadow = false
+                        
+                        if v:IsA("MeshPart") then
+                            v.TextureID = "" -- remove texture
+                        end
+                        
+                        -- ทำให้ชิ้นส่วนทั้งหมดล่องหน ยกเว้นตัวละครและไททัน
+                        if not isEntity(v) then
+                            v.Transparency = 1
+                        end
+                    elseif v:IsA("Decal") or v:IsA("Texture") then
+                        v.Transparency = 1 -- disable transparency / hide textures
+                    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") then
+                        v.Enabled = false -- disable particle / vfx
+                        v:Destroy()
+                    elseif v:IsA("BillboardGui") or v:IsA("SurfaceGui") then
+                        if v.Name:lower():find("damage") or v.Name:lower():find("kill") or v.Name:lower():find("text") then
+                            v.Enabled = false -- remove kill mob text
+                            v:Destroy()
+                        end
+                    end
+                end)
+            end
+
+            task.spawn(function()
+                -- รันลูปเช็คและลบกราฟิกซ้ำๆ ทุก 1 วินาที (ป้องกันเกมพยายามโหลดแมพกลับมาเวลาวาร์ป)
+                while task.wait(1) do
+                    -- ลบ Terrain ทั้งหมด (เสาหิน ภูเขา ต้นไม้ยักษ์ ที่สร้างจาก Terrain จะหายวับ)
+                    pcall(function()
+                        workspace.Terrain:Clear()
+                    end)
+                    
+                    -- ซ่อนแมพและสิ่งของรบกวนสายตาทันที (บังคับซ่อนแบบเจาะจง)
+                    local lobbyTargets = {
+                        workspace:FindFirstChild("World"),
+                        workspace:FindFirstChild("Climbable"),
+                        workspace:FindFirstChild("Debris"),
+                        workspace:FindFirstChild("Hooks"),
+                        workspace:FindFirstChild("Unclimbable"),
+                        workspace:FindFirstChild("Points"),
+                        workspace:FindFirstChild("Map"),
+                        workspace:FindFirstChild("Titans")
+                    }
+                    
+                    for _, target in ipairs(lobbyTargets) do
+                        if target then
+                            for _, v in ipairs(target:GetDescendants()) do
+                                pcall(function()
+                                    if v:IsA("BasePart") and v.Transparency ~= 1 then
+                                        v.Transparency = 1
+                                        v.Material = Enum.Material.Plastic
+                                        v.CastShadow = false
+                                        if v:IsA("MeshPart") then v.TextureID = "" end
+                                    elseif (v:IsA("Decal") or v:IsA("Texture")) and v.Transparency ~= 1 then
+                                        v.Transparency = 1
+                                    end
+                                end)
+                            end
+                        end
+                    end
+                end
+            end)
+            
+            -- ลบกราฟิกเดิมที่มีอยู่ทั่วแมพตอนเริ่ม
+            for _, v in ipairs(workspace:GetDescendants()) do
+                pcall(function() optimizePart(v) end)
+            end
+            
+            -- ดักลบกราฟิกใหม่ที่เกิดมาเรื่อยๆ (เช่น เลือดไททัน, text ดาเมจ)
+            workspace.DescendantAdded:Connect(function(v)
+                pcall(function() optimizePart(v) end)
+            end)
+            
             -- 🔥 ปิด Camera Shake โดยตรงจาก Module ของเกม
             pcall(function()
                 local rs = game:GetService("ReplicatedStorage")
@@ -360,28 +514,32 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
                 end
             end)
             
-            local hrp = game:GetService("Players").LocalPlayer.Character and game:GetService("Players").LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            local startY = hrp and hrp.Position.Y or 37
-            
             local safePlat = Instance.new("Part")
             safePlat.Name = "VenozSafePlat"
-            safePlat.Size = Vector3.new(100000, 10, 100000) -- พื้นขนาดใหญ่มหึมา คลุมทั้งแมพ
-            safePlat.Position = Vector3.new(0, startY - 5, 0) -- สร้างไว้ใต้เท้าพอดี
+            safePlat.Size = Vector3.new(1000, 10, 1000)
+            safePlat.Position = Vector3.new(233, 3, 37) 
             safePlat.Anchored = true
-            safePlat.Transparency = 1 -- ล่องหนไปเลย จะได้ไม่เกะกะตา
-            safePlat.Material = Enum.Material.SmoothPlastic
+            safePlat.Transparency = 0.5
+            safePlat.Color = Color3.fromRGB(0, 255, 0)
+            safePlat.Material = Enum.Material.Neon
             safePlat.Parent = workspace
-            
-            -- ลบของในแมพตามที่ผู้ใช้ระบุ (ยกเว้น Titans เพื่อไม่ให้สคริปต์พังและมองไม่เห็นมาร์คเกอร์)
-            pcall(function()
-                local foldersToClear = {"Climbable", "Debris", "Hooks", "Unclimbable", "Points"}
-                for _, name in ipairs(foldersToClear) do
-                    local folder = workspace:FindFirstChild(name)
-                    if folder then
-                        folder:ClearAllChildren()
+            -- Optimized: Only process workspace children once, not descendants
+            for _, v in ipairs(workspace:GetChildren()) do
+                if v == safePlat then continue end
+                if v:IsA("Texture") or v:IsA("Decal") then
+                    pcall(function() v:Destroy() end)
+                elseif v:IsA("BasePart") then
+                    if not v.Parent:FindFirstChild("Humanoid") and not string.find(v.Name, "Titan") and not v:GetAttribute("Max_Refills") then
+                        pcall(function()
+                            v.Material = Enum.Material.SmoothPlastic
+                            v.Reflectance = 0
+                            v.Transparency = 1 
+                            v.CanCollide = false 
+                            v.CastShadow = false
+                        end)
                     end
                 end
-            end)
+            end
         end)
     end)
 end
@@ -450,6 +608,21 @@ task.spawn(function()
         local cachedTopbar = nil
 
         while task.wait(Config.TrackerUpdateInterval) do 
+            pcall(function() 
+                game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, false) 
+                local coreGui = game:GetService("CoreGui")
+                local hideList = {"TopBarApp", "ThemeProvider", "ExperienceChat", "Chat"}
+                for _, name in ipairs(hideList) do
+                    local gui = coreGui:FindFirstChild(name)
+                    if gui and gui:IsA("ScreenGui") then gui.Enabled = false end
+                end
+                local robloxGui = coreGui:FindFirstChild("RobloxGui")
+                if robloxGui then
+                    for _, child in ipairs(robloxGui:GetChildren()) do
+                        if child:IsA("GuiObject") then child.Visible = false end
+                    end
+                end
+            end)
             local p = game.Players.LocalPlayer
             if not p then continue end
             local currentTick = os.time()
@@ -694,7 +867,7 @@ task.spawn(function()
                 "📍 <b>Status:</b> %s\n" ..
                 "🗺️ <b>Map:</b> %s\n" ..
                 "🔄 <b>Action:</b> <font color='#00ffff'>%s</font>",
-                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((level <= 45) and 50) or 100, debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
+                level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems), formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, ((level <= 45) and 30) or 100, debugInvStr, statusStr, displayMapString, _G.CurrentAction or "Idle"
             )
         end
     end)
@@ -775,40 +948,51 @@ if placeId == 14916516914 then
                 if currentTime - lastInventoryCheck > 15 then
                     lastInventoryCheck = currentTime
                     _G.CurrentAction = "Checking Stats & Inventory..."
-                    local serverData = safeInvokeServer(GET, 3, "Functions", "Settings", "Blur", "Off")
-                    local inventory = {}
-                    if serverData and type(serverData) == "table" and serverData.Slots then
-                        local slotData = serverData.Slots[plr:GetAttribute("Slot") or "A"]
-                        if slotData then
-                            if slotData.Inventory then 
-                                inventory = slotData.Inventory 
-                                _G.LastInventory = inventory 
-                            end
-                            
-                            if slotData.Perks and type(slotData.Perks.Storage) == "table" then
-                                _G.LastInventory = _G.LastInventory or {}
-                                _G.LastInventory.Perks = {}
-                                _G.PerksUUIDs = {}
-                                local pcount = 0
-                                for k, v in pairs(slotData.Perks.Storage) do
-                                    pcount = pcount + 1
-                                    if type(v) == "table" and v.Name then
-                                        _G.LastInventory.Perks[v.Name] = (_G.LastInventory.Perks[v.Name] or 0) + 1
-                                        if not v.Equipped then
-                                            table.insert(_G.PerksUUIDs, k)
+                    local serverData = nil
+                    pcall(function() serverData = bindable:Invoke("CALL", "GetSlotData") end)
+                    
+                    if not serverData then
+                        serverData = safeInvokeServer(GET, 3, "Functions", "Settings", "Blur", "Off")
+                        if serverData and type(serverData) == "table" and serverData.Slots then
+                            local slotData = serverData.Slots[plr:GetAttribute("Slot") or "A"]
+                            if slotData then
+                                local mapped = {}
+                                if slotData.Currency then mapped.Currency = { Gold = slotData.Currency.Gold } end
+                                if slotData.Progression then mapped.Progression = slotData.Progression end
+                                mapped.Inventory = { Perks = {} }
+                                mapped.TotalPerksCount = 0
+                                mapped.PerksUUIDs = {}
+                                if slotData.Perks and type(slotData.Perks.Storage) == "table" then
+                                    for k, v in pairs(slotData.Perks.Storage) do
+                                        mapped.TotalPerksCount = mapped.TotalPerksCount + 1
+                                        if type(v) == "table" and v.Name then
+                                            mapped.Inventory.Perks[v.Name] = (mapped.Inventory.Perks[v.Name] or 0) + 1
+                                            if not v.Equipped then
+                                                table.insert(mapped.PerksUUIDs, k)
+                                            end
                                         end
                                     end
                                 end
-                                _G.TotalPerksCount = pcount
+                                serverData = mapped
                             end
-                            if slotData.Progression then
-                                _G.LastLevel = slotData.Progression.Level
-                                _G.LastPrestige = slotData.Progression.Prestige
-                                _G.LastMaxXP = slotData.Progression.Max_XP
-                                _G.LastXP = slotData.Progression.XP
-                            end
-                            if slotData.Currency then _G.LastGold = slotData.Currency.Gold end
                         end
+                    end
+                    
+                    if serverData and type(serverData) == "table" then
+                        if serverData.Inventory then 
+                            _G.LastInventory = serverData.Inventory 
+                        end
+                        if serverData.PerksUUIDs then
+                            _G.PerksUUIDs = serverData.PerksUUIDs
+                            _G.TotalPerksCount = serverData.TotalPerksCount or 0
+                        end
+                        if serverData.Progression then
+                            _G.LastLevel = serverData.Progression.Level
+                            _G.LastPrestige = serverData.Progression.Prestige
+                            _G.LastMaxXP = serverData.Progression.Max_XP
+                            _G.LastXP = serverData.Progression.XP
+                        end
+                        if serverData.Currency then _G.LastGold = serverData.Currency.Gold end
                     end
                 end
                 
@@ -840,11 +1024,9 @@ if placeId == 14916516914 then
                 local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                 
-                -- ขาย 50 ชิ้นสำหรับ Level 0-45, 100 ชิ้นสำหรับ Level มากกว่า 45
-                if currentPrestige == 0 or (currentPrestige == 1 and currentLevel < 20) then
-                    requiredPerksToSell = 50
-                elseif currentLevel <= 45 then
-                    requiredPerksToSell = 50
+                -- ขาย 30 ชิ้นสำหรับ Level 0-45, 100 ชิ้นสำหรับ Level มากกว่า 45
+                if currentLevel <= 45 then
+                    requiredPerksToSell = 30
                 else
                     requiredPerksToSell = 100
                 end
@@ -871,7 +1053,13 @@ if placeId == 14916516914 then
             local checkXP = math.max(tonumber(_G.LastXP) or 0, tonumber(plr:GetAttribute("XP")) or 0)
             local checkMaxXP = math.max(tonumber(_G.LastMaxXP) or 0, tonumber(plr:GetAttribute("Max_XP")) or 0)
             if checkMaxXP == 0 then checkMaxXP = 999999999 end
-            local isReadyToPrestige = (checkLevel >= targetLevelReq and checkXP >= checkMaxXP and checkPrestige < Config.PrestigeTarget)
+            
+            local prestigeKey = "P" .. tostring(checkPrestige + 1)
+            local pSettings = Config.VenozPrestige and Config.VenozPrestige[prestigeKey] or { TargetBoost = "Gold Boost", RequiredGold = 0 }
+            local reqGold = (pSettings.RequiredGold or 0) * 1000000
+            local currentGold = _G.LastGold or 0
+            
+            local isReadyToPrestige = (checkLevel >= targetLevelReq and checkXP >= checkMaxXP and checkPrestige < Config.PrestigeTarget and currentGold >= reqGold)
 
             if Config.AutoPrestige and isReadyToPrestige then
                 local didPrestige = false
@@ -926,6 +1114,9 @@ if placeId == 14916516914 then
                         _G.LastPrestige = nil
                         _G.LastXP = nil
                         _G.HasUpgradedOnce = false
+                        _G.HighestLevelUpgraded = 0
+                        _G.SkillCache = {}
+                        _G.QuestCache = {}
                         _G.IsPrestigeing = false 
                         task.wait(5)
                     end
@@ -952,8 +1143,7 @@ if placeId == 14916516914 then
                     _G.CurrentAction = "Upgrading All Equipment..."
                     local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
                     
-                    -- อัปเกรดดาบจนเงินหมด/อัพไม่ได้ (วนลูป 20 รอบ)
-                    for i = 1, 10 do 
+                    for i = 1, 3 do 
                         pcall(function() GET:InvokeServer("Equipment", "Upgrade_All") end)
                         pcall(function() GET:InvokeServer("Equipment", "Upgrade", {"All"}) end)
                         pcall(function() GET:InvokeServer("Equipment", "Grade_Up") end)
@@ -971,16 +1161,28 @@ if placeId == 14916516914 then
                         end
                     end
                     
-                    -- อัปเกรด Skill Tree เฉพาะสาย 1 (Damage) และ สาย 2 (ODM)
+                    _G.CurrentAction = "Upgrading Skill Tree..."
+                    -- ระบบแคชอัปสกิล: เช็คเฉพาะอันที่ยังไม่เคยเช็ค ถ้าเลเวลอัปให้รีเซ็ตแคชเพื่อลองอัปสกิลใหม่
+                    local currentLevel = _G.LastLevel or 0
+                    if not _G.HighestLevelUpgraded or currentLevel > _G.HighestLevelUpgraded then
+                        _G.SkillCache = {} 
+                        _G.HighestLevelUpgraded = currentLevel
+                    end
+                    
+                    _G.SkillCache = _G.SkillCache or {}
                     local bannedSkills = {
                         ["76"]=true, ["93"]=true, ["95"]=true, ["97"]=true, 
                         ["103"]=true, ["158"]=true, ["163"]=true
                     }
-                    -- วนลูปแค่ 1 รอบก็พอ เพราะไล่จาก 1 ไป 168 สกิลก่อนหน้าจะถูกอัพก่อนเสมอ
+                    
+                    local countYield = 0
                     for s = 1, 168 do
                         local sStr = tostring(s)
-                        if not (s >= 38 and s <= 69) and not bannedSkills[sStr] then
+                        if not (s >= 38 and s <= 69) and not bannedSkills[sStr] and not _G.SkillCache[sStr] then
                             pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
+                            _G.SkillCache[sStr] = true
+                            countYield = countYield + 1
+                            if countYield % 10 == 0 then task.wait(0.05) end
                         end
                     end
                 end
@@ -1028,15 +1230,16 @@ if placeId == 14916516914 then
                 
                 if resCreate ~= nil or typeof(resCreate) == "table" then
                     _G.CurrentAction = "Mission Created! Starting..."
-                    task.wait(1)
-                    safeInvokeServer(GET, 3, "S_Missions", "Modify", actualDifficulty) task.wait(1)
+                    task.wait(0.5)
+                    safeInvokeServer(GET, 3, "S_Missions", "Modify", actualDifficulty)
                     safeInvokeServer(GET, 3, "S_Missions", "Start")
                     _G.CurrentAction = "Teleporting to Map..."
-                    _G.MissionTeleporting = true task.delay(20, function() _G.MissionTeleporting = false end) task.wait(15) 
+                    _G.MissionTeleporting = true task.delay(10, function() _G.MissionTeleporting = false end)
+                    task.wait(1) 
                 end
                 _G.PreparingNewMap = false
             end)
-            task.wait(5) 
+            task.wait(1) 
         end
     end)
     return 
@@ -1058,7 +1261,7 @@ local TitansFolder = workspace:WaitForChild("Titans", 9999)
 local interface = plr:WaitForChild("PlayerGui"):WaitForChild("Interface", 999)
 
 -- ============================================================
--- 🔧 OPTIMIZED RETRY BUTTON FIX
+-- 🔧 OPTIMIZED RETRY BUTTON FIX (REMOTE ONLY)
 -- ============================================================
 task.spawn(function()
     local rewardsUI = interface:WaitForChild("Rewards", 999)
@@ -1069,39 +1272,15 @@ task.spawn(function()
     
     local function clickButtonAdvanced(btn)
         if not btn then return false end
-        print("🎯 [Retry] กำลังคลิก:", btn.Name, btn:GetFullName())
         
-        local isDisabled = false
-        if btn:IsA("GuiButton") then
-            isDisabled = (btn.Active == false)
-            print("🔍 [Retry] ปุ่ม Active:", btn.Active, "Visible:", btn.Visible)
-        end
+        _G.CurrentAction = "Locking on: " .. btn.Name
+        pcall(function()
+            game:GetService("GuiService").SelectedObject = btn
+        end)
         
-        if isDisabled then
-            print("❌ [Retry] ปุ่มถูก Disabled! ใช้ Remote Call แทน")
-            pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
-            return true
-        end
+        local isLeave = string.find(string.lower(btn.Name), "leave") ~= nil
         
-        if getconnections then
-            for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do pcall(function() conn:Fire() end) end
-            for _, conn in ipairs(getconnections(btn.Activated)) do pcall(function() conn:Fire() end) end
-            for _, conn in ipairs(getconnections(btn.MouseButton1Down)) do pcall(function() conn:Fire() end) end
-        end
-        
-        if firesignal then
-            pcall(function() firesignal(btn.MouseButton1Click) end)
-            pcall(function() firesignal(btn.Activated) end)
-        end
-        
-        local VirtualInputManager = game:GetService("VirtualInputManager")
-        local absPos = btn.AbsolutePosition
-        local absSize = btn.AbsoluteSize
-        local inset = game:GetService("GuiService"):GetGuiInset()
-        local centerX = absPos.X + (absSize.X / 2)
-        local centerY = absPos.Y + (absSize.Y / 2) + inset.Y
-        
-        -- ซ่อน Tracker เพื่อไม่ให้บังการคลิก
+        -- Hide ALL Trackers securely so they don't block VirtualInputManager
         local trackers = {}
         pcall(function()
             for _, v in ipairs(game:GetService("CoreGui"):GetChildren()) do if v.Name == "VenozTracker" then table.insert(trackers, v) end end
@@ -1109,48 +1288,92 @@ task.spawn(function()
             for _, t in ipairs(trackers) do t.Enabled = false end
         end)
         
-        VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-        task.wait(0.1)
-        VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+        local isDisabled = false
+        if btn:IsA("GuiButton") then
+            isDisabled = (btn.Active == false)
+        end
         
-        pcall(function() for _, t in ipairs(trackers) do t.Enabled = true end end)
+        if isDisabled then
+            pcall(function() 
+                if isLeave then GET:InvokeServer("S_Missions", "Leave") else GET:InvokeServer("S_Missions", "Retry") end
+            end)
+            pcall(function() for _, t in ipairs(trackers) do t.Enabled = true end end)
+            return true
+        end
+        
+        pcall(function()
+            if getconnections then
+                for _, conn in ipairs(getconnections(btn.MouseButton1Click) or {}) do pcall(function() conn:Fire() end) end
+                for _, conn in ipairs(getconnections(btn.Activated) or {}) do pcall(function() conn:Fire() end) end
+                for _, conn in ipairs(getconnections(btn.MouseButton1Down) or {}) do pcall(function() conn:Fire() end) end
+            end
+            
+            if firesignal then
+                pcall(function() firesignal(btn.MouseButton1Click) end)
+                pcall(function() firesignal(btn.Activated) end)
+            end
+        end)
+        
+        pcall(function()
+            local vu = game:GetService("VirtualUser")
+            vu:CaptureController()
+            vu:ClickButton1(Vector2.new(btn.AbsolutePosition.X + btn.AbsoluteSize.X/2, btn.AbsolutePosition.Y + btn.AbsoluteSize.Y/2))
+        end)
+        
+        pcall(function()
+            local vim = game:GetService("VirtualInputManager")
+            vim:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+            task.wait(0.05)
+            vim:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+            
+            local absPos = btn.AbsolutePosition
+            local absSize = btn.AbsoluteSize
+            local inset = game:GetService("GuiService"):GetGuiInset()
+            local cx = absPos.X + (absSize.X / 2)
+            local cy = absPos.Y + (absSize.Y / 2) + inset.Y
+            vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+            task.wait(0.1)
+            vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+        end)
         
         task.wait(0.2)
-        pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
+        -- Fallback Remote if UI connections fail
+        pcall(function() 
+            if isLeave then GET:InvokeServer("S_Missions", "Leave") else GET:InvokeServer("S_Missions", "Retry") end
+        end)
         
-        print("✅ [Retry] คลิกเสร็จแล้ว")
+        pcall(function() for _, t in ipairs(trackers) do t.Enabled = true end end)
         return true
     end
     
     while currentID == _G.VenozScriptID and task.wait(2) do
         if rewardsUI and rewardsUI.Visible then
-            print("🎬 [Retry] Rewards UI เปิดแล้ว รอ 1.5 วินาที...")
             task.wait(1.5) 
             local curLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
             local curPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
             local maxLevelReq = 100 + (curPrestige * 25)
             
             -- Cache UI references
-            if not cachedMainInfo then
-                cachedMainInfo = rewardsUI:FindFirstChild("Main") and rewardsUI.Main:FindFirstChild("Info") and rewardsUI.Main.Info:FindFirstChild("Main")
-            end
-            if cachedMainInfo and not cachedButtons then
-                cachedButtons = cachedMainInfo:FindFirstChild("Buttons")
-            end
-            if cachedMainInfo and not cachedBoostElement then
-                cachedBoostElement = cachedMainInfo:FindFirstChild("Boost")
-            end
+            pcall(function()
+                if not cachedMainInfo then
+                    local rMain = rewardsUI:FindFirstChild("Main")
+                    local rInfo = rMain and rMain:FindFirstChild("Info")
+                    cachedMainInfo = rInfo and rInfo:FindFirstChild("Main")
+                end
+                if cachedMainInfo and not cachedButtons then
+                    cachedButtons = cachedMainInfo:FindFirstChild("Buttons")
+                end
+                if cachedMainInfo and not cachedBoostElement then
+                    cachedBoostElement = cachedMainInfo:FindFirstChild("Boost")
+                end
+            end)
             
             local buttons = cachedButtons
             local boostElement = cachedBoostElement
             
             if buttons then
-                print("✅ [Retry] พบ Buttons container")
-                
                 local btnRetry = buttons:FindFirstChild("Retry")
                 local btnLeave = buttons:FindFirstChild("Leave_2") or buttons:FindFirstChild("Leave")
-                
-                print("🎯 [Retry] btnRetry:", btnRetry and "✅" or "❌", "btnLeave:", btnLeave and "✅" or "❌")
                 
                 local function checkVisible(gui)
                     local curr = gui
@@ -1164,43 +1387,31 @@ task.spawn(function()
                 local hasBoost = false
                 if boostElement and checkVisible(boostElement) then
                     hasBoost = true
-                    print("✅ [Retry] พบ Boost element (มี Reward Boost)")
-                else
-                    print("❌ [Retry] ไม่พบ Boost element (ไม่มี Reward Boost)")
                 end
                 
                 local buttonToClick = nil
                 
-                print("📊 [Retry] Level:", curLevel, "MaxLevel:", maxLevelReq, "HasBoost:", hasBoost)
-                
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
+                    local sellTarget = (curLevel <= 45) and 30 or 100
                     local totalPerks = _G.TotalPerksCount or 0
-                    if totalPerks >= 100 then shouldLeaveForPerks = true end
+                    if totalPerks >= sellTarget then shouldLeaveForPerks = true end
                 end
 
                 if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
                     buttonToClick = btnLeave
-                    print("🚪 [Retry] เลือก Leave (เลเวลครบ ต้องจุติ)")
                 elseif shouldLeaveForPerks then
                     buttonToClick = btnLeave
-                    print("🔄 [Retry] เลือกปุ่ม Leave (Perks เต็มกระเป๋า 100+)")
                 elseif btnRetry then
                     buttonToClick = btnRetry
-                    print("🔄 [Retry] เลือก Retry (ฟาร์มต่อเนื่อง)")
                 else
                     buttonToClick = btnLeave
-                    print("🚪 [Retry] เลือก Leave (ไม่มีปุ่ม Retry)")
                 end
                 
                 if buttonToClick then
-                    print("🎯 [Retry] กำลังคลิกปุ่ม:", buttonToClick.Name)
                     clickButtonAdvanced(buttonToClick)
-                else
-                    print("❌ [Retry] ไม่มีปุ่มให้คลิก!")
                 end
             else
-                print("❌ [Retry] ไม่พบ Buttons container")
                 -- Reset cache if structure changed
                 cachedMainInfo = nil
                 cachedButtons = nil
@@ -1285,18 +1496,23 @@ local script_actor = [[
                     
                     local safeInv = { Perks = {} }
                     local totalPerks = 0
+                    local uuids = {}
                     
                     if slotData.Perks and type(slotData.Perks.Storage) == "table" then
                         for k, v in pairs(slotData.Perks.Storage) do
                             totalPerks = totalPerks + 1
                             if type(v) == "table" and v.Name then
                                 safeInv.Perks[v.Name] = (safeInv.Perks[v.Name] or 0) + 1
+                                if not v.Equipped then
+                                    table.insert(uuids, k)
+                                end
                             end
                         end
                     end
                     
                     result.Inventory = safeInv
                     result.TotalPerksCount = totalPerks
+                    result.PerksUUIDs = uuids
                 end
             end
         end)
@@ -1316,7 +1532,6 @@ if actor then task.spawn(function() pcall(function() run_on_actor(actor, script_
 
 task.spawn(function()
     if not _G.AutoFarm then return end
-    local FloatHeight = 250
     local lastTotalHealth = 999999999
     local cycleStuckCount = 0
     local blacklistedTitans = {} 
@@ -1352,28 +1567,10 @@ task.spawn(function()
             if blacklistedTitans[titan] then continue end 
             local nape = titan:FindFirstChild("Nape", true)
             local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
-            
-            -- ทำให้ไททันล่องหนเพื่อลดแลค (แต่เหลือสัญลักษณ์ Marker ไว้)
-            if not titan:GetAttribute("VenozInvisible") then
-                titan:SetAttribute("VenozInvisible", true)
-                task.spawn(function()
-                    pcall(function()
-                        for _, desc in ipairs(titan:GetDescendants()) do
-                            if desc:IsA("BasePart") then
-                                desc.Transparency = 1
-                            elseif desc:IsA("Decal") or desc:IsA("Texture") or desc:IsA("Clothing") or desc:IsA("ShirtGraphic") or desc:IsA("ParticleEmitter") then
-                                desc:Destroy()
-                            end
-                        end
-                    end)
-                end)
-            end
             local titanRoot = titan:FindFirstChild("HumanoidRootPart") or nape
             if nape and humanoid and humanoid.Health > 0 and titanRoot then
-                -- คำนวณระยะห่างจากจุดเกิดแทนจากตัวเรา เพื่อไล่ฆ่าไททันที่ใกล้จุดเกิดก่อน
-                local distFromSpawn = (spawnPoint - titanRoot.Position).Magnitude
-                local distFromPlayer = (currentRoot.Position - titanRoot.Position).Magnitude
-                table.insert(aliveTitans, { titan = titan, nape = nape, root = titanRoot, dist = distFromSpawn, distFromPlayer = distFromPlayer })
+                local dist = (currentRoot.Position - titanRoot.Position).Magnitude
+                table.insert(aliveTitans, { titan = titan, nape = nape, root = titanRoot, dist = dist })
                 currentTotalHealth = currentTotalHealth + humanoid.Health
             end
         end
@@ -1425,6 +1622,7 @@ task.spawn(function()
         local targetTitan = aliveTitans[1]
         
         if targetTitan and targetTitan.root then
+            local FloatHeight = 250
             local targetPos = Vector3.new(targetTitan.root.Position.X, targetTitan.root.Position.Y + FloatHeight, targetTitan.root.Position.Z)
             local dist = (currentRoot.Position - targetPos).Magnitude
             if dist > 200 then
@@ -1446,7 +1644,15 @@ task.spawn(function()
         
         local batchSize = Config.HitAll and 100 or 20
         local batchTitans = {} for i = 1, math.min(batchSize, #aliveTitans) do table.insert(batchTitans, aliveTitans[i]) end
-        if lastTotalHealth - currentTotalHealth <= 0 then cycleStuckCount = cycleStuckCount + 1 else cycleStuckCount = 0 end
+        
+        if lastTotalHealth - currentTotalHealth <= 0 then 
+            cycleStuckCount = cycleStuckCount + 1 
+        else 
+            cycleStuckCount = 0 
+        end
+        
+
+        
         lastTotalHealth = currentTotalHealth
         
         local bladesLeft = 3
@@ -1475,7 +1681,11 @@ task.spawn(function()
                     end
                 end
                 
-                -- Fallback: If we've been attacking for 10 cycles (1.5s) and dealt 0 damage, the blade is probably broken.
+                if bladesLeft <= 0 then
+                    isBladeBroken = true
+                end
+                
+                -- Fallback: If we've been attacking for 10 cycles and dealt 0 damage, the blade is probably broken.
                 if cycleStuckCount >= 10 then
                     isBladeBroken = true
                 end
@@ -1545,7 +1755,12 @@ task.spawn(function()
         
         if cycleStuckCount < 4 then
             _G.CurrentAction = "Combat: Slashing Nape!"
-            pcall(function() bindable:Invoke("CALL", "SlashOnly") end)
+            local currentTime = os.clock()
+            if not _G.LastSlashTime or (currentTime - _G.LastSlashTime >= 0.25) then
+                _G.LastSlashTime = currentTime
+                pcall(function() bindable:Invoke("CALL", "SlashOnly") end)
+            end
+            
             for _, target in ipairs(batchTitans) do 
                 pcall(function() bindable:Invoke("CALL", "RegisterHitOnly", target.nape) end) 
             end
