@@ -394,13 +394,27 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
             
             local safePlat = Instance.new("Part")
             safePlat.Name = "VenozSafePlat"
-            safePlat.Size = Vector3.new(1000, 10, 1000)
-            safePlat.Position = Vector3.new(233, 3, 37) 
+            safePlat.Size = Vector3.new(5000, 10, 5000)
             safePlat.Anchored = true
             safePlat.Transparency = 0.5
             safePlat.Color = Color3.fromRGB(0, 255, 0)
             safePlat.Material = Enum.Material.Neon
             safePlat.Parent = workspace
+            
+            task.spawn(function()
+                while task.wait(0.1) do
+                    pcall(function()
+                        local p = game:GetService("Players").LocalPlayer
+                        local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+                        if hrp and safePlat.Parent then
+                            -- ถ้าไม่ได้ถูกล็อกตัวไว้ (กำลังรอมอนสเตอร์) ให้สร้างพื้นรองรับไว้ใต้เท้าเสมอ
+                            if not hrp.Anchored then
+                                safePlat.Position = Vector3.new(hrp.Position.X, hrp.Position.Y - 15, hrp.Position.Z)
+                            end
+                        end
+                    end)
+                end
+            end)
             
             -- 🔥 ลบโฟลเดอร์ขยะทั้งหมดทิ้งแบบถอนรากถอนโคน (ลดแลคขั้นสุด)
             pcall(function()
