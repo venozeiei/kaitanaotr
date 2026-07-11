@@ -10,6 +10,8 @@
 -- ============================================================
 -- SYSTEM CONFIGURATION (FALLBACKS)
 -- ============================================================
+pcall(function() game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, false) end)
+
 local DEFAULT_CONFIG = {
     AutoFarm = true, TargetSlot = "A", AutoAntiLag = true, AutoBoostedMap = false,
     StartType = "Missions", MissionMap = "Chapel", MissionObjective = "Skirmish", MissionDifficulty = "Aberrant++",
