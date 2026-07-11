@@ -1100,9 +1100,20 @@ task.spawn(function()
         local inset = game:GetService("GuiService"):GetGuiInset()
         local centerX = absPos.X + (absSize.X / 2)
         local centerY = absPos.Y + (absSize.Y / 2) + inset.Y
+        
+        -- ซ่อน Tracker เพื่อไม่ให้บังการคลิก
+        local trackers = {}
+        pcall(function()
+            for _, v in ipairs(game:GetService("CoreGui"):GetChildren()) do if v.Name == "VenozTracker" then table.insert(trackers, v) end end
+            for _, v in ipairs(game:GetService("Players").LocalPlayer.PlayerGui:GetChildren()) do if v.Name == "VenozTracker" then table.insert(trackers, v) end end
+            for _, t in ipairs(trackers) do t.Enabled = false end
+        end)
+        
         VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
         task.wait(0.1)
         VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+        
+        pcall(function() for _, t in ipairs(trackers) do t.Enabled = true end end)
         
         task.wait(0.2)
         pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
