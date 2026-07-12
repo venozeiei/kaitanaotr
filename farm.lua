@@ -875,6 +875,28 @@ task.spawn(function()
 end)
 ]]
 
+-- ============================================================
+-- 🚫 HIDE CORE GUI & CHAT (Independent from Tracker)
+-- ============================================================
+task.spawn(function()
+    while task.wait(1) do
+        pcall(function() 
+            game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, false) 
+            local coreGui = game:GetService("CoreGui")
+            local hideList = {"TopBarApp", "ThemeProvider", "ExperienceChat", "Chat"}
+            for _, name in ipairs(hideList) do
+                local gui = coreGui:FindFirstChild(name)
+                if gui and gui:IsA("ScreenGui") then gui.Enabled = false end
+            end
+            local robloxGui = coreGui:FindFirstChild("RobloxGui")
+            if robloxGui then
+                for _, child in ipairs(robloxGui:GetChildren()) do
+                    if child:IsA("GuiObject") then child.Visible = false end
+                end
+            end
+        end)
+    end
+end)
 
 
 -- =======================================================
