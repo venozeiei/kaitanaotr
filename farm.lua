@@ -54,11 +54,11 @@ local GET = Remotes:WaitForChild("GET", 10)
 -- ============================================================
 -- 🚫 ANTI-AFK (ป้องกันการหลุดเมื่อพับจอ/ไม่ขยับเมาส์)
 -- ============================================================
-local VirtualUser = game:GetService("VirtualUser")
-plr.Idled:Connect(function()
-    VirtualUser:CaptureController()
-    VirtualUser:ClickButton2(Vector2.new())
-end)
+-- local VirtualUser = game:GetService("VirtualUser")
+-- plr.Idled:Connect(function()
+--     VirtualUser:CaptureController()
+--     VirtualUser:ClickButton2(Vector2.new())
+-- end)
 
 -- ============================================================
 -- 🖥️ DISABLE 3D RENDERING (ZERO GPU MODE)
@@ -347,13 +347,13 @@ end)
 -- 🛡️ ANTI-AFK & BACKGROUND FARMING
 -- ============================================================
 task.spawn(function()
-    pcall(function()
-        local VirtualUser = game:GetService("VirtualUser")
-        plr.Idled:Connect(function()
-            VirtualUser:CaptureController()
-            VirtualUser:ClickButton2(Vector2.new())
-        end)
-    end)
+--     pcall(function()
+--         local VirtualUser = game:GetService("VirtualUser")
+--         plr.Idled:Connect(function()
+--             VirtualUser:CaptureController()
+--             VirtualUser:ClickButton2(Vector2.new())
+--         end)
+--     end)
     pcall(function() if setfpscap then setfpscap(30) end end)
 end)
 
@@ -1294,6 +1294,17 @@ task.spawn(function()
         end)
         
         local isLeave = string.find(string.lower(btn.Name), "leave") ~= nil
+        local isRetry = string.find(string.lower(btn.Name), "retry") ~= nil
+        
+        -- 🔥 FORCE REMOTE FIRST: bypass VirtualUser entirely for critical buttons
+        pcall(function()
+            if isLeave then 
+                GET:InvokeServer("S_Missions", "Leave") 
+            elseif isRetry then 
+                GET:InvokeServer("S_Missions", "Retry") 
+            end
+        end)
+        
         
         -- Hide ALL Trackers securely so they don't block VirtualInputManager
         local trackers = {}
