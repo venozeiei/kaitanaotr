@@ -221,11 +221,11 @@ local function executeAutoBoostLogic()
         local boostsNeeded = {}
         if Config.BoostTypes then
             for _, b in ipairs(Config.BoostTypes) do
-                -- กฎ: จุติ 4 จะไม่กดซื้อเเละใช้น้ำยา XP
-                if prestige == 4 and b == "XP" then continue end
+                -- กฎ: จุติ 3 และ 4 จะไม่กดซื้อและใช้น้ำยา XP (ใช้แค่ Gold)
+                if (prestige == 3 or prestige == 4) and b == "XP" then continue end
                 -- กฎ: จุติ 5 จะไม่ใช้น้ำยา Gold เลย
                 if prestige >= 5 and b == "Gold" then continue end
-                -- กฎ: จุติ 5 จะไม่ใช้ XP ถ้าเลเวลมากกว่า 130
+                -- กฎ: จุติ 5 จะใช้ XP จนกว่าเลเวลจะเกิน 130
                 if prestige >= 5 and b == "XP" and level > 130 then continue end
                 
                 table.insert(boostsNeeded, b)
@@ -328,7 +328,7 @@ task.spawn(function()
                     local boostsNeeded = {}
                     if Config.BoostTypes then
                         for _, b in ipairs(Config.BoostTypes) do
-                            if prestige == 4 and b == "XP" then continue end
+                            if (prestige == 3 or prestige == 4) and b == "XP" then continue end
                             if prestige >= 5 and b == "Gold" then continue end
                             if prestige >= 5 and b == "XP" and level > 130 then continue end
                             table.insert(boostsNeeded, b)
