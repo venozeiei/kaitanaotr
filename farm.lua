@@ -79,16 +79,26 @@ end
 -- ============================================================
 local function safeInvokeServer(remote, timeout, ...)
     local args = {...}
-    local result = nil
+    local currentThread = coroutine.running()
     local finished = false
-    local waitEvent = Instance.new("BindableEvent")
+    
     task.spawn(function()
-        pcall(function() result = remote:InvokeServer(unpack(args)) end)
-        if not finished then finished = true waitEvent:Fire() end
+        local success, res = pcall(function() return remote:InvokeServer(unpack(args)) end)
+        if not finished then
+            finished = true
+            task.spawn(currentThread, success, res)
+        end
     end)
-    task.delay(timeout, function() if not finished then finished = true waitEvent:Fire() end end)
-    waitEvent.Event:Wait() waitEvent:Destroy()
-    return result
+    
+    task.delay(timeout, function()
+        if not finished then
+            finished = true
+            task.spawn(currentThread, false, nil)
+        end
+    end)
+    
+    local success, result = coroutine.yield()
+    return success and result or nil
 end
 
 local function forceClickGui(element)
@@ -441,8 +451,8 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
             end
 
             task.spawn(function()
-                -- รันลูปเช็คและลบกราฟิกซ้ำๆ ทุก 1 วินาที (ป้องกันเกมพยายามโหลดแมพกลับมาเวลาวาร์ป)
-                while task.wait(1) do
+                -- รันลูปเช็คและลบกราฟิกซ้ำๆ ทุก 30 วินาที (ลดภาระ CPU มหาศาลสำหรับ 50 จอ)
+                while task.wait(30) do
                     -- ลบ Terrain ทั้งหมด (เสาหิน ภูเขา ต้นไม้ยักษ์ ที่สร้างจาก Terrain จะหายวับ)
                     pcall(function()
                         workspace.Terrain:Clear()
@@ -485,9 +495,9 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
             end
             
             -- ดักลบกราฟิกใหม่ที่เกิดมาเรื่อยๆ (เช่น เลือดไททัน, text ดาเมจ)
-            workspace.DescendantAdded:Connect(function(v)
-                pcall(function() optimizePart(v) end)
-            end)
+            -- workspace.DescendantAdded:Connect(function(v)
+            --     pcall(function() optimizePart(v) end)
+            -- end)
             
             -- 🔥 ปิด Camera Shake โดยตรงจาก Module ของเกม
             pcall(function()
@@ -1163,7 +1173,9 @@ if placeId == 14916516914 then
             end
             
             pcall(function()
-                if Config.AutoUpgrade then
+                local currentTime = os.clock()
+                if Config.AutoUpgrade and (not _G.LastUpgradeTime or (currentTime - _G.LastUpgradeTime >= 60)) then
+                    _G.LastUpgradeTime = currentTime
                     _G.CurrentAction = "Upgrading All Equipment..."
                     local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
                     
@@ -1673,12 +1685,9 @@ task.spawn(function()
                 tw:Play()
                 -- ไม่รอให้บินถึง ตีทันทีเมื่อถึงหัวไททัน
             else
-                local ts = game:GetService("TweenService")
-                local ti = TweenInfo.new(0.1, Enum.EasingStyle.Linear)
-                local tw = ts:Create(currentRoot, ti, {CFrame = CFrame.new(targetPos)})
-                currentRoot.Anchored = true 
-                tw:Play()
-                -- ไม่ต้องรอ (Completed:Wait()) เพื่อให้ลูปทำงานต่อได้ทันที และตัวละครจะไหลลื่นตามคอไททัน
+                currentRoot.Anchored = true
+                currentRoot.CFrame = CFrame.new(targetPos)
+                -- ใช้ CFrame วาร์ปใส่คอโดยตรงเพื่อลดขยะ (GC) จากการสร้าง Tween ใหม่ทุกๆ 0.15 วิ
             end
         end
         
