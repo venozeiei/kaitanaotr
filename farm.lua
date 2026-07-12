@@ -1413,7 +1413,18 @@ task.spawn(function()
                     if totalPerks >= sellTarget then shouldLeaveForPerks = true end
                 end
 
+                local isReadyToPrestige = false
                 if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
+                    local prestigeKey = "P" .. (curPrestige + 1)
+                    local pSettings = Config.VenozPrestige and Config.VenozPrestige[prestigeKey] or { TargetBoost = "Gold Boost", RequiredGold = 0 }
+                    local reqGold = (pSettings.RequiredGold or 0) * 1000000
+                    local currentGold = _G.LastGold or 0
+                    if currentGold >= reqGold then
+                        isReadyToPrestige = true
+                    end
+                end
+
+                if isReadyToPrestige then
                     buttonToClick = btnLeave
                 elseif shouldLeaveForPerks then
                     buttonToClick = btnLeave
