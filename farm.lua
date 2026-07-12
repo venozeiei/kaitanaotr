@@ -580,15 +580,18 @@ end
 -- ============================================================
 -- 📊 OPTIMIZED TRACKER (Reduced update frequency)
 -- ============================================================
---[[
 task.spawn(function()
     pcall(function()
-        local CoreGui = game:GetService("CoreGui")
-        if CoreGui:FindFirstChild("VenozTracker") then CoreGui.VenozTracker:Destroy() end
+        local targetParent
+        pcall(function() targetParent = (typeof(gethui) == "function" and gethui()) or game:GetService("CoreGui") end)
+        if not targetParent or not pcall(function() local _ = targetParent.Name end) then
+            targetParent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+        end
+        if targetParent:FindFirstChild("VenozTracker") then targetParent.VenozTracker:Destroy() end
         local sg = Instance.new("ScreenGui")
         sg.Name = "VenozTracker"
         sg.ResetOnSpawn = false
-        sg.Parent = CoreGui
+        sg.Parent = targetParent
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(0, 260, 0, 280)  
         frame.Position = UDim2.new(0, 20, 0, 20)
@@ -906,7 +909,6 @@ task.spawn(function()
         end
     end)
 end)
-]]
 
 -- ============================================================
 -- 🚫 HIDE CORE GUI & CHAT (Independent from Tracker)
