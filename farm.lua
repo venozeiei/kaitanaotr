@@ -1077,6 +1077,9 @@ if placeId == 14916516914 then
                 end
                 local gold = amt("Gold")
                 if gold > 0 then _G.LastGold = gold end
+                local guiGems = amt("Gems")
+                if guiGems > 0 then _G.LastGems = guiGems end
+                
                 local requiredPerksToSell = 100
                 local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
@@ -1377,9 +1380,12 @@ task.spawn(function()
         end)
         
         pcall(function()
-            local vu = game:GetService("VirtualUser")
-            vu:CaptureController()
-            vu:ClickButton1(Vector2.new(btn.AbsolutePosition.X + btn.AbsoluteSize.X/2, btn.AbsolutePosition.Y + btn.AbsoluteSize.Y/2))
+            -- ป้องกันการกดมั่วไปที่พิกัด 0,0 (มุมซ้ายบน) ที่ชอบไปโดนปุ่มอายุ
+            if btn.AbsolutePosition.X > 10 and btn.AbsolutePosition.Y > 10 then
+                local vu = game:GetService("VirtualUser")
+                vu:CaptureController()
+                vu:ClickButton1(Vector2.new(btn.AbsolutePosition.X + btn.AbsoluteSize.X/2, btn.AbsolutePosition.Y + btn.AbsoluteSize.Y/2))
+            end
         end)
         
         pcall(function()
@@ -1388,14 +1394,16 @@ task.spawn(function()
             task.wait(0.05)
             vim:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
             
-            local absPos = btn.AbsolutePosition
-            local absSize = btn.AbsoluteSize
-            local inset = game:GetService("GuiService"):GetGuiInset()
-            local cx = absPos.X + (absSize.X / 2)
-            local cy = absPos.Y + (absSize.Y / 2) + inset.Y
-            vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-            task.wait(0.1)
-            vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+            if btn.AbsolutePosition.X > 10 and btn.AbsolutePosition.Y > 10 then
+                local absPos = btn.AbsolutePosition
+                local absSize = btn.AbsoluteSize
+                local inset = game:GetService("GuiService"):GetGuiInset()
+                local cx = absPos.X + (absSize.X / 2)
+                local cy = absPos.Y + (absSize.Y / 2) + inset.Y
+                vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+                task.wait(0.1)
+                vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+            end
         end)
         
         task.wait(0.2)
