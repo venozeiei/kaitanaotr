@@ -547,6 +547,7 @@ end
 -- ============================================================
 -- 📊 OPTIMIZED TRACKER (Reduced update frequency)
 -- ============================================================
+--[[
 task.spawn(function()
     pcall(function()
         local CoreGui = game:GetService("CoreGui")
@@ -862,8 +863,8 @@ task.spawn(function()
                 "🧪 <b>Gold Boost:</b> %s\n" ..
                 "🧪 <b>XP Boost:</b> %s\n" ..
                 "⚔️ <b>Perks:</b> <font color='%s'>%d</font> / 100\n" ..
-                "�💰 <b>Auto-Sell:</b> <font color='#ffaa00'>%d pcs</font>\n" ..
-                "�🔍 <b>DEBUG:</b> %s\n\n" ..
+                "💰 <b>Auto-Sell:</b> <font color='#ffaa00'>%d pcs</font>\n" ..
+                "🔍 <b>DEBUG:</b> %s\n\n" ..
                 "📍 <b>Status:</b> %s\n" ..
                 "🗺️ <b>Map:</b> %s\n" ..
                 "🔄 <b>Action:</b> <font color='#00ffff'>%s</font>",
@@ -1189,17 +1190,8 @@ if placeId == 14916516914 then
 
                 _G.PreparingNewMap = true
                 _G.CurrentAction = "Preparing Mission..."
-                local targetMap = Config.MissionMap
-                if Config.AutoBoostedMap then
-                    local boostedMapName = workspace:GetAttribute("Boosted_Map")
-                    if boostedMapName and type(boostedMapName) == "string" and boostedMapName ~= "" then 
-                        if boostedMapName == "Trost" then
-                            targetMap = "Chapel" -- แบนด่าน Trost ให้ไป Chapel แทน
-                        else
-                            targetMap = boostedMapName 
-                        end
-                    end
-                end
+                local targetMap = "Chapel" -- บังคับเล่นแต่ Chapel เท่านั้น
+
 
                 local targetObjective = Config.MissionObjective
                 for _, part in ipairs(char:GetDescendants()) do if part:IsA("BasePart") then part.CanCollide = false end end
