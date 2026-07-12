@@ -81,23 +81,36 @@ local function safeInvokeServer(remote, timeout, ...)
     local args = {...}
     local currentThread = coroutine.running()
     local finished = false
+    local success = false
+    local result = nil
+    local yielded = false
     
     task.spawn(function()
-        local success, res = pcall(function() return remote:InvokeServer(unpack(args)) end)
+        local s, res = pcall(function() return remote:InvokeServer(unpack(args)) end)
         if not finished then
             finished = true
-            task.spawn(currentThread, success, res)
+            success, result = s, res
+            if yielded then
+                task.spawn(currentThread, s, res)
+            end
         end
     end)
     
     task.delay(timeout, function()
         if not finished then
             finished = true
-            task.spawn(currentThread, false, nil)
+            success, result = false, nil
+            if yielded then
+                task.spawn(currentThread, false, nil)
+            end
         end
     end)
     
-    local success, result = coroutine.yield()
+    if not finished then
+        yielded = true
+        success, result = coroutine.yield()
+    end
+    
     return success and result or nil
 end
 
