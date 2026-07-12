@@ -206,19 +206,27 @@ local function executeAutoBoostLogic()
         local prestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
         local level = _G.LastLevel or plr:GetAttribute("Level") or 0
         local boostsNeeded = {}
-        
-        if prestige <= 3 then
-            table.insert(boostsNeeded, "XP")
-        elseif prestige == 4 then
-            -- No XP
-        elseif prestige >= 5 then
-            if level < 150 then
+        if Config.BoostTypes then
+            for _, b in ipairs(Config.BoostTypes) do
+                -- กฎ: จุติ 4 จะไม่กดซื้อเเละใช้น้ำยา XP
+                if prestige == 4 and b == "XP" then continue end
+                -- กฎ: จุติ 5 จะไม่ใช้น้ำยา Gold เลย
+                if prestige >= 5 and b == "Gold" then continue end
+                -- กฎ: จุติ 5 จะไม่ใช้ XP ถ้าเลเวลมากกว่า 130
+                if prestige >= 5 and b == "XP" and level > 130 then continue end
+                
+                table.insert(boostsNeeded, b)
+            end
+        else
+            -- Fallback if not configured
+            if prestige <= 3 then
+                table.insert(boostsNeeded, "XP")
+            elseif prestige >= 5 and level <= 130 then
                 table.insert(boostsNeeded, "XP")
             end
-        end
-        
-        if prestige <= 4 then
-            table.insert(boostsNeeded, "Gold")
+            if prestige <= 4 then
+                table.insert(boostsNeeded, "Gold")
+            end
         end
         
         local actionTaken = false
@@ -305,21 +313,23 @@ task.spawn(function()
                     local prestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                     local level = _G.LastLevel or plr:GetAttribute("Level") or 0
                     local boostsNeeded = {}
-                    
-                    if prestige <= 3 then
-                        table.insert(boostsNeeded, "XP")
-                    elseif prestige == 4 then
-                        -- No XP
-                    elseif prestige >= 5 then
-                        if level < 150 then
+                    if Config.BoostTypes then
+                        for _, b in ipairs(Config.BoostTypes) do
+                            if prestige == 4 and b == "XP" then continue end
+                            if prestige >= 5 and b == "Gold" then continue end
+                            if prestige >= 5 and b == "XP" and level > 130 then continue end
+                            table.insert(boostsNeeded, b)
+                        end
+                    else
+                        if prestige <= 3 then
+                            table.insert(boostsNeeded, "XP")
+                        elseif prestige >= 5 and level <= 130 then
                             table.insert(boostsNeeded, "XP")
                         end
+                        if prestige <= 4 then
+                            table.insert(boostsNeeded, "Gold")
+                        end
                     end
-                    
-                    if prestige <= 4 then
-                        table.insert(boostsNeeded, "Gold")
-                    end
-                    
                     local bf = plr:FindFirstChild("Boosts")
                     if bf then
                         local needsBoost = false
