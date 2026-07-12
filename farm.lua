@@ -1214,7 +1214,8 @@ if placeId == 14916516914 then
                     local countYield = 0
                     for s = 1, 168 do
                         local sStr = tostring(s)
-                        if not (s >= 38 and s <= 69) and not bannedSkills[sStr] and not _G.SkillCache[sStr] then
+                        -- ข้ามสาย 81-89 ตามที่ระบุ และสาย 38-69 (ถ้าเป็น Support)
+                        if not (s >= 81 and s <= 89) and not (s >= 38 and s <= 69) and not bannedSkills[sStr] and not _G.SkillCache[sStr] then
                             pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
                             _G.SkillCache[sStr] = true
                             countYield = countYield + 1
