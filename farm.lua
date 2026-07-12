@@ -79,24 +79,39 @@ end
 -- ============================================================
 local function safeInvokeServer(remote, timeout, ...)
     local args = {...}
-    local result = nil
+    local currentThread = coroutine.running()
     local finished = false
+    local success = false
+    local result = nil
+    local yielded = false
     
     task.spawn(function()
-        pcall(function()
-            if remote then
-                result = remote:InvokeServer(unpack(args))
+        local s, res = pcall(function() return remote:InvokeServer(unpack(args)) end)
+        if not finished then
+            finished = true
+            success, result = s, res
+            if yielded then
+                task.spawn(currentThread, s, res)
             end
-        end)
-        finished = true
+        end
     end)
     
-    local start = os.clock()
-    while not finished and (os.clock() - start) < timeout do
-        task.wait()
+    task.delay(timeout, function()
+        if not finished then
+            finished = true
+            success, result = false, nil
+            if yielded then
+                task.spawn(currentThread, false, nil)
+            end
+        end
+    end)
+    
+    if not finished then
+        yielded = true
+        success, result = coroutine.yield()
     end
     
-    return result
+    return success and result or nil
 end
 
 local function forceClickGui(element)
@@ -1130,6 +1145,7 @@ if placeId == 14916516914 then
                         }
                         
                         print("🚀 [PRESTIGE] เริ่มกระบวนการจุติด้วยรายชื่อ Talent ที่กำหนด...")
+                        
                         pcall(function()
                             GET:InvokeServer("S_Equipment", "Talents")
                         end)
@@ -1178,25 +1194,24 @@ if placeId == 14916516914 then
                 local currentTime = os.clock()
                 if Config.AutoUpgrade and (not _G.LastUpgradeTime or (currentTime - _G.LastUpgradeTime >= 60)) then
                     _G.LastUpgradeTime = currentTime
-                    
                     _G.CurrentAction = "Upgrading All Equipment..."
                     local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
                     
                     for i = 1, 3 do 
-                        safeInvokeServer(GET, 0.3, "Equipment", "Upgrade_All")
-                        safeInvokeServer(GET, 0.3, "Equipment", "Upgrade", {"All"})
-                        safeInvokeServer(GET, 0.3, "Equipment", "Grade_Up")
-                        safeInvokeServer(GET, 0.3, "Equipment", "Tier_Up")
+                        pcall(function() GET:InvokeServer("Equipment", "Upgrade_All") end)
+                        pcall(function() GET:InvokeServer("Equipment", "Upgrade", {"All"}) end)
+                        pcall(function() GET:InvokeServer("Equipment", "Grade_Up") end)
+                        pcall(function() GET:InvokeServer("Equipment", "Tier_Up") end)
                         for _, stat in ipairs(bladeUpgrades) do 
-                            safeInvokeServer(GET, 0.1, "Equipment", "Upgrade", {stat})
+                            pcall(function() GET:InvokeServer("Equipment", "Upgrade", {stat}) end)
                         end
                         
-                        safeInvokeServer(GET, 0.3, "S_Equipment", "Upgrade_All")
-                        safeInvokeServer(GET, 0.3, "S_Equipment", "Upgrade", {"All"})
-                        safeInvokeServer(GET, 0.3, "S_Equipment", "Grade_Up")
-                        safeInvokeServer(GET, 0.3, "S_Equipment", "Tier_Up")
+                        pcall(function() GET:InvokeServer("S_Equipment", "Upgrade_All") end)
+                        pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {"All"}) end)
+                        pcall(function() GET:InvokeServer("S_Equipment", "Grade_Up") end)
+                        pcall(function() GET:InvokeServer("S_Equipment", "Tier_Up") end)
                         for _, stat in ipairs(bladeUpgrades) do 
-                            safeInvokeServer(GET, 0.1, "S_Equipment", "Upgrade", {stat})
+                            pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {stat}) end)
                         end
                     end
                     
@@ -1210,14 +1225,10 @@ if placeId == 14916516914 then
                         local sStr = tostring(s)
                         -- ข้ามสาย 81-89 ตามที่ระบุ และสาย 38-69 (ถ้าเป็น Support)
                         if not (s >= 81 and s <= 89) and not (s >= 38 and s <= 69) and not bannedSkills[sStr] then
-                            -- ยิงคำสั่งแบบเรียงคิว (Sequential) แต่บังคับให้ข้ามทันทีถ้ารอนานเกิน 0.1 วิ (ป้องกันจอค้าง 10 นาที)
-                            safeInvokeServer(GET, 0.1, "S_Equipment", "Unlock", {sStr})
+                            pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
                         end
                     end
-                    
-                    task.wait(1)
                 end
-            end)
 
                 _G.PreparingNewMap = true
                 _G.CurrentAction = "Preparing Mission..."
