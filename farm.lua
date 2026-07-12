@@ -79,39 +79,24 @@ end
 -- ============================================================
 local function safeInvokeServer(remote, timeout, ...)
     local args = {...}
-    local currentThread = coroutine.running()
-    local finished = false
-    local success = false
     local result = nil
-    local yielded = false
+    local finished = false
     
     task.spawn(function()
-        local s, res = pcall(function() return remote:InvokeServer(unpack(args)) end)
-        if not finished then
-            finished = true
-            success, result = s, res
-            if yielded then
-                task.spawn(currentThread, s, res)
+        pcall(function()
+            if remote then
+                result = remote:InvokeServer(unpack(args))
             end
-        end
+        end)
+        finished = true
     end)
     
-    task.delay(timeout, function()
-        if not finished then
-            finished = true
-            success, result = false, nil
-            if yielded then
-                task.spawn(currentThread, false, nil)
-            end
-        end
-    end)
-    
-    if not finished then
-        yielded = true
-        success, result = coroutine.yield()
+    local start = os.clock()
+    while not finished and (os.clock() - start) < timeout do
+        task.wait()
     end
     
-    return success and result or nil
+    return result
 end
 
 local function forceClickGui(element)
