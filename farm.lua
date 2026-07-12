@@ -15,7 +15,7 @@ pcall(function() game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiTyp
 local DEFAULT_CONFIG = {
     AutoFarm = true, TargetSlot = "A", AutoAntiLag = true, AutoBoostedMap = false,
     StartType = "Missions", MissionMap = "Chapel", MissionObjective = "Skirmish", MissionDifficulty = "Aberrant++",
-    AutoUpgrade = true, AutoDeletePerk = true, AntiBanDelay = 10, AutoPrestige = true, PrestigeTarget = 5,
+    AutoUpgrade = true, AutoDeletePerk = true, AntiBanDelay = 10, AutoPrestige = true, PrestigeTarget = 5, AutoQuest = true,
     VenozPrestige = {
         P1 = { TargetBoost = "Gold Boost", RequiredGold = 0 },
         P2 = { TargetBoost = "Gold Boost", RequiredGold = 0 },
@@ -180,31 +180,22 @@ local function executeAutoQuestLogic()
     
     task.spawn(function()
         local oldAction = _G.CurrentAction
-        _G.QuestCache = _G.QuestCache or {}
         _G.CurrentAction = "AutoQuest: Accepting Dailies & Weeklies..."
         for i = 1, 4 do
             local d = "Daily " .. i
-            if not _G.QuestCache[d] then
-                pcall(function() GET:InvokeServer("Functions", "Quest", d, "Daily") end)
-                _G.QuestCache[d] = true
-                task.wait(0.05)
-            end
+            pcall(function() GET:InvokeServer("Functions", "Quest", d, "Daily") end)
+            task.wait(0.05)
+            
             local w = "Weekly " .. i
-            if not _G.QuestCache[w] then
-                pcall(function() GET:InvokeServer("Functions", "Quest", w, "Weekly") end)
-                _G.QuestCache[w] = true
-                task.wait(0.05)
-            end
+            pcall(function() GET:InvokeServer("Functions", "Quest", w, "Weekly") end)
+            task.wait(0.05)
         end
         _G.CurrentAction = "AutoQuest: Accepting Main & Side Quests..."
         for _, quest in ipairs(allQuestTags) do
-            if not _G.QuestCache[quest] then
-                pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end)
-                task.wait(0.01)
-                pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end)
-                _G.QuestCache[quest] = true
-                task.wait(0.01)
-            end
+            pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end)
+            task.wait(0.01)
+            pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end)
+            task.wait(0.01)
         end
         _G.CurrentAction = oldAction
     end)
@@ -253,9 +244,11 @@ local function executeAutoBoostLogic()
                 if bf then
                     local checkName = (boostType == "XP") and "Experience" or boostType
                     local bv = bf:FindFirstChild(checkName) or bf:FindFirstChild(boostType)
-                    if bv and bv.Value and bv.Value > 0 then isActive = true end
+                    if bv and tonumber(bv.Value) and tonumber(bv.Value) > 0 then isActive = true end
                 end
             end)
+            
+            -- กฎเหล็ก: ถ้าน้ำยายังไม่หมด ห้ามซื้อเด็ดขาด!
             if isActive then continue end
 
             -- First, check if we already have it in inventory and use it
@@ -1159,16 +1152,13 @@ if placeId == 14916516914 then
                         
                         for _, tagName in ipairs(MyTalentList) do
                             print("⏳ [PRESTIGE] กำลังลองจุติด้วย Tag: " .. tagName)
-                            task.spawn(function()
-                                pcall(function()
-                                    GET:InvokeServer("S_Equipment", "Prestige", {
-                                        -- ✅ FIXED: Use TargetBoost instead of Boost
-                                        Boosts = pSettings.TargetBoost or "Gold Boost",
-                                        Talents = tagName
-                                    })
-                                end)
+                            pcall(function()
+                                GET:InvokeServer("S_Equipment", "Prestige", {
+                                    Boosts = pSettings.TargetBoost or "Gold Boost",
+                                    Talents = tagName
+                                })
                             end)
-                            task.wait(0.05) -- ยิงรัวๆ ได้เลยไม่ต้องรอนาน
+                            task.wait(0.3) -- เพิ่มดีเลย์เล็กน้อยเพื่อให้เซิร์ฟเวอร์ประมวลผลทัน
                         end
                         
                         if tracker then tracker.Enabled = true end
@@ -1226,28 +1216,16 @@ if placeId == 14916516914 then
                     end
                     
                     _G.CurrentAction = "Upgrading Skill Tree..."
-                    -- ระบบแคชอัปสกิล: เช็คเฉพาะอันที่ยังไม่เคยเช็ค ถ้าเลเวลอัปให้รีเซ็ตแคชเพื่อลองอัปสกิลใหม่
-                    local currentLevel = _G.LastLevel or 0
-                    if not _G.HighestLevelUpgraded or currentLevel > _G.HighestLevelUpgraded then
-                        _G.SkillCache = {} 
-                        _G.HighestLevelUpgraded = currentLevel
-                    end
-                    
-                    _G.SkillCache = _G.SkillCache or {}
                     local bannedSkills = {
                         ["76"]=true, ["93"]=true, ["95"]=true, ["97"]=true, 
                         ["103"]=true, ["158"]=true, ["163"]=true
                     }
                     
-                    local countYield = 0
                     for s = 1, 168 do
                         local sStr = tostring(s)
                         -- ข้ามสาย 81-89 ตามที่ระบุ และสาย 38-69 (ถ้าเป็น Support)
-                        if not (s >= 81 and s <= 89) and not (s >= 38 and s <= 69) and not bannedSkills[sStr] and not _G.SkillCache[sStr] then
+                        if not (s >= 81 and s <= 89) and not (s >= 38 and s <= 69) and not bannedSkills[sStr] then
                             pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
-                            _G.SkillCache[sStr] = true
-                            countYield = countYield + 1
-                            if countYield % 10 == 0 then task.wait(0.05) end
                         end
                     end
                 end
