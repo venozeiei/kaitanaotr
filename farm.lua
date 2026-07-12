@@ -1531,7 +1531,10 @@ task.spawn(function()
     
     while currentID == _G.VenozScriptID and task.wait(Config.CombatLoopInterval) do 
         if not _G.AutoFarm then continue end
-        local rewardsUI = interface:FindFirstChild("Rewards")
+        local pGui = plr:FindFirstChild("PlayerGui")
+        local currentInterface = interface or (pGui and pGui:FindFirstChild("Interface"))
+        if not currentInterface then continue end
+        local rewardsUI = currentInterface:FindFirstChild("Rewards")
         if (rewardsUI and rewardsUI.Visible) then continue end
         
         local hum = plr.Character and plr.Character:FindFirstChildWhichIsA("Humanoid")
