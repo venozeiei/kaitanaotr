@@ -1512,6 +1512,13 @@ local script_actor = [[
                 if Variables.KillCam ~= nil then Variables.KillCam = false end
                 if Variables.Slash then Variables.Slash.Slashing = false Variables.Slash.Active = false end
             end
+            
+            -- ปิด Anti-Gravity เมื่อหลุดจาก Combat เพื่อให้เดินหรือตกพื้นได้ปกติ
+            local char = plr.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root and root:FindFirstChild("VenozAntiFall") then
+                root.VenozAntiFall:Destroy()
+            end
         end)
     end
     function Func.BypassRefill()
@@ -1677,15 +1684,25 @@ task.spawn(function()
             local FloatHeight = 250
             local targetPos = Vector3.new(targetTitan.root.Position.X, targetTitan.root.Position.Y + FloatHeight, targetTitan.root.Position.Z)
             local dist = (currentRoot.Position - targetPos).Magnitude
+            -- สร้างระบบต้านแรงโน้มถ่วง (Anti-Gravity) เพื่อให้บินนิ่งๆ โดยไม่ต้องใช้ Anchored
+            local bv = currentRoot:FindFirstChild("VenozAntiFall")
+            if not bv then
+                bv = Instance.new("BodyVelocity")
+                bv.Name = "VenozAntiFall"
+                bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+                bv.Velocity = Vector3.zero
+                bv.Parent = currentRoot
+            end
+
             if dist > 200 then
                 local ts = game:GetService("TweenService")
                 local ti = TweenInfo.new(dist / 1800, Enum.EasingStyle.Linear) -- 1800 studs per second bypass
                 local tw = ts:Create(currentRoot, ti, {CFrame = CFrame.new(targetPos)})
-                currentRoot.Anchored = true
+                currentRoot.Anchored = false
                 tw:Play()
                 -- ไม่รอให้บินถึง ตีทันทีเมื่อถึงหัวไททัน
             else
-                currentRoot.Anchored = true
+                currentRoot.Anchored = false
                 currentRoot.CFrame = CFrame.new(targetPos)
                 -- ใช้ CFrame วาร์ปใส่คอโดยตรงเพื่อลดขยะ (GC) จากการสร้าง Tween ใหม่ทุกๆ 0.15 วิ
             end
