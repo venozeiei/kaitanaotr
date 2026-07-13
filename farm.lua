@@ -1579,8 +1579,33 @@ task.spawn(function()
                 --   เหตุผล: บอทกวาดทุก titan อยู่แล้ว 1 mission = ครบเควส
                 if TS_ACTIVE then
                     buttonToClick = btnLeave
-                    print(string.format("[TS] 🚪 %s: LEAVE (Lobby จะเช็ค + Retry ถ้ายังไม่ได้)",
+
+                    -- 🕐 TS MODE: รอ 6 วิก่อนกด LEAVE
+                    --    ให้ server sync quest progress + จ่าย item เข้ากระเป๋าให้เสร็จก่อน
+                    --    (ถ้ากดออกไวเกิน → Lobby อ่าน inventory ได้ข้อมูลเก่า → เข้าแมพซ้ำ)
+                    --    ระหว่างรอ: claim เควสไปด้วยเลย
+                    print(string.format("[TS] 🕐 %s: รอ server sync 6 วิ ก่อน LEAVE...",
                         tostring(_G.ThunderSpearPart)))
+                    _G.CurrentAction = "🕐 รอ sync + claim ก่อน LEAVE"
+
+                    for i = 1, 3 do
+                        pcall(function()
+                            claimAllSpearsQuests()
+                            clickAllClaimButtons()
+                        end)
+                        task.wait(2)   -- 3 รอบ × 2 วิ = 6 วิ
+                    end
+
+                    -- เช็คผลว่าได้ item หรือยัง (แค่ log — ยังไงก็ LEAVE)
+                    pcall(function()
+                        local inv = fetchServerInventory() or _G.LastInventory or {}
+                        print(string.format("[TS] 🚪 LEAVE | Handle=%s Thruster=%s Base=%s",
+                            hasThunderSpearPart("Handle", inv)   and "✅" or "❌",
+                            hasThunderSpearPart("Thruster", inv) and "✅" or "❌",
+                            hasThunderSpearPart("Base", inv)     and "✅" or "❌"))
+                    end)
+
+                -- 🚀 ไม่ใช่ TS → กดทันที (ไว เหมือนเดิม)
                 elseif _G.TS_MUST_LEAVE then
                     buttonToClick = btnLeave
                 elseif isReadyToPrestige then buttonToClick = btnLeave
