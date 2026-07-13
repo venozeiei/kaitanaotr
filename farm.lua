@@ -1254,15 +1254,34 @@ if placeId == 14916516914 then
                     end
                     
                     _G.CurrentAction = "Upgrading Skill Tree..."
+                    -- [FIX] ลบ 76, 93, 95, 97 ออกจาก bannedSkills
+                    --       เพราะพวกนี้เป็น node ปกติที่เป็น prerequisite ของสายต่อไป
+                    --       ถ้าแบน → ปลดไม่ได้ → chain ขาด → สาย 77+ ตัน
                     local bannedSkills = {
-                        ["76"]=true, ["93"]=true, ["95"]=true, ["97"]=true, 
                         ["103"]=true, ["158"]=true, ["163"]=true
                     }
                     
-                    for s = 1, 168 do
+                    -- STEP 1: ปลดสายซ้าย 1-80 (ยกเว้น 38-69 = Support)
+                    for s = 1, 80 do
                         local sStr = tostring(s)
-                        -- ข้ามสาย 81-89 ตามที่ระบุ และสาย 38-69 (ถ้าเป็น Support)
-                        if not (s >= 81 and s <= 89) and not (s >= 38 and s <= 69) and not bannedSkills[sStr] then
+                        if not (s >= 38 and s <= 69) and not bannedSkills[sStr] then
+                            pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
+                        end
+                    end
+                    
+                    -- STEP 2: ปลดสายขวา 90-98 แบบ REVERSE (98 → 91) เป็น batch เดียว
+                    -- เพราะ node 98 คือ root ของ tree ต้องปลดก่อนลูก
+                    -- ส่งเป็น array เดียว server จะประมวลตามลำดับใน array
+                    pcall(function()
+                        GET:InvokeServer("S_Equipment", "Unlock", {
+                            "98","97","96","95","94","93","92","91","90"
+                        })
+                    end)
+                    
+                    -- STEP 3: ปลดสายที่เหลือ 99-168 (ยกเว้น banned)
+                    for s = 99, 168 do
+                        local sStr = tostring(s)
+                        if not bannedSkills[sStr] then
                             pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
                         end
                     end
@@ -1779,9 +1798,8 @@ task.spawn(function()
         
         lastTotalHealth = currentTotalHealth
         
-        local bladesLeft = 3
+        local bladesLeft = 3      -- จำนวน spare sets (คลังสำรอง)
         local gasLeft = 1
-        local isBladeBroken = false
         pcall(function()
             local hud = plr:FindFirstChild("PlayerGui") and plr.PlayerGui:FindFirstChild("Interface") and plr.PlayerGui.Interface:FindFirstChild("HUD")
             if hud then
@@ -1796,6 +1814,7 @@ task.spawn(function()
                 end
                 
                 if weaponHUD then
+                    -- อ่าน Sets (จำนวนคลังสำรอง)
                     local sets = weaponHUD:FindFirstChild("Sets") or (weaponHUD.Name == "Spears" and weaponHUD:FindFirstChild("Spears"))
                     if sets and sets:IsA("TextLabel") then
                         local parts = string.split(sets.Text, "/")
@@ -1803,15 +1822,6 @@ task.spawn(function()
                             bladesLeft = tonumber(string.match(parts[1], "%d+")) or 3 
                         end
                     end
-                end
-                
-                if bladesLeft <= 0 then
-                    isBladeBroken = true
-                end
-                
-                -- Fallback: If we've been attacking for 10 cycles and dealt 0 damage, the blade is probably broken.
-                if cycleStuckCount >= 10 then
-                    isBladeBroken = true
                 end
                 
                 -- 🔥 INFINITE GAS HACK - บังคับให้มีแก๊สเสมอ
@@ -1822,8 +1832,6 @@ task.spawn(function()
                         gasBar.Size = UDim2.new(1, 0, 1, 0) -- บังคับให้เต็มเสมอ
                     end
                 end
-                
-                -- แก้ไขค่า gasLeft ให้เป็น 1 เสมอ (เต็มเสมอ)
                 gasLeft = 1
             end
         end)
@@ -1831,27 +1839,52 @@ task.spawn(function()
         local needsBoxRefill = false -- ไม่ต้องเติมแก๊สอีกต่อไป (Infinite Gas)
 
         -- ============================================================
-        -- ⚡ SAFE RELOAD LOGIC (Blade Swap)
+        -- 🚰 REFILL LOGIC (ตามหลักความจริงของเกม)
+        --   • เกม auto-swap ดาบเมื่อชุดปัจจุบันพัง — เราไม่ต้องเรียก Reload เอง
+        --   • เรียก Reload = ใช้ 1 spare แบบสิ้นเปลือง (ไม่คุ้ม)
+        --   • เราแค่ต้อง refill กลับ 3/3 เมื่อ Sets เหลือน้อยเท่านั้น
         -- ============================================================
-        if isBladeBroken then
-            _G.CurrentAction = "Combat: Swapping Broken Blade..."
+
+        -- Proactive Refill: Sets < 3 (ใช้ไป 1 ชุดแล้ว) + ยัง stuck ไม่มาก
+        --   → บินไปเติมทันทีระหว่างต่อสู้ (ไม่รอ wave clear = ฟาร์มต่อเนื่อง)
+        if bladesLeft < 3 and cachedRefillPart and cachedRefillPart.Parent then
             local currentTime = os.clock()
-            if not _G.LastReloadTime or (currentTime - _G.LastReloadTime >= 1.5) then
-                _G.LastReloadTime = currentTime
-                
+            -- Cooldown 5 วินาที: เติมครั้งนึงแล้วรอ อย่า spam
+            if not _G.LastProactiveRefill or (currentTime - _G.LastProactiveRefill >= 5) then
+                _G.LastProactiveRefill = currentTime
+                _G.CurrentAction = string.format("Combat: Refilling (Sets %d/3)...", bladesLeft)
+                local safeSpot = currentRoot.CFrame
+                currentRoot.Anchored = true
+                currentRoot.CFrame = cachedRefillPart.CFrame
+                task.wait(0.25)
+                -- ยิงเติมทั้ง Supply + Bypass เพื่อเติมเต็ม 3/3
+                pcall(function() bindable:Invoke("CALL", "SupplyReload", cachedRefillPart) end)
+                pcall(function() bindable:Invoke("CALL", "BypassRefill") end)
+                task.wait(0.15)
+                currentRoot.CFrame = safeSpot
+                currentRoot.Anchored = false
                 pcall(function() bindable:Invoke("CALL", "ResetState") end)
-                
+                task.wait(0.1)
+            end
+        end
+
+        -- ============================================================
+        -- ⚔️ Emergency: ตี stuck นาน = ดาบชุดปัจจุบันพังแล้วแต่ไม่ swap
+        --   → ยิง Reload เพื่อกระตุ้น game auto-swap
+        -- ============================================================
+        if cycleStuckCount >= 10 then
+            local currentTime = os.clock()
+            if not _G.LastReloadTime or (currentTime - _G.LastReloadTime >= 2) then
+                _G.LastReloadTime = currentTime
+                _G.CurrentAction = "Combat: Force Swap (stuck detected)..."
+                pcall(function() bindable:Invoke("CALL", "ResetState") end)
                 if bladesLeft <= 0 then
-                    _G.CurrentAction = "Combat: Emergency Bypass Refill..."
+                    -- ไม่มี spare = ต้อง bypass refill
                     pcall(function() bindable:Invoke("CALL", "BypassRefill") end)
                 end
-                
-                pcall(function()
-                    local getRemote = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-                    getRemote:InvokeServer("Blades", "Reload")
-                end)
+                pcall(function() GET:InvokeServer("Blades", "Reload") end)
+                task.wait(0.1)
             end
-            task.wait(0.1)
         end
 
         if cycleStuckCount == 4 then 
