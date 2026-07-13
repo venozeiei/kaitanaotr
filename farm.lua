@@ -1902,24 +1902,26 @@ local function isBladeBroken()
     return broken
 end
 
--- 🔬 ยิง remote + วัดผลจริง (บอกได้ว่า server รับหรือปฏิเสธ)
-local function fireBladeRemote(action)
+-- 🔬 ยิง remote (เป็นลำดับได้) + วัดผลจริง
+--    actions = { "Drop", "Reload" } → ยิง Drop แล้วรอ แล้วยิง Reload
+local function fireBlade(actions, label)
     local setsBefore = readSets() or -1
     local refBefore  = plr:GetAttribute("Refills") or -1
 
-    local ok, res = pcall(function()
-        return GET:InvokeServer("Blades", action)
-    end)
+    task.spawn(function()
+        for i, a in ipairs(actions) do
+            pcall(function() GET:InvokeServer("Blades", a) end)
+            if i < #actions then task.wait(0.4) end   -- เว้นให้ server ประมวลผลก่อนตัวถัดไป
+        end
 
-    -- วัดผลหลัง 1.2s (ให้ animation จบ)
-    task.delay(1.2, function()
+        -- วัดผลหลัง 1.2s (ให้ animation จบ)
+        task.wait(1.2)
         local setsAfter = readSets() or -1
         local refAfter  = plr:GetAttribute("Refills") or -1
         local brokenNow = isBladeBroken()
         print(string.format(
-            "[Blade] 🔬 %s | ok=%s ret=%s | Sets %d→%d | Refills %d→%d | Broken=%s",
-            action, tostring(ok), tostring(res),
-            setsBefore, setsAfter, refBefore, refAfter,
+            "[Blade] 🔬 %s | Sets %d→%d | Refills %d→%d | Broken=%s",
+            label, setsBefore, setsAfter, refBefore, refAfter,
             brokenNow == nil and "?" or (brokenNow and "YES" or "no")))
     end)
 end
@@ -1956,8 +1958,10 @@ local function ensureBlade()
     local refills  = plr:GetAttribute("Refills") or 0
     local stuckFor = os.clock() - BLADE.brokenSince
 
-    -- 🔨 ค้างนานเกิน STUCK_HARD → ท่าไม้ตาย (ปลด state + ปลด anchor)
-    if stuckFor > BLADE.STUCK_HARD then
+    -- 🔨 ค้างนานเกิน STUCK_HARD → recovery (จำกัดทุก 10 วิ ไม่ใช่ทุกครั้ง)
+    if stuckFor > BLADE.STUCK_HARD
+    and os.clock() - (BLADE.lastRecovery or 0) > 10 then
+        BLADE.lastRecovery = os.clock()
         BLADE.hardTried = BLADE.hardTried + 1
         warn(string.format("[Blade] 🔨 ดาบพังค้าง %.0f วิ → recovery #%d (Sets=%d Refills=%d)",
             stuckFor, BLADE.hardTried, sets, refills))
@@ -1969,18 +1973,19 @@ local function ensureBlade()
             local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
             if hrp and hrp.Anchored then
                 hrp.Anchored = false
-                task.delay(0.6, function()
+                task.delay(1, function()
                     if hrp and hrp.Parent then hrp.Anchored = true end
                 end)
             end
         end)
     end
 
-    -- 🎯 ยิงคำสั่งเดียว แล้วปล่อย (ไม่วน ไม่ spam ไม่ ResetState)
+    -- 🎯 ยิงคำสั่ง แล้วปล่อยให้เกมทำงาน (ไม่ spam)
     if sets > 0 then
+        -- มี spare อยู่ → แค่สลับชุด
         print(string.format("[Blade] 🔄 ดาบพัง → Reload (Sets %d/3)", sets))
         _G.CurrentAction = string.format("🔄 Reload blade (%d/3)", sets)
-        fireBladeRemote("Reload")
+        fireBlade({ "Reload" }, "Reload")
     else
         if refills <= 0 then
             if not _G._BladeNoRefill then
@@ -1989,9 +1994,11 @@ local function ensureBlade()
             end
             return false
         end
-        print(string.format("[Blade] 📦 Sets 0/3 → Drop (Refills %d)", refills))
-        _G.CurrentAction = string.format("📦 Drop (Refills %d)", refills)
-        fireBladeRemote("Drop")
+        -- ⭐ Sets = 0 → ต้อง Drop (เติมเข้าคลัง) แล้ว Reload (หยิบมาใส่มือ)
+        --    ยิง Drop อย่างเดียวไม่พอ — คลังเต็มแต่มือยังว่าง
+        print(string.format("[Blade] 📦 Sets 0/3 → Drop + Reload (Refills %d)", refills))
+        _G.CurrentAction = string.format("📦 Drop+Reload (Refills %d)", refills)
+        fireBlade({ "Drop", "Reload" }, "Drop+Reload")
     end
 
     return false
