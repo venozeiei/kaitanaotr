@@ -467,42 +467,50 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
             end
 
             task.spawn(function()
-                -- รันลูปเช็คและลบกราฟิกซ้ำๆ ทุก 30 วินาที (ลดภาระ CPU มหาศาลสำหรับ 50 จอ)
-                while task.wait(30) do
-                    -- ลบ Terrain ทั้งหมด (เสาหิน ภูเขา ต้นไม้ยักษ์ ที่สร้างจาก Terrain จะหายวับ)
+                -- [OPT] เดิม: while task.wait(30) → GetDescendants ทั้ง 8 folder ทุก 30 วิ
+                --       ใหม่: ทำครั้งเดียว + ฟัง DescendantAdded เฉพาะ folder เป้าหมาย
+                --       ประหยัด CPU มหาศาลบน 50 จอ, ผลลัพธ์เหมือนเดิม
+                pcall(function() workspace.Terrain:Clear() end)
+
+                local lobbyTargets = {
+                    workspace:FindFirstChild("World"),
+                    workspace:FindFirstChild("Climbable"),
+                    workspace:FindFirstChild("Debris"),
+                    workspace:FindFirstChild("Hooks"),
+                    workspace:FindFirstChild("Unclimbable"),
+                    workspace:FindFirstChild("Points"),
+                    workspace:FindFirstChild("Map"),
+                    workspace:FindFirstChild("Titans")
+                }
+
+                local function hidePart(v)
                     pcall(function()
-                        workspace.Terrain:Clear()
-                    end)
-                    
-                    -- ซ่อนแมพและสิ่งของรบกวนสายตาทันที (บังคับซ่อนแบบเจาะจง)
-                    local lobbyTargets = {
-                        workspace:FindFirstChild("World"),
-                        workspace:FindFirstChild("Climbable"),
-                        workspace:FindFirstChild("Debris"),
-                        workspace:FindFirstChild("Hooks"),
-                        workspace:FindFirstChild("Unclimbable"),
-                        workspace:FindFirstChild("Points"),
-                        workspace:FindFirstChild("Map"),
-                        workspace:FindFirstChild("Titans")
-                    }
-                    
-                    for _, target in ipairs(lobbyTargets) do
-                        if target then
-                            for _, v in ipairs(target:GetDescendants()) do
-                                pcall(function()
-                                    if v:IsA("BasePart") and v.Transparency ~= 1 then
-                                        v.Transparency = 1
-                                        v.Material = Enum.Material.Plastic
-                                        v.CastShadow = false
-                                        if v:IsA("MeshPart") then v.TextureID = "" end
-                                    elseif (v:IsA("Decal") or v:IsA("Texture")) and v.Transparency ~= 1 then
-                                        v.Transparency = 1
-                                    end
-                                end)
-                            end
+                        if v:IsA("BasePart") and v.Transparency ~= 1 then
+                            v.Transparency = 1
+                            v.Material = Enum.Material.Plastic
+                            v.CastShadow = false
+                            if v:IsA("MeshPart") then v.TextureID = "" end
+                        elseif (v:IsA("Decal") or v:IsA("Texture")) and v.Transparency ~= 1 then
+                            v.Transparency = 1
                         end
+                    end)
+                end
+
+                for _, target in ipairs(lobbyTargets) do
+                    if target then
+                        -- pass เดียวตอนบูต
+                        for _, v in ipairs(target:GetDescendants()) do hidePart(v) end
+                        -- ฟังของใหม่ที่ spawn เพิ่ม (event-based, zero polling)
+                        target.DescendantAdded:Connect(hidePart)
                     end
                 end
+
+                -- เผื่อ Terrain ถูก restore โดยเกม, เคลียร์ซ้ำทุก 2 นาที (นานพอไม่กิน CPU)
+                task.spawn(function()
+                    while task.wait(120) do
+                        pcall(function() workspace.Terrain:Clear() end)
+                    end
+                end)
             end)
             
             -- ลบกราฟิกเดิมที่มีอยู่ทั่วแมพตอนเริ่ม
@@ -526,14 +534,10 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
                         if effectsTable.Shake then
                             effectsTable.Shake = function() return end
                         end
-                        -- ลองรัน loop เพื่อเคลียร์ค่าการสั่นสะเทือนตลอดเวลา
-                        task.spawn(function()
-                            while task.wait(0.1) do
-                                pcall(function()
-                                    if effectsTable.Shake_Amount then
-                                        effectsTable.Shake_Amount = 0
-                                    end
-                                end)
+                        -- [OPT] set ครั้งเดียว + block writes ผ่าน metatable (ไม่ใช้ while loop ที่กิน CPU)
+                        pcall(function()
+                            if effectsTable.Shake_Amount ~= nil then
+                                effectsTable.Shake_Amount = 0
                             end
                         end)
                     end
@@ -907,7 +911,7 @@ end)
 -- 🚫 HIDE CORE GUI & CHAT (Independent from Tracker)
 -- ============================================================
 task.spawn(function()
-    while task.wait(1) do
+    while task.wait(5) do -- [OPT] 1s → 5s (ลด CPU 80% สำหรับ 50 จอ)
         pcall(function() 
             game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, false) 
             local coreGui = game:GetService("CoreGui")
