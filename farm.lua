@@ -1791,32 +1791,31 @@ local function isIceBurst(titan)
 end
 
 -- ============================================================
--- 🗡️ BLADE SYSTEM v3  (Rig-based broken detection)
+-- 🗡️ BLADE SYSTEM v4  (cooldown-based, ไม่ฆ่า refill ตัวเอง)
 -- ============================================================
--- กลไกจริงของเกม:
---   GET:InvokeServer("Blades","Reload") → สลับใบมีดชุดใหม่ (ใช้ spare 1)
---                                          Sets 3/3 → 2/3 → 1/3 → 0/3
---   GET:InvokeServer("Blades","Drop")   → เติม spare กลับ 3/3 (ใช้ Player.Refills)
+--   Blades/Reload → สลับใบมีดชุดใหม่ (Sets −1)
+--   Blades/Drop   → เติม Sets กลับ 3/3 (ใช้ Player.Refills)
 --
--- 🎯 วิธีเช็ค "ดาบพัง" ที่แม่นที่สุด — อ่านโมเดลดาบใน 3D ตรงๆ:
---     Character.Rig_<name>.RightHand/LeftHand.Blade_1
---       • GetAttribute("Broken") == true   ← สัญญาณหลัก
---       • Transparency ~= 0                ← สัญญาณสำรอง (ถ้าไม่มี attribute)
+-- 🐛 บั๊ก v3: combat loop เรียกทุก 0.1s + ensureBlade วนใน 0.25s
+--            แต่ละครั้งยิง ResetState (Reloading = false)
+--            → ฆ่า refill ที่ server/client กำลังทำอยู่ → วนไม่จบ
 --
---   ดีกว่าอ่านหลอดแดงจาก HUD เพราะไม่ต้องเดาว่าเกมวาดด้วย
---   Size / UIGradient / Transparency
---
--- 🐛 บั๊กเดิม: เดาจาก stuck counter → รีทั้งที่ดาบยังดี → sets หมดเร็ว
---             และตอน Sets=0 ยังยิง Reload (ต้องใช้ Drop) → รีไม่ติด
+-- ✅ v4:
+--    • ยิง remote แล้ว "ปล่อยเกมทำงาน" — cooldown 1.8s ห้ามยุ่ง
+--    • ไม่ ResetState ก่อนยิง (ยกเว้นค้างนานเกิน 6 วิ = recovery)
+--    • ไม่ block combat loop (return ทันที ไม่มี loop ข้างใน)
+--    • log ผลลัพธ์จริง: Refills ก่อน→หลัง, Sets ก่อน→หลัง, ค่า return
 -- ============================================================
 local BLADE = {
-    MIN_INTERVAL = 0.25,   -- เว้นระยะระหว่างยิง remote (กัน spam)
-    MAX_STEPS    = 6,      -- แก้ได้สูงสุดกี่ step ต่อรอบ
-    lastCall     = 0,
-    gui          = nil,    -- cache Blades GUI
+    COOLDOWN   = 1.8,    -- หลังยิง remote ห้ามยุ่งกี่วินาที
+    STUCK_HARD = 6,      -- ดาบพังค้างเกินกี่วิ = ใช้ท่าไม้ตาย
+    lastAction = 0,
+    brokenSince = nil,
+    hardTried  = 0,
+    gui        = nil,
 }
 
--- 🔎 cache Blades GUI (หาแบบทนทาน ไม่ผูก path ตายตัว)
+-- 🔎 cache Blades GUI
 task.spawn(function()
     while currentID == _G.VenozScriptID do
         if not (BLADE.gui and BLADE.gui.Parent) then
@@ -1838,7 +1837,7 @@ task.spawn(function()
     end
 end)
 
--- 📖 อ่าน Sets (0-3) จาก HUD — คืน nil ถ้าอ่านไม่ได้
+-- 📖 Sets (0-3) จาก HUD
 local function readSets()
     local g = BLADE.gui
     if not (g and g.Parent) then return nil end
@@ -1848,18 +1847,13 @@ local function readSets()
     end
     return nil
 end
+local function readBladeSets() return readSets() or 3 end
 
--- backward-compat
-local function readBladeSets()
-    return readSets() or 3
-end
-
--- ⭐ เช็คดาบพังจาก Rig จริง
---    คืน true = พัง, false = ยังดี, nil = อ่านไม่ได้ (อย่าเพิ่งทำอะไร)
+-- ⭐ ดาบพังไหม — อ่านโมเดล 3D จริง
+--    true = พัง, false = ดี, nil = อ่านไม่ได้
 local function isBladeBroken()
     local char = plr.Character
     if not char then return nil end
-
     local rig = char:FindFirstChild("Rig_" .. plr.Name)
     if not rig then return nil end
 
@@ -1871,8 +1865,7 @@ local function isBladeBroken()
                 found = true
                 local attr = b:GetAttribute("Broken")
                 if attr ~= nil then
-                    -- มี attribute → เชื่อ attribute อย่างเดียว
-                    -- (กัน false positive จาก anti-lag ที่ตั้ง Transparency=1)
+                    -- เชื่อ attribute อย่างเดียว (กัน anti-lag ตั้ง Transparency=1)
                     if attr == true then broken = true end
                 elseif b:IsA("BasePart") and b.Transparency ~= 0 then
                     broken = true
@@ -1880,86 +1873,111 @@ local function isBladeBroken()
             end
         end
     end
-
-    if not found then return nil end   -- rig ยังโหลดไม่เสร็จ
+    if not found then return nil end
     return broken
 end
 
-local function bladeThrottle()
-    local w = BLADE.MIN_INTERVAL - (os.clock() - BLADE.lastCall)
-    if w > 0 then task.wait(w) end
-    BLADE.lastCall = os.clock()
+-- 🔬 ยิง remote + วัดผลจริง (บอกได้ว่า server รับหรือปฏิเสธ)
+local function fireBladeRemote(action)
+    local setsBefore = readSets() or -1
+    local refBefore  = plr:GetAttribute("Refills") or -1
+
+    local ok, res = pcall(function()
+        return GET:InvokeServer("Blades", action)
+    end)
+
+    -- วัดผลหลัง 1.2s (ให้ animation จบ)
+    task.delay(1.2, function()
+        local setsAfter = readSets() or -1
+        local refAfter  = plr:GetAttribute("Refills") or -1
+        local brokenNow = isBladeBroken()
+        print(string.format(
+            "[Blade] 🔬 %s | ok=%s ret=%s | Sets %d→%d | Refills %d→%d | Broken=%s",
+            action, tostring(ok), tostring(res),
+            setsBefore, setsAfter, refBefore, refAfter,
+            brokenNow == nil and "?" or (brokenNow and "YES" or "no")))
+    end)
 end
 
--- สลับใบมีดชุดใหม่ (ใช้ spare 1 ชุด)
-local function bladeReload()
-    bladeThrottle()
-    pcall(function() bindable:Invoke("CALL", "ResetState") end)  -- ปลด Variables.Reloading ค้าง
-    pcall(function() GET:InvokeServer("Blades", "Reload") end)
-end
-
--- เติม spare กลับ 3/3 (ใช้ Player.Refills)
-local function bladeDrop()
-    bladeThrottle()
-    pcall(function() bindable:Invoke("CALL", "ResetState") end)
-    pcall(function() GET:InvokeServer("Blades", "Drop") end)
-end
-
--- 🧠 verify-then-act: อ่านของจริงหลังทุก action ไม่เดาว่า remote สำเร็จ
---    เรียกได้ทุก combat tick — ไม่ทำอะไรเลยถ้าดาบยังดี
+-- 🧠 ensureBlade — cooldown-based, non-blocking
+--    เรียกได้ทุก combat tick, return ทันที
 local function ensureBlade()
-    for step = 1, BLADE.MAX_STEPS do
-        local broken = isBladeBroken()
+    local broken = isBladeBroken()
 
-        -- อ่านไม่ได้ → ไม่ยิง remote มั่ว
-        if broken == nil then return false end
+    -- อ่านไม่ได้ → ไม่ทำอะไร
+    if broken == nil then return false end
 
-        -- ✅ ดาบยังดี → จบ (ไม่แตะ remote เลย)
-        if not broken then
-            if step > 1 then
-                print(string.format("[Blade] ✅ ดาบพร้อมใช้ (Sets %s/3)",
-                    tostring(readSets() or "?")))
-                _G._BladeNoRefill = nil
-            end
-            return true
+    -- ✅ ดาบดี → reset ทุก state
+    if not broken then
+        if BLADE.brokenSince then
+            print(string.format("[Blade] ✅ ดาบพร้อมใช้ (Sets %s/3)", tostring(readSets() or "?")))
         end
-
-        -- ❌ ดาบพัง → ต้องแก้
-        local sets = readSets() or 0
-
-        if sets > 0 then
-            -- มี spare → สลับชุดใหม่
-            print(string.format("[Blade] 🔄 ดาบพัง → Reload (Sets %d/3)", sets))
-            _G.CurrentAction = "🔄 Reload blade"
-            bladeReload()
-        else
-            -- Sets = 0 → เติมก่อน (เงื่อนไขเดียวกับ: Sets=="0 / 3" and broken)
-            local refills = plr:GetAttribute("Refills") or 0
-            if refills <= 0 then
-                if not _G._BladeNoRefill then
-                    _G._BladeNoRefill = true
-                    warn("[Blade] 🚫 Refills หมด (0/3) — เติมไม่ได้จนจบภารกิจ")
-                end
-                return false
-            end
-            print(string.format("[Blade] 📦 Sets 0/3 + ดาบพัง → Drop (Refills %d)", refills))
-            _G.CurrentAction = "📦 Drop/Refill blades"
-            bladeDrop()
-        end
-
-        task.wait(0.25)   -- รอ server ตอบ → วนไปอ่านใหม่ (self-correcting)
+        BLADE.brokenSince = nil
+        BLADE.hardTried   = 0
+        _G._BladeNoRefill = nil
+        return true
     end
 
-    warn("[Blade] ⚠️ แก้ดาบไม่สำเร็จใน " .. BLADE.MAX_STEPS .. " step")
+    -- ❌ ดาบพัง
+    if not BLADE.brokenSince then BLADE.brokenSince = os.clock() end
+
+    -- ⏳ อยู่ใน cooldown → ปล่อยให้เกมทำ animation ให้จบ (สำคัญมาก!)
+    if os.clock() - BLADE.lastAction < BLADE.COOLDOWN then
+        return false
+    end
+    BLADE.lastAction = os.clock()
+
+    local sets     = readSets() or 0
+    local refills  = plr:GetAttribute("Refills") or 0
+    local stuckFor = os.clock() - BLADE.brokenSince
+
+    -- 🔨 ค้างนานเกิน STUCK_HARD → ท่าไม้ตาย (ปลด state + ปลด anchor)
+    if stuckFor > BLADE.STUCK_HARD then
+        BLADE.hardTried = BLADE.hardTried + 1
+        warn(string.format("[Blade] 🔨 ดาบพังค้าง %.0f วิ → recovery #%d (Sets=%d Refills=%d)",
+            stuckFor, BLADE.hardTried, sets, refills))
+
+        pcall(function() bindable:Invoke("CALL", "ResetState") end)
+
+        -- ปล่อย anchor ชั่วคราว เผื่อเกมไม่ยอม refill ตอนล็อคอยู่กลางอากาศ
+        pcall(function()
+            local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and hrp.Anchored then
+                hrp.Anchored = false
+                task.delay(0.6, function()
+                    if hrp and hrp.Parent then hrp.Anchored = true end
+                end)
+            end
+        end)
+    end
+
+    -- 🎯 ยิงคำสั่งเดียว แล้วปล่อย (ไม่วน ไม่ spam ไม่ ResetState)
+    if sets > 0 then
+        print(string.format("[Blade] 🔄 ดาบพัง → Reload (Sets %d/3)", sets))
+        _G.CurrentAction = string.format("🔄 Reload blade (%d/3)", sets)
+        fireBladeRemote("Reload")
+    else
+        if refills <= 0 then
+            if not _G._BladeNoRefill then
+                _G._BladeNoRefill = true
+                warn("[Blade] 🚫 Refills หมด (0) — เติมไม่ได้จนจบภารกิจ")
+            end
+            return false
+        end
+        print(string.format("[Blade] 📦 Sets 0/3 → Drop (Refills %d)", refills))
+        _G.CurrentAction = string.format("📦 Drop (Refills %d)", refills)
+        fireBladeRemote("Drop")
+    end
+
     return false
 end
 
--- ชื่อเดิมที่ combat loop เรียกอยู่ → ชี้มาที่ระบบใหม่
+-- ชื่อเดิมที่ combat loop เรียก
 local function tryRefill()
     ensureBlade()
 end
 
--- 📊 Debug log ทุก 5 วิ
+-- 📊 Debug ทุก 5 วิ
 task.spawn(function()
     while currentID == _G.VenozScriptID do
         task.wait(5)
