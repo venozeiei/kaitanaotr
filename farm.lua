@@ -49,6 +49,7 @@ local plr = Players.LocalPlayer
 local placeId = game.PlaceId
 local Remotes = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes")
 local GET = Remotes:WaitForChild("GET", 10)
+local POST = Remotes:WaitForChild("POST", 10)   -- RemoteEvent — ใช้เติมดาบ/แก๊ส
 
 -- ============================================================
 -- 🖥️ DISABLE 3D RENDERING (ZERO GPU MODE)
@@ -1816,28 +1817,30 @@ local function isIceBurst(titan)
 end
 
 -- ============================================================
--- 🗡️ BLADE SYSTEM v4  (cooldown-based, ไม่ฆ่า refill ตัวเอง)
+-- 🗡️ BLADE SYSTEM v5  (ถูกต้องแล้ว!)
 -- ============================================================
---   Blades/Reload → สลับใบมีดชุดใหม่ (Sets −1)
---   Blades/Drop   → เติม Sets กลับ 3/3 (ใช้ Player.Refills)
+-- 🔑 remote ที่ถูกต้อง (ยืนยันจาก remote spy):
 --
--- 🐛 บั๊ก v3: combat loop เรียกทุก 0.1s + ensureBlade วนใน 0.25s
---            แต่ละครั้งยิง ResetState (Reloading = false)
---            → ฆ่า refill ที่ server/client กำลังทำอยู่ → วนไม่จบ
+--   เติมดาบ/แก๊ส (Refill):
+--     POST:FireServer("Attacks", "Reload", <RefillPart>)
+--     RefillPart = workspace.Unclimbable.Reloads.<Station>.Refill
+--     ⚠️ เป็น POST (RemoteEvent) ไม่ใช่ GET (RemoteFunction)!
+--     → Sets กลับมา 3/3, กิน Player.Refills 1 หน่วย
 --
--- ✅ v4:
---    • ยิง remote แล้ว "ปล่อยเกมทำงาน" — cooldown 1.8s ห้ามยุ่ง
---    • ไม่ ResetState ก่อนยิง (ยกเว้นค้างนานเกิน 6 วิ = recovery)
---    • ไม่ block combat loop (return ทันที ไม่มี loop ข้างใน)
---    • log ผลลัพธ์จริง: Refills ก่อน→หลัง, Sets ก่อน→หลัง, ค่า return
+--   สลับใบมีดชุดใหม่:
+--     GET:InvokeServer("Blades", "Reload")
+--     → Sets −1, ใบมีดในมือกลับมาใหม่
+--
+-- 🐛 บั๊กเดิม: ยิง GET("Blades","Drop") ซึ่งไม่มีผลอะไรเลย
+--             (server รับแต่ไม่ทำ → Refills 3→3 ตลอด)
+--             + หาสถานีเติมผิดที่ (workspace ชั้นบน แทน Unclimbable.Reloads)
 -- ============================================================
 local BLADE = {
-    COOLDOWN   = 1.8,    -- หลังยิง remote ห้ามยุ่งกี่วินาที
-    STUCK_HARD = 6,      -- ดาบพังค้างเกินกี่วิ = ใช้ท่าไม้ตาย
-    lastAction = 0,
+    COOLDOWN   = 2.0,    -- หลังยิง remote ห้ามยุ่งกี่วินาที
     brokenSince = nil,
-    hardTried  = 0,
+    lastAction = 0,
     gui        = nil,
+    refillPart = nil,
 }
 
 -- 🔎 cache Blades GUI
@@ -1862,7 +1865,7 @@ task.spawn(function()
     end
 end)
 
--- 📖 Sets (0-3) จาก HUD
+-- 📖 Sets (0-3)
 local function readSets()
     local g = BLADE.gui
     if not (g and g.Parent) then return nil end
@@ -1874,7 +1877,7 @@ local function readSets()
 end
 local function readBladeSets() return readSets() or 3 end
 
--- ⭐ ดาบพังไหม — อ่านโมเดล 3D จริง
+-- ⭐ ดาบพังไหม (อ่านโมเดล 3D จริง)
 --    true = พัง, false = ดี, nil = อ่านไม่ได้
 local function isBladeBroken()
     local char = plr.Character
@@ -1890,7 +1893,6 @@ local function isBladeBroken()
                 found = true
                 local attr = b:GetAttribute("Broken")
                 if attr ~= nil then
-                    -- เชื่อ attribute อย่างเดียว (กัน anti-lag ตั้ง Transparency=1)
                     if attr == true then broken = true end
                 elseif b:IsA("BasePart") and b.Transparency ~= 0 then
                     broken = true
@@ -1902,45 +1904,131 @@ local function isBladeBroken()
     return broken
 end
 
--- 🔬 ยิง remote (เป็นลำดับได้) + วัดผลจริง
---    actions = { "Drop", "Reload" } → ยิง Drop แล้วรอ แล้วยิง Reload
-local function fireBlade(actions, label)
-    local setsBefore = readSets() or -1
-    local refBefore  = plr:GetAttribute("Refills") or -1
+local function getHRP()
+    local c = plr.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
 
-    task.spawn(function()
-        for i, a in ipairs(actions) do
-            pcall(function() GET:InvokeServer("Blades", a) end)
-            if i < #actions then task.wait(0.4) end   -- เว้นให้ server ประมวลผลก่อนตัวถัดไป
+local function partPos(inst)
+    if not inst then return nil end
+    if inst:IsA("BasePart") then return inst.Position end
+    local ok, pivot = pcall(function() return inst:GetPivot().Position end)
+    return ok and pivot or nil
+end
+
+-- ⭐ หาสถานีเติมที่ workspace.Unclimbable.Reloads.<Station>.Refill
+--    เลือกอันที่ใกล้ตัวที่สุด
+local function findRefillPart()
+    if BLADE.refillPart and BLADE.refillPart.Parent then
+        return BLADE.refillPart
+    end
+    BLADE.refillPart = nil
+
+    local unc     = workspace:FindFirstChild("Unclimbable")
+    local reloads = unc and unc:FindFirstChild("Reloads")
+    if not reloads then return nil end
+
+    local hrp = getHRP()
+    local best, bestDist
+
+    for _, station in ipairs(reloads:GetChildren()) do
+        local refill = station:FindFirstChild("Refill")
+        if refill then
+            local pos = partPos(refill)
+            local d = (hrp and pos) and (hrp.Position - pos).Magnitude or math.huge
+            if not best or d < bestDist then
+                best, bestDist = refill, d
+            end
         end
+    end
 
-        -- วัดผลหลัง 1.2s (ให้ animation จบ)
-        task.wait(1.2)
-        local setsAfter = readSets() or -1
-        local refAfter  = plr:GetAttribute("Refills") or -1
-        local brokenNow = isBladeBroken()
-        print(string.format(
-            "[Blade] 🔬 %s | Sets %d→%d | Refills %d→%d | Broken=%s",
-            label, setsBefore, setsAfter, refBefore, refAfter,
-            brokenNow == nil and "?" or (brokenNow and "YES" or "no")))
-    end)
+    BLADE.refillPart = best
+    if best then
+        print(string.format("[Blade] 📍 สถานีเติม: %s (%.0f studs)",
+            best:GetFullName(), bestDist or -1))
+    end
+    return best
+end
+
+-- 🔫 ยิง remote เติม (POST = RemoteEvent)
+local function fireRefill(part)
+    pcall(function() POST:FireServer("Attacks", "Reload", part) end)
+end
+
+-- 📦 เติมดาบ: ยิงจากที่เดิมก่อน → ไม่ติดค่อยบินไปยืนที่สถานี
+local function doRefill()
+    local part = findRefillPart()
+    if not part then
+        if not _G._BladeNoStation then
+            _G._BladeNoStation = true
+            warn("[Blade] ❌ ไม่พบสถานีเติมใน workspace.Unclimbable.Reloads")
+        end
+        return
+    end
+
+    local setsBefore = readSets() or 0
+    local refBefore  = plr:GetAttribute("Refills") or 0
+
+    -- 1️⃣ ลองยิงจากที่เดิมก่อน (เร็ว ไม่ต้องบิน)
+    fireRefill(part)
+    task.wait(0.6)
+
+    if (readSets() or 0) > setsBefore then
+        print(string.format("[Blade] ✅ เติมสำเร็จจากระยะไกล (Sets %d→%d, Refills %d→%d)",
+            setsBefore, readSets() or 0, refBefore, plr:GetAttribute("Refills") or 0))
+        return
+    end
+
+    -- 2️⃣ ไม่ติด → บินไปยืนที่สถานีแล้วยิงซ้ำ
+    local hrp = getHRP()
+    local pos = partPos(part)
+    if not (hrp and pos) then return end
+
+    print("[Blade] 🚁 บินไปสถานีเติม...")
+    _G.CurrentAction = "🚁 บินไปเติมดาบ"
+
+    local saved = hrp.CFrame
+    hrp.Anchored = false
+    hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
+    task.wait(0.35)
+
+    for _ = 1, 3 do
+        fireRefill(part)
+        if firetouchinterest and part:IsA("BasePart") then
+            pcall(function()
+                firetouchinterest(hrp, part, 0)
+                firetouchinterest(hrp, part, 1)
+            end)
+        end
+        task.wait(0.35)
+    end
+
+    local setsAfter = readSets() or 0
+    local refAfter  = plr:GetAttribute("Refills") or 0
+    print(string.format("[Blade] 🔬 Refill@station | Sets %d→%d | Refills %d→%d",
+        setsBefore, setsAfter, refBefore, refAfter))
+
+    -- กลับที่เดิม
+    hrp.CFrame = saved
+    hrp.Anchored = true
+end
+
+-- 🔄 สลับใบมีดชุดใหม่ (ใช้ spare 1 ชุด)
+local function bladeReload()
+    pcall(function() GET:InvokeServer("Blades", "Reload") end)
 end
 
 -- 🧠 ensureBlade — cooldown-based, non-blocking
---    เรียกได้ทุก combat tick, return ทันที
 local function ensureBlade()
     local broken = isBladeBroken()
-
-    -- อ่านไม่ได้ → ไม่ทำอะไร
     if broken == nil then return false end
 
-    -- ✅ ดาบดี → reset ทุก state
+    -- ✅ ดาบดี
     if not broken then
         if BLADE.brokenSince then
             print(string.format("[Blade] ✅ ดาบพร้อมใช้ (Sets %s/3)", tostring(readSets() or "?")))
         end
         BLADE.brokenSince = nil
-        BLADE.hardTried   = 0
         _G._BladeNoRefill = nil
         return true
     end
@@ -1948,45 +2036,20 @@ local function ensureBlade()
     -- ❌ ดาบพัง
     if not BLADE.brokenSince then BLADE.brokenSince = os.clock() end
 
-    -- ⏳ อยู่ใน cooldown → ปล่อยให้เกมทำ animation ให้จบ (สำคัญมาก!)
-    if os.clock() - BLADE.lastAction < BLADE.COOLDOWN then
-        return false
-    end
+    -- ⏳ cooldown → ปล่อยให้เกมทำ animation จนจบ
+    if os.clock() - BLADE.lastAction < BLADE.COOLDOWN then return false end
     BLADE.lastAction = os.clock()
 
-    local sets     = readSets() or 0
-    local refills  = plr:GetAttribute("Refills") or 0
-    local stuckFor = os.clock() - BLADE.brokenSince
+    local sets    = readSets() or 0
+    local refills = plr:GetAttribute("Refills") or 0
 
-    -- 🔨 ค้างนานเกิน STUCK_HARD → recovery (จำกัดทุก 10 วิ ไม่ใช่ทุกครั้ง)
-    if stuckFor > BLADE.STUCK_HARD
-    and os.clock() - (BLADE.lastRecovery or 0) > 10 then
-        BLADE.lastRecovery = os.clock()
-        BLADE.hardTried = BLADE.hardTried + 1
-        warn(string.format("[Blade] 🔨 ดาบพังค้าง %.0f วิ → recovery #%d (Sets=%d Refills=%d)",
-            stuckFor, BLADE.hardTried, sets, refills))
-
-        pcall(function() bindable:Invoke("CALL", "ResetState") end)
-
-        -- ปล่อย anchor ชั่วคราว เผื่อเกมไม่ยอม refill ตอนล็อคอยู่กลางอากาศ
-        pcall(function()
-            local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-            if hrp and hrp.Anchored then
-                hrp.Anchored = false
-                task.delay(1, function()
-                    if hrp and hrp.Parent then hrp.Anchored = true end
-                end)
-            end
-        end)
-    end
-
-    -- 🎯 ยิงคำสั่ง แล้วปล่อยให้เกมทำงาน (ไม่ spam)
     if sets > 0 then
-        -- มี spare อยู่ → แค่สลับชุด
+        -- มี spare → สลับชุด
         print(string.format("[Blade] 🔄 ดาบพัง → Reload (Sets %d/3)", sets))
-        _G.CurrentAction = string.format("🔄 Reload blade (%d/3)", sets)
-        fireBlade({ "Reload" }, "Reload")
+        _G.CurrentAction = string.format("🔄 Reload (%d/3)", sets)
+        task.spawn(bladeReload)
     else
+        -- Sets = 0 → ต้องเติมที่สถานี
         if refills <= 0 then
             if not _G._BladeNoRefill then
                 _G._BladeNoRefill = true
@@ -1994,11 +2057,9 @@ local function ensureBlade()
             end
             return false
         end
-        -- ⭐ Sets = 0 → ต้อง Drop (เติมเข้าคลัง) แล้ว Reload (หยิบมาใส่มือ)
-        --    ยิง Drop อย่างเดียวไม่พอ — คลังเต็มแต่มือยังว่าง
-        print(string.format("[Blade] 📦 Sets 0/3 → Drop + Reload (Refills %d)", refills))
-        _G.CurrentAction = string.format("📦 Drop+Reload (Refills %d)", refills)
-        fireBlade({ "Drop", "Reload" }, "Drop+Reload")
+        print(string.format("[Blade] 📦 Sets 0/3 → เติมที่สถานี (Refills %d)", refills))
+        _G.CurrentAction = string.format("📦 Refill (%d)", refills)
+        task.spawn(doRefill)   -- spawn เพื่อไม่ block combat loop
     end
 
     return false
