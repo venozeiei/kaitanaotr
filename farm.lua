@@ -1695,7 +1695,9 @@ local script_actor = [[
     end
     function Func.BypassRefill()
         pcall(function() CoreTable:Send("Attacks", "Reload") end)
+        task.wait(0.05) -- คั่น Delay นิดนึงกันภาพบัค
         pcall(function() CoreTable:Send("Equipment", "Reload") end)
+        task.wait(0.05)
         pcall(function() CoreTable:Invoke("Blades", "Reload") end)
         pcall(function() CoreTable:Invoke("Spears", "Reload") end)
     end
@@ -1790,84 +1792,97 @@ local function isIceBurst(titan)
     return fake:FindFirstChild("Blue_Lines") ~= nil
 end
 
--- อ่าน blade sets จาก HUD
-local function readBladeSets()
-    local sets = 3
+-- ============================================================
+-- 🔍 อ่านทั้งค่า Sets และหลอด Durability (หลอดแดง)
+-- ============================================================
+local function readBladeStats()
+    local stats = { sets = 3, durability = 100 }
     pcall(function()
         local hud = interface:FindFirstChild("HUD")
         local top = hud and hud:FindFirstChild("Main") and hud.Main:FindFirstChild("Top")
         local seven = top and top:FindFirstChild("7")
         local weaponHUD = seven and seven:FindFirstChild("Blades")
+        
         if seven and seven:FindFirstChild("Spears") and seven.Spears.Visible then
             weaponHUD = seven.Spears
         end
+        
         if weaponHUD then
+            -- 1. อ่านจำนวน Sets (เช่น 3/3)
             local s = weaponHUD:FindFirstChild("Sets")
             if s and s:IsA("TextLabel") then
                 local parts = string.split(s.Text, "/")
-                if #parts >= 1 then sets = tonumber(string.match(parts[1], "%d+")) or 3 end
+                if #parts >= 1 then stats.sets = tonumber(string.match(parts[1], "%d+")) or 3 end
+            end
+            
+            -- 2. อ่านหลอดแดง (Durability)
+            local barBG = weaponHUD:FindFirstChild("Durability") or weaponHUD:FindFirstChild("BarBG") or weaponHUD:FindFirstChild("Bar")
+            if barBG then
+                local fill = barBG:FindFirstChild("Fill") or barBG:FindFirstChild("Bar") or barBG
+                if fill and fill:IsA("Frame") then
+                    stats.durability = math.floor(fill.Size.X.Scale * 100)
+                end
             end
         end
     end)
-    return sets
+    return stats
 end
 
--- Refill โดยใช้ Player.Refills
---   ใช้กลยุทธ์: refill ก่อนหมด (sets<=1) เพื่อให้ตี titan ต่อเนื่องไม่หยุด
---   Sets=0: refill ทันที (cooldown สั้น)
---   Sets=1: refill preemptive (cooldown ยาวขึ้น)
+-- ============================================================
+-- 🔥 REFILL & RELOAD SYSTEM v6 (ฉลาดขึ้น — เช็คหลอดแดงก่อน)
+-- ============================================================
+-- RULE:
+--   • หลอดแดง > 5% → ไม่ต้องทำอะไร ฟันต่อ
+--   • หลอดแดง <= 5% + Sets >= 1 → แค่เปลี่ยนใบมีด (Reload)
+--   • หลอดแดง <= 5% + Sets = 0 → BypassRefill เติมของ
+-- ============================================================
 local function tryRefill()
-    _G._LastRefill = _G._LastRefill or 0
-    _G._RefillFailCount = _G._RefillFailCount or 0
-    _G._LastReloadTime = _G._LastReloadTime or 0
+    _G._LastActionTime = _G._LastActionTime or 0
+    -- Cooldown ป้องกันสแปม Remote รัวเกินไปจนบัค
+    if os.clock() - _G._LastActionTime < 1.5 then return end 
 
-    local sets = readBladeSets()
-
-    -- ถ้ายังมี sets มาก ไม่ต้อง refill
-    if sets >= 2 then 
-        _G._RefillFailCount = 0  -- reset fail counter
+    local stats = readBladeStats()
+    
+    -- ถ้าหลอดแดงยังเหลือมากกว่า 5% ให้สู้ต่อไป ยังไม่ต้องทำอะไร
+    if stats.durability > 5 then 
+        _G._RefillFailCount = 0
         return 
     end
 
-    -- Cooldown ตาม urgency
-    local cooldown = (sets <= 0) and 1 or 3  -- sets=0 → 1s, sets=1 → 3s
-    if os.clock() - _G._LastRefill < cooldown then return end
+    _G._LastActionTime = os.clock()
 
-    _G._LastRefill = os.clock()
-    local refills = plr:GetAttribute("Refills") or 0
-    _G.CurrentAction = string.format("🔋 Refill (sets=%d refills=%d)", sets, refills)
-
-    -- ================================================
-    -- 🎯 ใช้ BypassRefill เท่านั้นตามรีเควส (ไม่บินไปเติมที่กล่อง)
-    -- ================================================
-
-    -- เรียก BypassRefill ทันที
-    pcall(function() bindable:Invoke("CALL", "BypassRefill") end)
-
-    -- ส่งสัญญาณ Reload เพื่อให้ดาบ/แก๊สเด้งกลับมาเต็ม
-    pcall(function() GET:InvokeServer("Blades", "Reload") end)
-    pcall(function() GET:InvokeServer("Equipment", "Reload") end)
-
-    task.wait(0.5)
-
-    -- Verify
-    local newSets = readBladeSets()
-    if newSets > sets then
-        print(string.format("[TS] ✅ Refill สำเร็จ (sets: %d → %d)", sets, newSets))
-        _G._RefillFailCount = 0
-    else
-        _G._RefillFailCount = _G._RefillFailCount + 1
-        print(string.format("[TS] ⚠️ Refill ไม่ติด (sets=%d, fail=%d)", newSets, _G._RefillFailCount))
-
-        if _G._RefillFailCount >= 3 then
-            -- Fallback ถ้าผ่านไป 3 ครั้งไม่ติด
-            print("[TS] 🔨 Fallback: กดปุ่ม R")
+    -- ถ้าหลอดแดงหมด และสต็อกดาบเหลือ 0 (ต้องเติมของ Bypass)
+    if stats.sets <= 0 then
+        _G.CurrentAction = "🔋 Refilling Bypass (Sets=0)"
+        print("[Combat] 🔄 ดาบหมดสต็อก! กำลัง Refill Bypass...")
+        
+        -- เรียก Bypass
+        pcall(function() bindable:Invoke("CALL", "BypassRefill") end)
+        
+        -- Fallback: เผื่อแอนิเมชันบัค ให้จำลองการกด R ย้ำไป 1 ที
+        task.delay(0.5, function()
             pcall(function()
                 VIM:SendKeyEvent(true, Enum.KeyCode.R, false, game)
                 task.wait(0.1)
                 VIM:SendKeyEvent(false, Enum.KeyCode.R, false, game)
             end)
-        end
+        end)
+
+    -- ถ้าหลอดแดงหมด แต่สต็อกดาบยังมี (เช่น 1/3 หรือ 2/3) แค่เปลี่ยนใบมีด
+    else
+        _G.CurrentAction = string.format("⚔️ Reloading Blade (Sets=%d)", stats.sets)
+        print("[Combat] 🔪 ดาบทื่อ! กำลังสลับใบมีด...")
+        
+        -- เรียกแค่ Reload ธรรมดา
+        pcall(function() bindable:Invoke("CALL", "PlayerRefill") end)
+        pcall(function() GET:InvokeServer("Blades", "Reload") end)
+        
+        -- จำลองการกด R เพื่อบังคับให้ UI/โมเดลดาบอัปเดต
+        pcall(function()
+            VIM:SendKeyEvent(true, Enum.KeyCode.R, false, game)
+            task.wait(0.1)
+            VIM:SendKeyEvent(false, Enum.KeyCode.R, false, game)
+        end)
     end
 end
 
@@ -2289,10 +2304,10 @@ task.spawn(function()
         -- Stuck: reset (ไม่ waste sets)
         if cycleStuckCount == 4 or cycleStuckCount == 8 then 
             pcall(function() bindable:Invoke("CALL", "ResetState") end)
-            -- ⚡ ถ้า stuck + sets ต่ำ → force refill (บอทติดเพราะดาบพัง)
-            local sets = readBladeSets()
-            if sets <= 1 then
-                _G._LastRefill = 0  -- reset cooldown
+            -- ⚡ ถ้า stuck → force refill (บอทติดเพราะดาบพัง/ค้าง)
+            local stats = readBladeStats()
+            if stats.sets <= 1 or stats.durability <= 5 then
+                _G._LastActionTime = 0  -- reset cooldown
                 tryRefill()
             end
         elseif cycleStuckCount >= 12 then
