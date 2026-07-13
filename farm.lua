@@ -1468,7 +1468,12 @@ if not TS_MAP and Config.AutoThunderSpearQuest then
 end
 
 -- ============================================================
--- 🔧 RETRY/LEAVE BUTTON FIX (ระบบเดิมของ Venoz)
+-- 🔧 RETRY/LEAVE BUTTON — ระบบเดิมของ Venoz (ที่กดติดปกติ)
+-- ============================================================
+-- ⚠️ อย่าไปยุ่งกับ timing! RETRY เป็นปุ่ม toggle:
+--    • poll 2 วิ + wait 1.5 + wait 3  = เว้นห่างพอให้ countdown เดินจนจบ
+--    • ยิง remote เป็น "fallback ทีหลัง" เท่านั้น ไม่ยิงก่อนคลิก
+--      (ยิงก่อน + คลิก = toggle 2 ครั้ง = ยกเลิกตัวเอง)
 -- ============================================================
 task.spawn(function()
     local rewardsUI = interface:WaitForChild("Rewards", 999)
@@ -1478,31 +1483,40 @@ task.spawn(function()
 
     local function clickButtonAdvanced(btn)
         if not btn then return false end
-        _G.CurrentAction = "Locking on: " .. btn.Name
-        pcall(function() game:GetService("GuiService").SelectedObject = btn end)
-        local isLeave = string.find(string.lower(btn.Name), "leave") ~= nil
-        local isRetry = string.find(string.lower(btn.Name), "retry") ~= nil
 
-        -- 🚀 กด LEAVE ทันที (ไม่รอ claim — persistent claim loop ใน Lobby จัดการแล้ว)
+        _G.CurrentAction = "Locking on: " .. btn.Name
         pcall(function()
-            if isLeave then GET:InvokeServer("S_Missions", "Leave")
-            elseif isRetry then GET:InvokeServer("S_Missions", "Retry") end
+            game:GetService("GuiService").SelectedObject = btn
         end)
+
+        local isLeave = string.find(string.lower(btn.Name), "leave") ~= nil
+
+        -- Hide ALL Trackers securely so they don't block VirtualInputManager
         local trackers = {}
         pcall(function()
-            for _, v in ipairs(game:GetService("CoreGui"):GetChildren()) do if v.Name == "VenozTracker" then table.insert(trackers, v) end end
-            for _, v in ipairs(game:GetService("Players").LocalPlayer.PlayerGui:GetChildren()) do if v.Name == "VenozTracker" then table.insert(trackers, v) end end
+            for _, v in ipairs(game:GetService("CoreGui"):GetChildren()) do
+                if v.Name == "VenozTracker" then table.insert(trackers, v) end
+            end
+            for _, v in ipairs(game:GetService("Players").LocalPlayer.PlayerGui:GetChildren()) do
+                if v.Name == "VenozTracker" then table.insert(trackers, v) end
+            end
             for _, t in ipairs(trackers) do t.Enabled = false end
         end)
+
         local isDisabled = false
-        if btn:IsA("GuiButton") then isDisabled = (btn.Active == false) end
+        if btn:IsA("GuiButton") then
+            isDisabled = (btn.Active == false)
+        end
+
         if isDisabled then
-            pcall(function() 
-                if isLeave then GET:InvokeServer("S_Missions", "Leave") else GET:InvokeServer("S_Missions", "Retry") end
+            pcall(function()
+                if isLeave then GET:InvokeServer("S_Missions", "Leave")
+                else GET:InvokeServer("S_Missions", "Retry") end
             end)
             pcall(function() for _, t in ipairs(trackers) do t.Enabled = true end end)
             return true
         end
+
         pcall(function()
             if getconnections then
                 for _, conn in ipairs(getconnections(btn.MouseButton1Click) or {}) do pcall(function() conn:Fire() end) end
@@ -1514,58 +1528,77 @@ task.spawn(function()
                 pcall(function() firesignal(btn.Activated) end)
             end
         end)
+
         pcall(function()
-            if btn.AbsolutePosition.X > 10 and btn.AbsolutePosition.Y > 10 then
-                local vu = game:GetService("VirtualUser")
-                vu:CaptureController()
-                vu:ClickButton1(Vector2.new(btn.AbsolutePosition.X + btn.AbsoluteSize.X/2, btn.AbsolutePosition.Y + btn.AbsoluteSize.Y/2))
-            end
+            local vu = game:GetService("VirtualUser")
+            vu:CaptureController()
+            vu:ClickButton1(Vector2.new(
+                btn.AbsolutePosition.X + btn.AbsoluteSize.X / 2,
+                btn.AbsolutePosition.Y + btn.AbsoluteSize.Y / 2))
         end)
+
         pcall(function()
             local vim = game:GetService("VirtualInputManager")
             vim:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+            task.wait(0.05)
             vim:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-            if btn.AbsolutePosition.X > 10 and btn.AbsolutePosition.Y > 10 then
-                local absPos = btn.AbsolutePosition; local absSize = btn.AbsoluteSize
-                local inset = game:GetService("GuiService"):GetGuiInset()
-                local cx = absPos.X + (absSize.X / 2); local cy = absPos.Y + (absSize.Y / 2) + inset.Y
-                vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-                vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
-            end
+
+            local absPos = btn.AbsolutePosition
+            local absSize = btn.AbsoluteSize
+            local inset = game:GetService("GuiService"):GetGuiInset()
+            local cx = absPos.X + (absSize.X / 2)
+            local cy = absPos.Y + (absSize.Y / 2) + inset.Y
+            vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+            task.wait(0.1)
+            vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
         end)
-        -- Fallback Remote (ไม่รอ, ยิงเลย)
-        pcall(function() 
-            if isLeave then GET:InvokeServer("S_Missions", "Leave") else GET:InvokeServer("S_Missions", "Retry") end
+
+        task.wait(0.2)
+        -- Fallback Remote (ทีหลังเท่านั้น! ถ้ายิงก่อนคลิก = toggle 2 ครั้ง)
+        pcall(function()
+            if isLeave then GET:InvokeServer("S_Missions", "Leave")
+            else GET:InvokeServer("S_Missions", "Retry") end
         end)
+
         pcall(function() for _, t in ipairs(trackers) do t.Enabled = true end end)
         return true
     end
-    
-    while currentID == _G.VenozScriptID and task.wait(0.2) do
+
+    while currentID == _G.VenozScriptID and task.wait(2) do
         if rewardsUI and rewardsUI.Visible then
-            -- ไม่รอ 1.5s แล้ว — คลิกทันที (user ต้องการเร็ว)
+            task.wait(1.5)
             local curLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
             local curPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
             local maxLevelReq = 100 + (curPrestige * 25)
+
             pcall(function()
                 if not cachedMainInfo then
                     local rMain = rewardsUI:FindFirstChild("Main")
                     local rInfo = rMain and rMain:FindFirstChild("Info")
                     cachedMainInfo = rInfo and rInfo:FindFirstChild("Main")
                 end
-                if cachedMainInfo and not cachedButtons then cachedButtons = cachedMainInfo:FindFirstChild("Buttons") end
-                if cachedMainInfo and not cachedBoostElement then cachedBoostElement = cachedMainInfo:FindFirstChild("Boost") end
+                if cachedMainInfo and not cachedButtons then
+                    cachedButtons = cachedMainInfo:FindFirstChild("Buttons")
+                end
+                if cachedMainInfo and not cachedBoostElement then
+                    cachedBoostElement = cachedMainInfo:FindFirstChild("Boost")
+                end
             end)
+
             local buttons = cachedButtons
+
             if buttons then
                 local btnRetry = buttons:FindFirstChild("Retry")
                 local btnLeave = buttons:FindFirstChild("Leave_2") or buttons:FindFirstChild("Leave")
+
                 local buttonToClick = nil
+
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
                     local sellTarget = (curLevel <= 45) and 30 or 100
                     if (_G.TotalPerksCount or 0) >= sellTarget then shouldLeaveForPerks = true end
                 end
+
                 local isReadyToPrestige = false
                 if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
                     local pk = "P" .. (curPrestige + 1)
@@ -1574,17 +1607,11 @@ task.spawn(function()
                     if (_G.LastGold or 0) >= rq then isReadyToPrestige = true end
                 end
 
-                -- ⚡ Thunder Spear logic:
-                --   ทุก TS map: LEAVE หลัง 1 mission เสมอ
-                --   Lobby จะ claim reward + เช็ค inventory + สร้าง mission ใหม่ถ้าต้อง
-                --   เหตุผล: บอทกวาดทุก titan อยู่แล้ว 1 mission = ครบเควส
+                -- ⚡ Thunder Spear: LEAVE ทุกรอบ (Lobby จัดการ claim + สร้าง mission ต่อ)
                 if TS_ACTIVE then
                     buttonToClick = btnLeave
 
-                    -- 🕐 TS MODE: รอ 6 วิก่อนกด LEAVE
-                    --    ให้ server sync quest progress + จ่าย item เข้ากระเป๋าให้เสร็จก่อน
-                    --    (ถ้ากดออกไวเกิน → Lobby อ่าน inventory ได้ข้อมูลเก่า → เข้าแมพซ้ำ)
-                    --    ระหว่างรอ: claim เควสไปด้วยเลย
+                    -- 🕐 รอ 6 วิให้ server sync + claim เควสระหว่างรอ
                     print(string.format("[TS] 🕐 %s: รอ server sync 6 วิ ก่อน LEAVE...",
                         tostring(_G.ThunderSpearPart)))
                     _G.CurrentAction = "🕐 รอ sync + claim ก่อน LEAVE"
@@ -1594,10 +1621,9 @@ task.spawn(function()
                             claimAllSpearsQuests()
                             clickAllClaimButtons()
                         end)
-                        task.wait(2)   -- 3 รอบ × 2 วิ = 6 วิ
+                        task.wait(2)
                     end
 
-                    -- เช็คผลว่าได้ item หรือยัง (แค่ log — ยังไงก็ LEAVE)
                     pcall(function()
                         local inv = fetchServerInventory() or _G.LastInventory or {}
                         print(string.format("[TS] 🚪 LEAVE | Handle=%s Thruster=%s Base=%s",
@@ -1606,16 +1632,28 @@ task.spawn(function()
                             hasThunderSpearPart("Base", inv)     and "✅" or "❌"))
                     end)
 
-                -- 🚀 ไม่ใช่ TS → กดทันที (ไว เหมือนเดิม)
                 elseif _G.TS_MUST_LEAVE then
                     buttonToClick = btnLeave
-                elseif isReadyToPrestige then buttonToClick = btnLeave
-                elseif shouldLeaveForPerks then buttonToClick = btnLeave
-                elseif btnRetry then buttonToClick = btnRetry
-                else buttonToClick = btnLeave end
-                if buttonToClick then clickButtonAdvanced(buttonToClick) end
-            else cachedMainInfo = nil; cachedButtons = nil; cachedBoostElement = nil end
-            task.wait(0.5)  -- รอสั้นๆ ก่อนเช็ครอบหน้า (เดิม 3 วิ = ช้า)
+                elseif isReadyToPrestige then
+                    buttonToClick = btnLeave
+                elseif shouldLeaveForPerks then
+                    buttonToClick = btnLeave
+                elseif btnRetry then
+                    buttonToClick = btnRetry
+                else
+                    buttonToClick = btnLeave
+                end
+
+                if buttonToClick then
+                    clickButtonAdvanced(buttonToClick)
+                end
+            else
+                cachedMainInfo = nil
+                cachedButtons = nil
+                cachedBoostElement = nil
+            end
+
+            task.wait(3)
         end
     end
 end)
@@ -2074,6 +2112,54 @@ end
 
 -- Build tower (Handle mode)
 --   ยืนในวง 22 วิ + re-check character ทุก 2 วิ กัน respawn ทำ hrp stale
+-- ============================================================
+-- 🐎 ESCORT — เฝ้าขบวนรถม้า (Outskirts)
+-- ============================================================
+-- รถม้าอยู่ที่ workspace.Unclimbable.Objective.Escort.Cart (มีหลายคัน)
+-- ⚠️ ถ้าบอทลอยไปไล่ฆ่าไททันไกลๆ → รถม้าโดนทุบพัง → Escort Convoy 0/4
+--    ต้องเกาะขบวน + ฆ่าเฉพาะไททันที่เข้าใกล้รถ
+-- ============================================================
+local ESCORT_RADIUS = 400   -- ตีเฉพาะไททันที่อยู่ในรัศมีนี้จากรถม้า
+
+local function findCarts()
+    local list = {}
+    local unc = workspace:FindFirstChild("Unclimbable")
+    local obj = unc and unc:FindFirstChild("Objective")
+    local esc = obj and obj:FindFirstChild("Escort")
+    if not esc then return list end
+
+    for _, c in ipairs(esc:GetChildren()) do
+        if c.Name == "Cart" and c.Parent then
+            local base = c:FindFirstChild("LPCartBase")
+                      or c:FindFirstChildWhichIsA("BasePart", true)
+            if base and base:IsA("BasePart") then
+                table.insert(list, base)
+            end
+        end
+    end
+    return list
+end
+
+local function convoyCenter(carts)
+    if not carts or #carts == 0 then return nil end
+    local sum = Vector3.new(0, 0, 0)
+    for _, c in ipairs(carts) do sum = sum + c.Position end
+    return sum / #carts
+end
+
+-- ไททันตัวนี้อยู่ใกล้รถม้าไหม
+local function nearAnyCart(titan, carts)
+    local tr = titan:FindFirstChild("HumanoidRootPart")
+             or titan:FindFirstChild("Nape", true)
+    if not tr then return false end
+    for _, cart in ipairs(carts) do
+        if (tr.Position - cart.Position).Magnitude <= ESCORT_RADIUS then
+            return true
+        end
+    end
+    return false
+end
+
 local function buildTower(idx)
     local wt = workspace:FindFirstChild("WatchTower_"..idx)
     if not wt then return false end
@@ -2233,13 +2319,15 @@ task.spawn(function()
                         continue
                     end
                 elseif TS_STATE == "KILL_ALL" then
-                    _G.CurrentAction = string.format("⚡ KILL_ALL Escort (alive=%d)", aliveCount)
+                    local carts = findCarts()
+                    if #carts > 0 then
+                        _G.CurrentAction = string.format("🐎 เฝ้าขบวน %d คัน (titan ใกล้=%d)",
+                            #carts, aliveCount)
+                    else
+                        _G.CurrentAction = string.format("⚡ KILL_ALL (alive=%d)", aliveCount)
+                    end
                     -- 🎯 ไม่กด LEAVE mid-mission!
-                    -- ปล่อย mission จบธรรมชาติ (Escort ครบ) → Rewards UI ขึ้น
-                    -- Retry/Leave logic จะเช็คว่าได้ Handle หรือไม่:
-                    --   ✅ ได้ Handle → LEAVE
-                    --   ❌ ยังไม่ได้ → RETRY (ทำ mission ซ้ำจนได้)
-                    -- Auto-claim ทำงานอยู่แล้วจาก persistent claim loop
+                    -- ปล่อย mission จบธรรมชาติ → Retry/Leave logic ตัดสินใจเอง
                 end
             -- THRUSTER: Utgard (kill 3 Ice Burst — แต่ตีทุก titan เพื่อ progress)
             elseif TS_MAP == "Utgard" then
@@ -2308,8 +2396,27 @@ task.spawn(function()
         local currentTotalHealth = 0
         local currentTitans = TitansFolder:GetChildren()
 
-        -- 🎯 ไม่ filter ตี titan ทุกตัว (Utgard ก็ตีทุกตัว, Ice Burst นับผ่าน event)
+        -- 🎯 Filter เป้าหมาย
         local filterFn = nil
+
+        -- 🐎 ESCORT (Outskirts): ตีเฉพาะไททันที่เข้าใกล้รถม้า
+        --    ถ้าปล่อยให้ไล่ทั่วแมพ → รถม้าโดนทุบพัง → Escort Convoy 0/4
+        local escortCarts, convoyPos = nil, nil
+        if TS_ACTIVE and TS_MAP == "Outskirts" then
+            escortCarts = findCarts()
+            if #escortCarts > 0 then
+                convoyPos = convoyCenter(escortCarts)
+                filterFn = function(t) return nearAnyCart(t, escortCarts) end
+
+                if not _G._EscortAnnounced then
+                    _G._EscortAnnounced = true
+                    print(string.format("[TS] 🐎 พบรถม้า %d คัน → เฝ้าขบวน (รัศมี %d studs)",
+                        #escortCarts, ESCORT_RADIUS))
+                end
+            elseif _G._EscortAnnounced then
+                _G._EscortAnnounced = false
+            end
+        end
 
         for _, titan in ipairs(currentTitans) do
             if blacklistedTitans[titan] then continue end 
@@ -2367,18 +2474,15 @@ task.spawn(function()
             elseif TS_ACTIVE and TS_MAP == "Utgard" then
                 _G.CurrentAction = string.format("⏳ รอ titan spawn (Ice Burst %d/3)", TS_ICE_KILLS)
             elseif TS_ACTIVE and TS_MAP == "Outskirts" then
-                -- Handle Escort: hover ใกล้ carriage/convoy
-                local cart
-                for _, m in ipairs(workspace:GetChildren()) do
-                    if m.Name:find("Cart") or m.Name:find("Convoy") or m.Name:find("Carriage") then
-                        local part = m:FindFirstChildWhichIsA("BasePart", true)
-                        if part then cart = part; break end
-                    end
+                -- 🐎 ไม่มีไททันใกล้รถ → ลอยเกาะขบวนไว้ (พร้อมป้องกัน)
+                local carts = findCarts()
+                local center = convoyCenter(carts)
+                if center then
+                    currentRoot.CFrame = CFrame.new(center + Vector3.new(0, 80, 0))
+                    _G.CurrentAction = string.format("🐎 เฝ้าขบวน (%d คัน)", #carts)
+                else
+                    _G.CurrentAction = "⏳ รอ titan / รถม้า"
                 end
-                if cart then
-                    currentRoot.CFrame = CFrame.new(cart.Position + Vector3.new(0, 200, 0))
-                end
-                _G.CurrentAction = "⏳ รอ titan spawn (Escort)"
             else
                 _G.CurrentAction = "Combat: Waiting for Titans..."
             end
@@ -2392,20 +2496,30 @@ task.spawn(function()
             local FloatHeight = 250
             local targetPos = Vector3.new(targetTitan.root.Position.X, targetTitan.root.Position.Y + FloatHeight, targetTitan.root.Position.Z)
 
+            -- 🐎 ESCORT: ไม่ไล่ไททัน — เกาะรถม้าไว้!
+            --    hitbox ยิงได้ไกล 400 studs อยู่แล้ว (Register(nape, 400, ...))
+            --    → อยู่เหนือรถ 80 studs แล้วยิงไททันรอบๆ ได้เลย
+            --    เดิม: ลอยเหนือไททัน 250 → ห่างรถ 400+ → เกมไม่นับว่า escort
+            if escortCarts and #escortCarts > 0 then
+                local bestCart, bestD
+                for _, c in ipairs(escortCarts) do
+                    local d = (c.Position - targetTitan.root.Position).Magnitude
+                    if not bestD or d < bestD then bestCart, bestD = c, d end
+                end
+                if bestCart then
+                    targetPos = bestCart.Position + Vector3.new(0, 80, 0)
+                end
+            end
+
             -- 🎯 ANTI-SHAKE: reposition เฉพาะเมื่อไกล + anchor เสมอ
-            --   เดิม: set CFrame ทุก 0.1s → jitter ขึ้นลง
-            --   ใหม่: อยู่ในระยะ 15 studs → นิ่ง (แค่ anchor)
-            --         ไกลกว่านั้น → ย้ายทีเดียว + anchor ต่อ
             local distToTarget = (currentRoot.Position - targetPos).Magnitude
 
             if distToTarget > 15 then
-                -- Titan ขยับไกล → move ทีเดียว
                 currentRoot.Anchored = false
                 currentRoot.CFrame = CFrame.new(targetPos)
                 task.wait(0.02)
                 currentRoot.Anchored = true
             else
-                -- อยู่ใกล้แล้ว → นิ่งไว้ (ไม่ set CFrame ทุก tick)
                 if not currentRoot.Anchored then
                     currentRoot.Anchored = true
                 end
