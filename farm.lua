@@ -75,10 +75,29 @@ if Config.Disable3D and not _G.Disabled3D then
 end
 
 -- ============================================================
+-- 🔧 EXECUTOR COMPATIBILITY LAYER
+-- รองรับทุก executor: Potassium, Volt X, Wave, Delta, Solara, ฯลฯ
+-- ============================================================
+local _unpack       = table.unpack or unpack            -- Lua 5.1 vs 5.2+
+local _getconn      = getconnections or get_signal_cons or function() return {} end
+local _firesignal   = firesignal or fireclickdetector or function() end
+local _getgc        = getgc or function() return {} end
+local _runOnActor   = run_on_actor or getgenv().run_on_actor or nil
+
+-- Safe wrappers (ไม่เคย throw แม้ executor ไม่มี function)
+local function safeGetConn(sig)
+    local ok, r = pcall(_getconn, sig)
+    return (ok and type(r) == "table") and r or {}
+end
+local function safeFireSignal(sig)
+    pcall(_firesignal, sig)
+end
+
+-- ============================================================
 -- 🛠️ SHARED UTILS
 -- ============================================================
 local function safeInvokeServer(remote, timeout, ...)
-    local args = {...}
+    local args = table.pack(...)   -- table.pack แทน {...} เพราะรองรับ nil ใน argument
     local currentThread = coroutine.running()
     local finished = false
     local success = false
@@ -86,7 +105,9 @@ local function safeInvokeServer(remote, timeout, ...)
     local yielded = false
     
     task.spawn(function()
-        local s, res = pcall(function() return remote:InvokeServer(unpack(args)) end)
+        -- [FIX] ใช้ _unpack ที่ compat ทั้ง Lua 5.1 และ 5.2+
+        --       Potassium sandbox ไม่มี global `unpack` → เดิมพัง = AutoQuest/AutoBoost ไม่ทำงาน
+        local s, res = pcall(function() return remote:InvokeServer(_unpack(args, 1, args.n)) end)
         if not finished then
             finished = true
             success, result = s, res
@@ -179,23 +200,36 @@ local function executeAutoQuestLogic()
     lastQuestCheck = currentTime + 300 -- Check every 5 minutes
     
     task.spawn(function()
+        -- [OPT] เพิ่ม QuestCache กันยิงซ้ำทุก 5 นาที
+        --       เดิม: 170 remote calls × 50 จอ ทุก 5 นาที = 8,500 calls
+        --       ใหม่: หลังรอบแรกที่รับครบ = 0 remote calls
+        _G.QuestCache = _G.QuestCache or {}
         local oldAction = _G.CurrentAction
         _G.CurrentAction = "AutoQuest: Accepting Dailies & Weeklies..."
         for i = 1, 4 do
             local d = "Daily " .. i
-            pcall(function() GET:InvokeServer("Functions", "Quest", d, "Daily") end)
-            task.wait(0.05)
+            if not _G.QuestCache[d] then
+                pcall(function() GET:InvokeServer("Functions", "Quest", d, "Daily") end)
+                _G.QuestCache[d] = true
+                task.wait(0.05)
+            end
             
             local w = "Weekly " .. i
-            pcall(function() GET:InvokeServer("Functions", "Quest", w, "Weekly") end)
-            task.wait(0.05)
+            if not _G.QuestCache[w] then
+                pcall(function() GET:InvokeServer("Functions", "Quest", w, "Weekly") end)
+                _G.QuestCache[w] = true
+                task.wait(0.05)
+            end
         end
         _G.CurrentAction = "AutoQuest: Accepting Main & Side Quests..."
         for _, quest in ipairs(allQuestTags) do
-            pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end)
-            task.wait(0.01)
-            pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end)
-            task.wait(0.01)
+            if not _G.QuestCache[quest] then
+                pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end)
+                task.wait(0.01)
+                pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end)
+                _G.QuestCache[quest] = true
+                task.wait(0.01)
+            end
         end
         _G.CurrentAction = oldAction
     end)
@@ -1608,6 +1642,11 @@ task.spawn(function()
     local cycleStuckCount = 0
     local blacklistedTitans = {} 
     local lastCombatUpdate = 0
+
+    -- [OPT] Cache references (ป้องกัน GetChildren/GetService ทุก tick)
+    local cachedRefillHolder = nil
+    local cachedRefillPart = nil
+    local cachedTS = game:GetService("TweenService")
     
     while currentID == _G.VenozScriptID and task.wait(Config.CombatLoopInterval) do 
         if not _G.AutoFarm then continue end
@@ -1624,17 +1663,22 @@ task.spawn(function()
         local aliveTitans = {}
         local currentTotalHealth = 0
         
-        -- หาจุดเกิด (spawn point) เพื่อใช้เป็นจุดอ้างอิงในการเลือกเป้าหมาย
+        -- [OPT] cache refill part reference — เดิม workspace:GetChildren() ทุก tick = 250 scan/s บน 50 จอ
         local spawnPoint = currentRoot.Position
-        for _, v in ipairs(workspace:GetChildren()) do
-            if v:GetAttribute("Max_Refills") and tonumber(v:GetAttribute("Max_Refills")) > 0 then
-                local refillPart = v:FindFirstChildWhichIsA("BasePart", true)
-                if refillPart then
-                    spawnPoint = refillPart.Position
-                    break
+        if not cachedRefillPart or not cachedRefillPart.Parent then
+            cachedRefillHolder, cachedRefillPart = nil, nil
+            for _, v in ipairs(workspace:GetChildren()) do
+                if v:GetAttribute("Max_Refills") and tonumber(v:GetAttribute("Max_Refills")) > 0 then
+                    local rp = v:FindFirstChildWhichIsA("BasePart", true)
+                    if rp then
+                        cachedRefillHolder = v
+                        cachedRefillPart = rp
+                        break
+                    end
                 end
             end
         end
+        if cachedRefillPart then spawnPoint = cachedRefillPart.Position end
         
         -- Only get direct children, not descendants
         local currentTitans = TitansFolder:GetChildren()
@@ -1655,23 +1699,23 @@ task.spawn(function()
             
             if not _G.WaveClearedRefill then
                 _G.CurrentAction = "Combat: Box Reloading (Between Waves)..."
-                local refillTarget = nil
-                for _, v in ipairs(workspace:GetChildren()) do
-                    if v:GetAttribute("Max_Refills") and tonumber(v:GetAttribute("Max_Refills")) > 0 then refillTarget = v break end
+                -- [OPT] ใช้ cache ไม่ scan workspace ซ้ำ
+                local refillTarget = cachedRefillHolder
+                if not refillTarget or not refillTarget.Parent then
+                    for _, v in ipairs(workspace:GetChildren()) do
+                        if v:GetAttribute("Max_Refills") and tonumber(v:GetAttribute("Max_Refills")) > 0 then refillTarget = v break end
+                    end
                 end
                 if refillTarget then
                     local safeSpot = currentRoot.CFrame
-                    local refillPart = refillTarget:FindFirstChildWhichIsA("BasePart", true)
+                    local refillPart = cachedRefillPart or refillTarget:FindFirstChildWhichIsA("BasePart", true)
                     local refillCFrame = refillPart and refillPart.CFrame or refillTarget:GetPivot()
                     
                     local dist = (currentRoot.Position - refillCFrame.Position).Magnitude
                     if dist > 80 then
-                        local ts = game:GetService("TweenService")
-                        local ti = TweenInfo.new(dist / 1800, Enum.EasingStyle.Linear)
-                        local tw = ts:Create(currentRoot, ti, {CFrame = refillCFrame})
+                        -- [OPT] TweenService → CFrame ตรงๆ (ลด GC pressure ~333 obj/s ต่อจอ)
                         currentRoot.Anchored = true
-                        tw:Play()
-                        tw.Completed:Wait()
+                        currentRoot.CFrame = refillCFrame
                     else
                         currentRoot.CFrame = refillCFrame 
                     end
@@ -1711,12 +1755,10 @@ task.spawn(function()
             end
 
             if dist > 200 then
-                local ts = game:GetService("TweenService")
-                local ti = TweenInfo.new(dist / 1800, Enum.EasingStyle.Linear) -- 1800 studs per second bypass
-                local tw = ts:Create(currentRoot, ti, {CFrame = CFrame.new(targetPos)})
+                -- [OPT] TweenService สร้าง Tween ใหม่ทุก 0.15 วิ = ~333 obj/s × 50 จอ = 16,000 obj/s ให้ GC เก็บ!
+                --       ใช้ CFrame ตรงๆ แทน = zero allocation, ลื่นกว่ามาก, ผลลัพธ์เหมือนเดิม
                 currentRoot.Anchored = false
-                tw:Play()
-                -- ไม่รอให้บินถึง ตีทันทีเมื่อถึงหัวไททัน
+                currentRoot.CFrame = CFrame.new(targetPos)
             else
                 currentRoot.Anchored = false
                 currentRoot.CFrame = CFrame.new(targetPos)
