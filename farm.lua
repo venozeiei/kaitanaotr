@@ -1873,7 +1873,8 @@ local function readSets()
 end
 local function readBladeSets() return readSets() or 3 end
 
--- ⭐ ดาบพังไหม (อ่านโมเดล 3D จริง)
+-- ⭐ checkbrokensword() — ตรงตามโค้ดที่ทำงานจริง
+--    Broken == true  OR  Transparency ~= 0
 local function isBladeBroken()
     local char = plr.Character
     if not char then return false end
@@ -1882,13 +1883,13 @@ local function isBladeBroken()
 
     for _, hand in ipairs(rig:GetChildren()) do
         if hand.Name == "RightHand" or hand.Name == "LeftHand" then
-            local b = hand:FindFirstChild("Blade_1")
-            if b then
-                local attr = b:GetAttribute("Broken")
-                if attr ~= nil then
-                    if attr == true then return true end
-                elseif b:IsA("BasePart") and b.Transparency ~= 0 then
-                    return true
+            for _, b in ipairs(hand:GetChildren()) do
+                if b.Name == "Blade_1" then
+                    local attr = b:GetAttribute("Broken")
+                    if (attr ~= nil and attr == true)
+                    or (b:IsA("BasePart") and b.Transparency ~= 0) then
+                        return true
+                    end
                 end
             end
         end
