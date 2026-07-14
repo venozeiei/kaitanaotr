@@ -36,6 +36,13 @@ end
 _G.AutoFarm = Config.AutoFarm
 _G.TargetSlot = Config.TargetSlot
 _G.CurrentAction = "Initializing..."
+
+-- ⚡ [PERF] DEBUG LOG TOGGLE — ปิด print ที่ spam (30 จอ = แลค)
+--    เปิดกลับ: _G.VenozDebug = true
+_G.VenozDebug = _G.VenozDebug or false
+local function dprint(...)
+    if _G.VenozDebug then print(...) end
+end
 _G.SessionStartTime = _G.SessionStartTime or os.time() 
 
 local Players = game:GetService("Players")
@@ -612,7 +619,7 @@ local function executeAutoBoostLogic()
         local itemsInv = (_G.LastInventory and _G.LastInventory["Items"]) or {}
         local itemCount = 0
         for _ in pairs(itemsInv) do itemCount = itemCount + 1 end
-        print(string.format("[Boost] 🔍 check: Prestige=%d Level=%d Gems=%d Items=%d Config=%s",
+        dprint(string.format("[Boost] 🔍 check: Prestige=%d Level=%d Gems=%d Items=%d Config=%s",
             prestige, level, gemsNow, itemCount, tostring(Config.AutoBoost)))
 
         local boostsNeeded = {}
@@ -628,7 +635,7 @@ local function executeAutoBoostLogic()
             elseif prestige >= 5 and level <= 130 then table.insert(boostsNeeded, "XP") end
             if prestige <= 4 then table.insert(boostsNeeded, "Gold") end
         end
-        print(string.format("[Boost]    needed = {%s}", table.concat(boostsNeeded, ", ")))
+        dprint(string.format("[Boost]    needed = {%s}", table.concat(boostsNeeded, ", ")))
 
         local actionTaken = false
         for _, boostType in ipairs(boostsNeeded) do
@@ -642,7 +649,7 @@ local function executeAutoBoostLogic()
                     if bv and tonumber(bv.Value) and tonumber(bv.Value) > 0 then isActive = true end
                 end
             end)
-            print(string.format("[Boost]    %s: active=%s", boostType, tostring(isActive)))
+            dprint(string.format("[Boost]    %s: active=%s", boostType, tostring(isActive)))
             if isActive then continue end
 
             -- 🍷 ลองหาของในกระเป๋าก่อน (case-insensitive)
@@ -654,7 +661,7 @@ local function executeAutoBoostLogic()
                     print(string.format("[Boost] 🍷 กินของ: %s (x%s)", realItemName, tostring(qty)))
                     _G.CurrentAction = "AutoBoost: Using " .. realItemName
                     local res = safeInvokeServer(GET, 3, "S_Inventory", "Item", realItemName)
-                    print(string.format("[Boost]    res = %s", tostring(res)))
+                    dprint(string.format("[Boost]    res = %s", tostring(res)))
                     if res ~= nil then
                         print("[Boost] ✅ กินสำเร็จ")
                         activated = true; actionTaken = true; task.wait(0.3); break
@@ -665,9 +672,9 @@ local function executeAutoBoostLogic()
 
             -- 💎 ซื้อจาก market
             local minGems = Config.MinGemsToBuyBoosts or 4500
-            print(string.format("[Boost]    Gems=%d MinToBuy=%d", gemsNow, minGems))
+            dprint(string.format("[Boost]    Gems=%d MinToBuy=%d", gemsNow, minGems))
             if gemsNow < minGems then
-                print("[Boost]    ⏭️ Gems ไม่พอ ข้าม")
+                dprint("[Boost]    ⏭️ Gems ไม่พอ ข้าม")
                 continue
             end
 
@@ -682,7 +689,7 @@ local function executeAutoBoostLogic()
                     print(string.format("[Boost] 💎 ซื้อ %s (%d gems)", name, price))
                     _G.CurrentAction = "AutoBoost: Buying " .. name
                     local res = safeInvokeServer(GET, 5, "S_Market", "Buy", "1_Boosts", idx, 1)
-                    print(string.format("[Boost]    buy res = %s (type=%s)", tostring(res), type(res)))
+                    dprint(string.format("[Boost]    buy res = %s (type=%s)", tostring(res), type(res)))
                     if res ~= nil and type(res) ~= "string" then
                         task.wait(0.5)
                         local ur = safeInvokeServer(GET, 3, "S_Inventory", "Item", name)
@@ -694,7 +701,7 @@ local function executeAutoBoostLogic()
         end
 
         if not actionTaken then
-            print("[Boost] ⏸ ไม่ทำอะไร → cooldown 5 นาที")
+            dprint("[Boost] ⏸ ไม่ทำอะไร → cooldown 5 นาที")
             lastBoostCheck = currentTime + 300
         else
             lastBoostCheck = currentTime + Config.BoostCheckInterval
@@ -823,7 +830,21 @@ if Config.AutoAntiLag and not _G.OptimizedMap and not isTSMap() then
                 for _, target in ipairs(lobbyTargets) do
                     if target then
                         for _, v in ipairs(target:GetDescendants()) do hidePart(v) end
-                        target.DescendantAdded:Connect(hidePart)
+                        -- ⚡ [PERF] DescendantAdded ยิงทุก part ใหม่ (ไททันเกิด = 50+ part)
+                        --    → throttle: batch เก็บไว้ แล้วประมวลผลทุก 0.5 วิ
+                        local queue = {}
+                        target.DescendantAdded:Connect(function(v)
+                            queue[#queue + 1] = v
+                        end)
+                        task.spawn(function()
+                            while task.wait(0.5) do
+                                if #queue > 0 then
+                                    local batch = queue
+                                    queue = {}
+                                    for _, v in ipairs(batch) do hidePart(v) end
+                                end
+                            end
+                        end)
                     end
                 end
                 task.spawn(function()
@@ -1111,24 +1132,30 @@ task.spawn(function()
             end)
 
             -- 3️⃣ server remote (ชัวร์สุด — ทะลุด่านได้)
-            local ok, sd = pcall(function()
-                return GET:InvokeServer("Functions", "Settings", "Blur", "Off")
-            end)
+            -- ⚡ [PERF] เดิม: ยิงทุก 3 วิ ตลอดเวลา = 30 จอ × 20 remote/นาที
+            --    แก้: ยิงทุก 30 วิ (attribute + UI อัปเดตทุก 3 วิ อยู่แล้ว พอ)
             local inventory = nil
-            if ok and type(sd) == "table" and sd.Slots then
-                local slot = sd.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
-                if slot then
-                    inventory = slot.Inventory
-                    if slot.Currency then
-                        if slot.Currency.Gold then _G.LastGold = slot.Currency.Gold; dirty = true end
-                        if slot.Currency.Gems then _G.LastGems = slot.Currency.Gems; dirty = true end
-                    end
-                    if slot.Currencies and slot.Currencies.Gems then
-                        _G.LastGems = slot.Currencies.Gems; dirty = true
-                    end
-                    if slot.Progression then
-                        if slot.Progression.Level    then _G.LastLevel    = slot.Progression.Level;    dirty = true end
-                        if slot.Progression.Prestige then _G.LastPrestige = slot.Progression.Prestige; dirty = true end
+            _G._HorstFetch = _G._HorstFetch or 0
+            if os.time() - _G._HorstFetch >= 30 or os.time() < _G._HorstFetch then
+                _G._HorstFetch = os.time()
+                local ok, sd = pcall(function()
+                    return GET:InvokeServer("Functions", "Settings", "Blur", "Off")
+                end)
+                if ok and type(sd) == "table" and sd.Slots then
+                    local slot = sd.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
+                    if slot then
+                        inventory = slot.Inventory
+                        if slot.Currency then
+                            if slot.Currency.Gold then _G.LastGold = slot.Currency.Gold; dirty = true end
+                            if slot.Currency.Gems then _G.LastGems = slot.Currency.Gems; dirty = true end
+                        end
+                        if slot.Currencies and slot.Currencies.Gems then
+                            _G.LastGems = slot.Currencies.Gems; dirty = true
+                        end
+                        if slot.Progression then
+                            if slot.Progression.Level    then _G.LastLevel    = slot.Progression.Level;    dirty = true end
+                            if slot.Progression.Prestige then _G.LastPrestige = slot.Progression.Prestige; dirty = true end
+                        end
                     end
                 end
             end
@@ -1188,6 +1215,36 @@ task.spawn(function()
     end
 end)
 
+-- ============================================================
+-- 🧹 MEMORY GUARD (สำหรับเปิดหลายจอ นานๆ)
+-- ============================================================
+-- ⚡ ปัญหา: เปิดนานๆ แล้วหน่วง/สคริปต์ไม่โหลด
+--    สาเหตุ: cache ใน _G โตไม่หยุด + Lua GC ไม่คืนหน่วยความจำ
+--    แก้: เคลียร์ cache ที่ไม่จำเป็นทุก 10 นาที + บังคับ GC
+--    ⚠️ ไม่แตะ cache ที่ logic ต้องใช้ (SkillCache / TSUnlocked / LastSB)
+-- ============================================================
+task.spawn(function()
+    while task.wait(600) do   -- ทุก 10 นาที
+        pcall(function()
+            -- เคลียร์ QuestCache (โตเรื่อยๆ จาก 80+ tag × ทุก 5 นาที)
+            local qn = 0
+            if _G.QuestCache then for _ in pairs(_G.QuestCache) do qn = qn + 1 end end
+            if qn > 200 then _G.QuestCache = {} end
+
+            -- ล้าง reference ที่ไม่ใช้แล้ว
+            _G.LastInventory = nil
+            _G.PerksUUIDs    = nil
+            _G._CartInfo     = nil
+
+            -- บังคับ GC (คืนหน่วยความจำให้ OS)
+            collectgarbage("collect")
+
+            local mb = collectgarbage("count") / 1024
+            print(string.format("[MEM] 🧹 เคลียร์แล้ว — Lua ใช้ %.1f MB", mb))
+        end)
+    end
+end)
+
 -- =======================================================
 -- 🎮 PHASE 1: TITLE SCREEN
 -- =======================================================
@@ -1233,17 +1290,23 @@ end
 if placeId == 14916516914 then
     _G.CurrentAction = "Loading Town Central..."
 
-    -- 🎁 Persistent Claim Loop — ยิง claim ทุก 5 วิ (จับ reward ที่ค้าง)
+    -- 🎁 Persistent Claim Loop — จับ reward ที่ค้าง
+    -- ⚡ [PERF] เดิม: ยิง 15 remote ทุก 5 วิ ตลอดกาล แม้ TS ครบแล้ว
+    --    แก้: TS ครบ → หยุดถาวร | poll 5 → 10 วิ
     if Config.AutoThunderSpearQuest then
         task.spawn(function()
             task.wait(3)
             while game.PlaceId == 14916516914 do
+                if _G.TSUnlocked then
+                    print("[TS] ✅ TS ครบแล้ว → หยุด claim loop (ประหยัด remote)")
+                    break
+                end
                 pcall(function()
                     claimAllSpearsQuests()
                     task.wait(0.3)
-                    clickAllClaimButtons()  -- fallback: click UI button
+                    clickAllClaimButtons()
                 end)
-                task.wait(5)
+                task.wait(10)
             end
         end)
     end
@@ -1869,78 +1932,81 @@ end
 -- ============================================================
 if not TS_MAP and Config.AutoThunderSpearQuest then
     task.spawn(function()
-        task.wait(3)  -- รอสั้นๆ ให้ actor พร้อม
+        task.wait(3)
         local checkCount = 0
-        while task.wait(5) do  -- เช็คทุก 5 วิ (เดิม 15 = ช้าเกิน)
+
+        -- ⚡ [PERF] เดิม: ยิง 16 remote ทุก 5 วิ ตลอดกาล — แม้ TS ครบแล้ว!
+        --    30 จอ = 96 remote/วินาที → server rate-limit → บอทค้าง/โหลดไม่ติด
+        --    แก้: 1) เช็คเงื่อนไข "ถูก" ก่อน (level/prestige) → ไม่ผ่านก็ไม่ยิง remote
+        --         2) TS ครบแล้ว → หยุด loop ถาวร
+        --         3) poll 5 → 15 วิ
+        while task.wait(15) do
             checkCount = checkCount + 1
 
-            -- ตรวจว่ายังอยู่ใน mission หรือ Rewards UI ขึ้นแล้ว
             local rewardsUI = interface:FindFirstChild("Rewards")
             if rewardsUI and rewardsUI.Visible then continue end
 
-            -- อ่านสถานะปัจจุบัน
+            -- อ่านสถานะจาก cache (ไม่ยิง remote)
             local curLevel = tonumber(_G.LastLevel) or tonumber(plr:GetAttribute("Level")) or 0
             local curPrestige = tonumber(_G.LastPrestige) or tonumber(plr:GetAttribute("Prestige")) or 0
             local curXP = math.max(tonumber(_G.LastXP) or 0, tonumber(plr:GetAttribute("XP")) or 0)
             local curMaxXP = math.max(tonumber(_G.LastMaxXP) or 0, tonumber(plr:GetAttribute("Max_XP")) or 0)
             local tarLevelReq = 100 + (curPrestige * 25)
 
-            -- ต้องมี MaxXP ที่ valid (ไม่ใช่ 0)
-            if curMaxXP == 0 then
-                if checkCount % 6 == 0 then
-                    print(string.format("[TS AUTO-LEAVE] ⏳ รอ MaxXP โหลด... (L=%d P=%d XP=%d/?)",
-                        curLevel, curPrestige, curXP))
-                end
-                continue
-            end
+            if curMaxXP == 0 then continue end   -- ข้อมูลยังไม่โหลด
 
             local isTan = (curLevel >= tarLevelReq and curXP >= curMaxXP)
             local prstOK = curPrestige >= (Config.ThunderSpearAtPrestige or 2)
 
-            -- Claim + check status (ใช้ inventory เป็นหลัก)
+            -- 🚪 GATE: ยังไม่ตัน / prestige ไม่ถึง → ไม่ต้องยิง remote เลย
+            if not (isTan and prstOK) then continue end
+
+            -- 🛑 TS ครบแล้ว (จำไว้ใน _G) → หยุด loop ถาวร ไม่ยิงอีก
+            if _G.TSUnlocked then
+                print("[TS AUTO-LEAVE] ✅ TS ครบแล้ว → หยุดเช็ค (ประหยัด remote)")
+                break
+            end
+
+            -- ผ่านทุกเงื่อนไขแล้วค่อยยิง remote
             claimAllSpearsQuests()
             task.wait(0.3)
             local inv = fetchServerInventory() or _G.LastInventory or {}
             local hHandle = hasThunderSpearPart("Handle", inv)
             local hThruster = hasThunderSpearPart("Thruster", inv)
             local hBase = hasThunderSpearPart("Base", inv)
-            local allDone = hHandle and hThruster and hBase
+            local allDone = hThruster and hBase   -- Handle บั๊ก → ไม่นับ
 
-            -- Log ทุก 15 วิ (checkCount % 3 = ทุก 3 loop × 5s = 15s)
-            if checkCount % 3 == 0 then
-                print(string.format(
-                    "[TS AUTO-LEAVE #%d] Prestige=%d>=%d(%s) ตัน=%s(L%d/%d XP=%d/%d) Handle=%s Thruster=%s Base=%s",
-                    checkCount, curPrestige, (Config.ThunderSpearAtPrestige or 2), tostring(prstOK),
-                    tostring(isTan), curLevel, tarLevelReq, curXP, curMaxXP,
-                    hHandle and "✅" or "❌",
-                    hThruster and "✅" or "❌",
-                    hBase and "✅" or "❌"))
-            end
-
-            if prstOK and isTan and not allDone then
-                -- ⚡ ควรทำ TS แต่อยู่ Chapel → LEAVE!
-                local nextMap = getNextIncompleteMapByItem(inv)
-                print("═══════════════════════════════════════════")
-                print("⚡ [AUTO-LEAVE] อยู่ Chapel แต่ควรทำ Thunder Spear!")
-                print(string.format("   → ต่อไปทำ: %s", tostring(nextMap)))
-                print(string.format("   Handle=%s Thruster=%s Base=%s",
-                    hHandle and "✅" or "❌",
-                    hThruster and "✅" or "❌",
-                    hBase and "✅" or "❌"))
-                print("🚪 กด LEAVE ต่อเนื่อง 10 ครั้ง")
-                print("═══════════════════════════════════════════")
-                _G.CurrentAction = "🚪 LEAVE → ทำ TS: "..tostring(nextMap)
-                _G.TS_MUST_LEAVE = true
-
-                -- ยิง LEAVE หลายครั้ง (mid-mission ก็ leave ได้)
-                for i = 1, 10 do
-                    pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
-                    pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
-                    task.wait(1)
-                    if game.PlaceId ~= placeId then break end
-                end
+            if allDone then
+                _G.TSUnlocked = true
+                print("[TS AUTO-LEAVE] ✅ TS ครบ (Thruster + Base) → หยุดเช็ค")
                 break
             end
+
+            -- ⚡ ควรทำ TS แต่อยู่ Chapel → LEAVE!
+            local nextMap = getNextIncompleteMapByItem(inv)
+            if not nextMap then
+                _G.TSUnlocked = true
+                break
+            end
+
+            print("═══════════════════════════════════════════")
+            print("⚡ [AUTO-LEAVE] อยู่ Chapel แต่ควรทำ Thunder Spear!")
+            print(string.format("   → ต่อไปทำ: %s", tostring(nextMap)))
+            print(string.format("   Handle=%s Thruster=%s Base=%s",
+                hHandle and "✅" or "❌",
+                hThruster and "✅" or "❌",
+                hBase and "✅" or "❌"))
+            print("═══════════════════════════════════════════")
+            _G.CurrentAction = "🚪 LEAVE → ทำ TS: "..tostring(nextMap)
+            _G.TS_MUST_LEAVE = true
+
+            for i = 1, 10 do
+                pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
+                pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
+                task.wait(1)
+                if game.PlaceId ~= placeId then break end
+            end
+            break
         end
     end)
 end
@@ -2570,7 +2636,7 @@ end
 task.spawn(function()
     while currentID == _G.VenozScriptID do
         task.wait(5)
-        print(string.format("[Blade] 📊 Sets=%s/3  Broken=%s  Refills=%s%s",
+        dprint(string.format("[Blade] 📊 Sets=%s/3  Broken=%s  Refills=%s%s",
             tostring(readSets() or "?"),
             isBladeBroken() and "YES" or "no",
             tostring(plr:GetAttribute("Refills") or "?"),
