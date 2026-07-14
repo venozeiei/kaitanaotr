@@ -256,6 +256,54 @@ local function safeInvokeServer(remote, timeout, ...)
     return success and result or nil
 end
 
+-- ============================================================
+-- ⚔️ PERK SELL THRESHOLD (dynamic)
+-- ============================================================
+-- แนวคิด: ตอน "ตัน" แล้วรอเงินจุติ = บอทแค่ฟาร์มเงินอย่างเดียว
+--         ไม่ควรออกจากด่านบ่อยๆ เพื่อขาย perk (เสียเวลา teleport ไป-กลับ)
+--         → ยกเพดานเป็น 500 ให้ RETRY ยาวๆ ใน Chapel
+--
+-- เงื่อนไข 500:
+--   • Level ตัน (>= 100 + prestige*25)  AND
+--   • ยังไม่ถึง PrestigeTarget           AND
+--   • Gold ยังไม่ถึง RequiredGold ของจุติถัดไป
+--
+-- นอกนั้น: Level <= 45 → 30 | อื่นๆ → 100 (เหมือนเดิม)
+-- ============================================================
+local PERK_NORMAL   = 100
+local PERK_LOW_LVL  = 30
+local PERK_GOLDFARM = 500   -- ⭐ ตอนตันรอเงินจุติ
+
+local function getPerkSellTarget()
+    local level    = tonumber(_G.LastLevel)    or tonumber(plr:GetAttribute("Level"))    or 0
+    local prestige = tonumber(_G.LastPrestige) or tonumber(plr:GetAttribute("Prestige")) or 0
+    local gold     = tonumber(_G.LastGold)     or 0
+
+    -- เลเวลต่ำ → ขายไว (perk เยอะทำให้ช้า)
+    if level <= 45 then return PERK_LOW_LVL end
+
+    -- ตันหรือยัง?
+    local maxLevel = 100 + (prestige * 25)
+    local isTan = (level >= maxLevel)
+
+    -- ยังจุติได้อีกไหม?
+    local canStillPrestige = (Config.AutoPrestige and prestige < (Config.PrestigeTarget or 5))
+
+    if isTan and canStillPrestige then
+        -- เงินถึงเป้าจุติถัดไปหรือยัง?
+        local pk  = "P" .. tostring(prestige + 1)
+        local ps  = (Config.VenozPrestige and Config.VenozPrestige[pk]) or { RequiredGold = 0 }
+        local req = (ps.RequiredGold or 0) * 1000000
+
+        if gold < req then
+            -- 💰 ตัน + เงินไม่พอ = กำลังฟาร์มเงิน → ขาย perk ที่ 500 (ไม่ออกบ่อย)
+            return PERK_GOLDFARM
+        end
+    end
+
+    return PERK_NORMAL
+end
+
 local function forceClickGui(element)
     if not element then return false end
     pcall(function()
@@ -973,11 +1021,14 @@ task.spawn(function()
                 tsStatus = string.format("\n⚡ <font color='#ff00ff'>TS: %s</font>", tostring(_G.ThunderSpearPart or "?"))
             end
             local totalPerks = _G.TotalPerksCount or 0
-            local perkColor = totalPerks >= 100 and "#ff3333" or "#aaffaa"
+            local perkTarget = getPerkSellTarget()
+            local perkColor = totalPerks >= perkTarget and "#ff3333" or "#aaffaa"
+            -- 💰 โหมดฟาร์มเงิน (ตันแล้วรอเงินจุติ) → โชว์เป็นสีทอง
+            if perkTarget == PERK_GOLDFARM then perkColor = "#ffdd55" end
             logText.Text = string.format(
-                "🎖️ <b>Level:</b> %d / %d (%s/%s)\n👑 <b>Prestige:</b> P%d\n💰 <b>Gold:</b> %s | 💎 <b>Gems:</b> %s\n🧪 <b>Gold:</b> %s\n🧪 <b>XP:</b> %s\n⚔️ <b>Perks:</b> <font color='%s'>%d</font>\n📍 %s | 🗺️ %s%s\n🔄 <font color='#00ffff'>%s</font>",
+                "🎖️ <b>Level:</b> %d / %d (%s/%s)\n👑 <b>Prestige:</b> P%d\n💰 <b>Gold:</b> %s | 💎 <b>Gems:</b> %s\n🧪 <b>Gold:</b> %s\n🧪 <b>XP:</b> %s\n⚔️ <b>Perks:</b> <font color='%s'>%d / %d</font>\n📍 %s | 🗺️ %s%s\n🔄 <font color='#00ffff'>%s</font>",
                 level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems),
-                formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks,
+                formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, perkTarget,
                 statusStr, displayMapString, tsStatus, _G.CurrentAction or "Idle"
             )
         end
@@ -992,6 +1043,148 @@ task.spawn(function()
         pcall(function() 
             game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, false) 
         end)
+    end
+end)
+
+-- ============================================================
+-- 🐎 HORST MANAGER REPORTER (+ Disk Cache)
+-- ============================================================
+-- ส่งสถานะไปโชว์ในหน้า Horst Manager
+--   • เซฟลงฮาร์ดดิสก์ → ค่าไม่มีวันเป็น 0 แม้ตอนโหลด/teleport
+--   • อ่านจาก 3 ทาง: attribute → UI Topbar → server remote (ชัวร์สุด)
+--   • ⚡ TS = เช็คแค่ Thruster + Base (Handle บั๊กในเกม ทำไม่ได้)
+--   • ทำงานทุก phase (Title / Lobby / Mission)
+-- ============================================================
+task.spawn(function()
+    local HttpService = game:GetService("HttpService")
+    local CacheFile = "VenozHub_Cache_" .. tostring(plr.UserId) .. ".json"
+
+    local function fmt(n)
+        return tostring(n):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+    end
+
+    local function saveCache()
+        pcall(function()
+            if writefile then
+                writefile(CacheFile, HttpService:JSONEncode({
+                    Level    = _G.LastLevel    or 0,
+                    Prestige = _G.LastPrestige or 0,
+                    Gold     = _G.LastGold     or 0,
+                    Gems     = _G.LastGems     or 0,
+                    TS       = _G.TSUnlocked   or false,
+                    SB       = _G.LastSB,        -- ⭐ สถานะแบน (true = ปกติ / false = โดนแบน)
+                }))
+            end
+        end)
+    end
+
+    -- 📥 โหลดค่าเดิมจากดิสก์ทันที (กันโชว์ 0 / SB ผิด ตอนเพิ่งเข้าเกม)
+    pcall(function()
+        if isfile and readfile and isfile(CacheFile) then
+            local d = HttpService:JSONDecode(readfile(CacheFile))
+            _G.LastLevel    = _G.LastLevel    or d.Level    or 0
+            _G.LastPrestige = _G.LastPrestige or d.Prestige or 0
+            _G.LastGold     = _G.LastGold     or d.Gold     or 0
+            _G.LastGems     = _G.LastGems     or d.Gems     or 0
+            if d.TS then _G.TSUnlocked = true end
+            if _G.LastSB == nil and d.SB ~= nil then _G.LastSB = d.SB end
+        end
+    end)
+
+    while true do
+        pcall(function()
+            local dirty = false
+
+            -- 1️⃣ attribute จากตัวละคร
+            local lv = plr:GetAttribute("Level")
+            local pr = plr:GetAttribute("Prestige")
+            if lv and lv > 0    then _G.LastLevel = lv;    dirty = true end
+            if pr ~= nil        then _G.LastPrestige = pr; dirty = true end
+
+            -- 2️⃣ UI Topbar (เฉพาะตอนอยู่ Lobby)
+            pcall(function()
+                local cur = plr.PlayerGui.Interface.Topbar.Main.Currencies
+                local g = tonumber((cur.Gold.Amount.Text:gsub("[,%s]", "")))
+                local m = tonumber((cur.Gems.Amount.Text:gsub("[,%s]", "")))
+                if g and g > 0 then _G.LastGold = g; dirty = true end
+                if m and m > 0 then _G.LastGems = m; dirty = true end
+            end)
+
+            -- 3️⃣ server remote (ชัวร์สุด — ทะลุด่านได้)
+            local ok, sd = pcall(function()
+                return GET:InvokeServer("Functions", "Settings", "Blur", "Off")
+            end)
+            local inventory = nil
+            if ok and type(sd) == "table" and sd.Slots then
+                local slot = sd.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
+                if slot then
+                    inventory = slot.Inventory
+                    if slot.Currency then
+                        if slot.Currency.Gold then _G.LastGold = slot.Currency.Gold; dirty = true end
+                        if slot.Currency.Gems then _G.LastGems = slot.Currency.Gems; dirty = true end
+                    end
+                    if slot.Currencies and slot.Currencies.Gems then
+                        _G.LastGems = slot.Currencies.Gems; dirty = true
+                    end
+                    if slot.Progression then
+                        if slot.Progression.Level    then _G.LastLevel    = slot.Progression.Level;    dirty = true end
+                        if slot.Progression.Prestige then _G.LastPrestige = slot.Progression.Prestige; dirty = true end
+                    end
+                end
+            end
+
+            -- ⚡ THUNDER SPEAR — เช็คแค่ Thruster + Base
+            --    (Handle บั๊กในเกม: Questline.lua ไม่มี Update_Spear_Escort)
+            if not _G.TSUnlocked and inventory then
+                local hasThruster = hasThunderSpearPart("Thruster", inventory)
+                local hasBase     = hasThunderSpearPart("Base",     inventory)
+                if hasThruster and hasBase then
+                    _G.TSUnlocked = true
+                    dirty = true
+                    print("[Horst] ⚡ Thunder Spear ครบ (Thruster + Base) → ติ๊กถูก ✅")
+                end
+            end
+
+            if dirty then saveCache() end
+
+            -- 🛡️ SB (สถานะแบน) — อัปเดตเฉพาะเมื่อ attribute โหลดจริงแล้ว
+            --    ⚠️ ตอนเพิ่งเข้าเกม attribute ยังเป็น nil → อย่าเพิ่งสรุปว่า "ปกติ"
+            --       ใช้ค่าที่เซฟไว้ในดิสก์แทน จนกว่า server จะส่งค่าจริงมา
+            local bl  = plr:GetAttribute("Blacklisted")
+            local trd = plr:GetAttribute("Trades")
+
+            if bl ~= nil or trd ~= nil then
+                -- server ส่งค่ามาแล้ว → คำนวณใหม่ + เซฟ
+                local isOK = not (bl == true or trd == 0)
+                if _G.LastSB ~= isOK then
+                    if isOK then
+                        print("[Horst] 🛡️ SB: ✅ ปกติ")
+                    else
+                        warn(string.format("[Horst] 🚨 SB: ❌ โดนแบน! (Blacklisted=%s Trades=%s)",
+                            tostring(bl), tostring(trd)))
+                    end
+                    _G.LastSB = isOK
+                    saveCache()
+                end
+            end
+
+            -- 📤 ส่งไป Horst Manager
+            local sbIcon = (_G.LastSB == false) and "❌" or "✅"   -- nil = ยังไม่รู้ → โชว์ ✅
+            local tsIcon = _G.TSUnlocked and "⚡TS:✅" or "⚡TS:❌"
+
+            if _G.Horst_SetDescription then
+                _G.Horst_SetDescription(string.format(
+                    "SB:%s 🎖️Lv.%d 👑P.%d 💰G:%s 💎Gem:%s %s",
+                    sbIcon,
+                    _G.LastLevel    or 0,
+                    _G.LastPrestige or 0,
+                    fmt(_G.LastGold or 0),
+                    fmt(_G.LastGems or 0),
+                    tsIcon
+                ))
+            end
+        end)
+        task.wait(3)
     end
 end)
 
@@ -1137,11 +1330,14 @@ if placeId == 14916516914 then
                 
                 local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
-                local requiredPerksToSell = (currentLevel <= 45) and 30 or 100
+                local requiredPerksToSell = getPerkSellTarget()   -- ⭐ dynamic (30/100/500)
                 if currentTime - lastInventoryCheck < 20 and Config.AutoDeletePerk and _G.PerksUUIDs and #_G.PerksUUIDs >= requiredPerksToSell then
                     local uuids = _G.PerksUUIDs
                     local n0 = #uuids
                     _G.CurrentAction = "Auto Selling " .. n0 .. " Perks..."
+                    print(string.format("[Perk] 🗑️ ขาย %d ชิ้น (เป้า %d%s)",
+                        n0, requiredPerksToSell,
+                        requiredPerksToSell == PERK_GOLDFARM and " — 💰 โหมดฟาร์มเงินจุติ" or ""))
 
                     -- ⚡ [SPEED] เดิม: ยิง bulk แล้ว "ยิงทีละอันอีก 200 ครั้ง" ทุกครั้ง
                     --            + wait(0.05) × 100 = ~13 วินาที (ทั้งๆ ที่ bulk มักผ่านแล้ว)
@@ -1877,7 +2073,7 @@ task.spawn(function()
 
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
-                    local sellTarget = (curLevel <= 45) and 30 or 100
+                    local sellTarget = getPerkSellTarget()   -- ⭐ dynamic (30/100/500)
                     if (_G.TotalPerksCount or 0) >= sellTarget then shouldLeaveForPerks = true end
                 end
 
