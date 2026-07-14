@@ -158,84 +158,6 @@ local function hasItemInInventory(inventory, itemName)
 end
 
 -- ดึง inventory สดจาก server (ผ่าน Settings remote)
--- ============================================================
--- ⚔️ PERK READER — อ่านตรงจาก CoreTable (getgc)
--- ============================================================
--- 🐛 บั๊กเดิม: Lobby อ่าน perk ไม่ได้ → โชว์ 0 → ไม่ขาย
---    • actor bindable = มีเฉพาะ Phase 3 (ในด่าน)
---    • server remote  = timeout ง่ายตอน 50 จอ (3 วิ)
---    → _G.PerksUUIDs ไม่ถูก set → ไม่ขาย → เข้าด่านใหม่ → วนไม่จบ
---
--- ✅ แก้: อ่านจาก CoreTable.Cache.Data ตรงๆ (แหล่งเดียวกับที่ actor ใช้)
---    ทำงานทั้ง Lobby + ในด่าน, ไม่ยิง remote, ไม่มี timeout
---
--- return: total, uuids   |   nil ถ้าอ่านไม่ได้
--- ============================================================
-local function readPerksFromGame()
-    local total, uuids, found = 0, {}, false
-
-    -- 1️⃣ getgc CoreTable (แหล่งหลัก — เร็ว + ใช้ได้ทุก phase)
-    pcall(function()
-        for _, v in pairs(_getgc(true)) do
-            if type(v) == "table" and rawget(v, "Cache")
-            and type(v.Cache) == "table" and rawget(v.Cache, "Data") then
-                local data = v.Cache.Data
-                if type(data.Slots) == "table" then
-                    local key = data.Current_Slot
-                             or plr:GetAttribute("Slot")
-                             or _G.TargetSlot or "A"
-                    local slot = data.Slots[key]
-                    if slot and slot.Perks and type(slot.Perks.Storage) == "table" then
-                        for k, p in pairs(slot.Perks.Storage) do
-                            total = total + 1
-                            if type(p) == "table" and p.Name and not p.Equipped then
-                                table.insert(uuids, k)
-                            end
-                        end
-                        found = true
-                    end
-                end
-                break
-            end
-        end
-    end)
-
-    -- 2️⃣ fallback: server remote
-    if not found then
-        pcall(function()
-            local raw = GET:InvokeServer("Functions", "Settings", "Blur", "Off")
-            if type(raw) == "table" and type(raw.Slots) == "table" then
-                local slot = raw.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
-                if slot and slot.Perks and type(slot.Perks.Storage) == "table" then
-                    total, uuids = 0, {}
-                    for k, p in pairs(slot.Perks.Storage) do
-                        total = total + 1
-                        if type(p) == "table" and p.Name and not p.Equipped then
-                            table.insert(uuids, k)
-                        end
-                    end
-                    found = true
-                end
-            end
-        end)
-    end
-
-    if not found then return nil end
-    return total, uuids
-end
-
--- 🔄 อัปเดต _G จากแหล่งที่ชัวร์ — เรียกได้ทุกที่
-local function refreshPerks()
-    local total, uuids = readPerksFromGame()
-    if total then
-        _G.TotalPerksCount = total
-        _G.PerksUUIDs      = uuids
-        return true
-    end
-    warn("[Perk] ⚠️ อ่าน perk ไม่ได้เลย! (ทั้ง getgc + server remote)")
-    return false
-end
-
 local function fetchServerInventory()
     local ok, result = pcall(function()
         return GET:InvokeServer("Functions", "Settings", "Blur", "Off")
@@ -1023,52 +945,20 @@ task.spawn(function()
                 _G.LastFetch = currentTick
                 task.spawn(function()
                     pcall(function()
-                        -- 🐛 [FIX] actor bindable ใช้ได้เฉพาะในด่าน (Phase 3)
-                        --    Lobby ไม่มี actor → bindable ค้างจากด่านก่อน → คืน table ว่าง
-                        --    → PerksUUIDs = 0 → Tracker โชว์ 0 → ไม่ขาย perk!
-                        local inMission = (game.PlaceId ~= 14916516914 and game.PlaceId ~= 13379208636)
+                        local bindable = MarketplaceService:FindFirstChild("Remote")
                         local slotData = nil
-
-                        if inMission then
-                            local bindable = MarketplaceService:FindFirstChild("Remote")
-                            if bindable then
-                                local ok, sd = pcall(function() return bindable:Invoke("CALL", "GetSlotData") end)
-                                -- ✅ เชื่อเฉพาะเมื่อมีข้อมูลจริง (ไม่ใช่ table ว่าง)
-                                if ok and type(sd) == "table" and sd.Progression then slotData = sd end
-                            end
-                        end
-
-                        -- Lobby หรือ actor อ่านไม่ได้ → ใช้ server remote + สร้าง PerksUUIDs เอง
+                        if bindable then slotData = bindable:Invoke("CALL", "GetSlotData") end
                         if not slotData then
-                            local raw = GET:InvokeServer("Functions", "Settings", "Blur", "Off")
-                            if type(raw) == "table" and raw.Slots then
-                                local s = raw.Slots[p:GetAttribute("Slot") or _G.TargetSlot or "A"]
-                                if s then
-                                    local uuids, total = {}, 0
-                                    if s.Perks and type(s.Perks.Storage) == "table" then
-                                        for k, v in pairs(s.Perks.Storage) do
-                                            total = total + 1
-                                            if type(v) == "table" and v.Name and not v.Equipped then
-                                                table.insert(uuids, k)
-                                            end
-                                        end
-                                    end
-                                    slotData = {
-                                        Inventory       = s.Inventory,
-                                        Currency        = s.Currency,
-                                        Currencies      = s.Currencies,
-                                        Progression     = s.Progression,
-                                        PerksUUIDs      = uuids,     -- ⭐ สร้างเองจาก Perks.Storage
-                                        TotalPerksCount = total,
-                                    }
-                                end
+                            GET:InvokeServer("Functions", "Settings", "Blur", "Off")
+                            local sd = GET:InvokeServer("Functions", "Settings", "Blur", "Off")
+                            if type(sd) == "table" and sd.Slots then
+                                slotData = sd.Slots[p:GetAttribute("Slot") or _G.TargetSlot or "A"]
                             end
                         end
                         if slotData then
                             if slotData.Inventory then _G.LastInventory = slotData.Inventory end
-                            -- ⚔️ PERK — อ่านจากแหล่งที่ชัวร์ (ไม่พึ่ง actor / ไม่ timeout)
-                            --    เดิม: raw slot ไม่มี TotalPerksCount/PerksUUIDs → Lobby โชว์ 0
-                            refreshPerks()
+                            if slotData.TotalPerksCount then _G.TotalPerksCount = slotData.TotalPerksCount end
+                            if slotData.PerksUUIDs then _G.PerksUUIDs = slotData.PerksUUIDs end
                             if slotData.Currency then _G.LastGold = slotData.Currency.Gold end
                             if slotData.Currencies then _G.LastGems = slotData.Currencies.Gems end
                             if slotData.Progression then
@@ -1165,15 +1055,14 @@ task.spawn(function()
                 tsStatus = string.format("\n⚡ <font color='#ff00ff'>TS: %s</font>", tostring(_G.ThunderSpearPart or "?"))
             end
             local totalPerks = _G.TotalPerksCount or 0
-            local sellable   = getSellablePerkCount()   -- ⭐ ตัวที่ใช้ตัดสินใจจริง
             local perkTarget = getPerkSellTarget()
-            local perkColor = sellable >= perkTarget and "#ff3333" or "#aaffaa"
+            local perkColor = totalPerks >= perkTarget and "#ff3333" or "#aaffaa"
             -- 💰 โหมดฟาร์มเงิน (ตันแล้วรอเงินจุติ) → โชว์เป็นสีทอง
             if perkTarget == PERK_GOLDFARM then perkColor = "#ffdd55" end
             logText.Text = string.format(
-                "🎖️ <b>Level:</b> %d / %d (%s/%s)\n👑 <b>Prestige:</b> P%d\n💰 <b>Gold:</b> %s | 💎 <b>Gems:</b> %s\n🧪 <b>Gold:</b> %s\n🧪 <b>XP:</b> %s\n⚔️ <b>Perks:</b> <font color='%s'>%d / %d</font> <font color='#888888'>(รวม %d)</font>\n📍 %s | 🗺️ %s%s\n🔄 <font color='#00ffff'>%s</font>",
+                "🎖️ <b>Level:</b> %d / %d (%s/%s)\n👑 <b>Prestige:</b> P%d\n💰 <b>Gold:</b> %s | 💎 <b>Gems:</b> %s\n🧪 <b>Gold:</b> %s\n🧪 <b>XP:</b> %s\n⚔️ <b>Perks:</b> <font color='%s'>%d / %d</font>\n📍 %s | 🗺️ %s%s\n🔄 <font color='#00ffff'>%s</font>",
                 level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems),
-                formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, sellable, perkTarget, totalPerks,
+                formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks, perkTarget,
                 statusStr, displayMapString, tsStatus, _G.CurrentAction or "Idle"
             )
         end
@@ -1452,17 +1341,15 @@ if placeId == 14916516914 then
                     lastInventoryCheck = currentTime
                     _G.CurrentAction = "Checking Stats & Inventory..."
 
-                    -- 🐛 [FIX] เดิม: ลอง actor bindable ก่อน
-                    --    ⚠️ แต่ Lobby "ไม่มี actor"! (สร้างที่ Phase 3 เท่านั้น)
-                    --    bindable ค้างอยู่ใน MarketplaceService จากด่านก่อน → Invoke คืน table ว่าง
-                    --    → serverData ~= nil → ไม่เข้า fallback → PerksUUIDs = {} → นับได้ 0
-                    --    → ไม่ขาย perk เลย! (ในด่านอ่านได้เพราะมี actor)
-                    --    ✅ แก้: Lobby ใช้ server remote ตรงๆ อย่างเดียว
                     local serverData = nil
-                    do
-                        local raw = safeInvokeServer(GET, 5, "Functions", "Settings", "Blur", "Off")
-                        if raw and type(raw) == "table" and raw.Slots then
-                            local slotData = raw.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
+                    pcall(function() 
+                        local b = MarketplaceService:FindFirstChild("Remote")
+                        if b then serverData = b:Invoke("CALL", "GetSlotData") end
+                    end)
+                    if not serverData then
+                        serverData = safeInvokeServer(GET, 3, "Functions", "Settings", "Blur", "Off")
+                        if serverData and type(serverData) == "table" and serverData.Slots then
+                            local slotData = serverData.Slots[plr:GetAttribute("Slot") or "A"]
                             if slotData then
                                 local mapped = {}
                                 if slotData.Currency then mapped.Currency = { Gold = slotData.Currency.Gold } end
@@ -1485,12 +1372,7 @@ if placeId == 14916516914 then
                     end
                     if serverData and type(serverData) == "table" then
                         if serverData.Inventory then _G.LastInventory = serverData.Inventory end
-                        if serverData.PerksUUIDs then
-                            _G.PerksUUIDs = serverData.PerksUUIDs
-                            _G.TotalPerksCount = serverData.TotalPerksCount or 0
-                            print(string.format("[Perk] 📊 Lobby อ่านได้: ขายได้ %d | ทั้งหมด %d | เป้า %d",
-                                #serverData.PerksUUIDs, _G.TotalPerksCount, getPerkSellTarget()))
-                        end
+                        if serverData.PerksUUIDs then _G.PerksUUIDs = serverData.PerksUUIDs; _G.TotalPerksCount = serverData.TotalPerksCount or 0 end
                         if serverData.Progression then
                             _G.LastLevel = serverData.Progression.Level
                             _G.LastPrestige = serverData.Progression.Prestige
@@ -1498,8 +1380,6 @@ if placeId == 14916516914 then
                             _G.LastXP = serverData.Progression.XP
                         end
                         if serverData.Currency then _G.LastGold = serverData.Currency.Gold end
-                    else
-                        warn("[Perk] ⚠️ Lobby อ่าน slot data ไม่ได้! (server remote ล้ม)")
                     end
                 end
                 
@@ -1527,14 +1407,8 @@ if placeId == 14916516914 then
                 local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
 
-                -- ⚔️ อ่าน perk สดจากแหล่งที่ชัวร์ก่อนตัดสินใจขาย
-                --    (เดิมพึ่ง fetch ที่ timeout ได้ → PerksUUIDs = nil → ไม่ขาย → วนไม่จบ)
-                refreshPerks()
-
                 local requiredPerksToSell = getPerkSellTarget()   -- 30 / 100 / 500
-                local sellable = getSellablePerkCount()
-
-                if Config.AutoDeletePerk and sellable >= requiredPerksToSell then
+                if currentTime - lastInventoryCheck < 20 and Config.AutoDeletePerk and _G.PerksUUIDs and #_G.PerksUUIDs >= requiredPerksToSell then
                     local uuids = _G.PerksUUIDs
                     local n0 = #uuids
                     _G.CurrentAction = "Auto Selling " .. n0 .. " Perks..."
@@ -1551,11 +1425,20 @@ if placeId == 14916516914 then
                     pcall(function() safeInvokeServer(GET, 3, "S_Equipment", "Delete", "Perks", uuids) end)
                     task.wait(0.5)
 
-                    -- 2️⃣ เช็คว่าลดจริงไหม — ใช้แหล่งเดียวกับตอนอ่าน
+                    -- 2️⃣ เช็คว่าลดจริงไหม
                     local after = nil
                     pcall(function()
-                        local _, u = readPerksFromGame()
-                        if u then after = #u end
+                        local raw = safeInvokeServer(GET, 3, "Functions", "Settings", "Blur", "Off")
+                        if type(raw) == "table" and raw.Slots then
+                            local sl = raw.Slots[plr:GetAttribute("Slot") or "A"]
+                            if sl and sl.Perks and type(sl.Perks.Storage) == "table" then
+                                local n = 0
+                                for _, v in pairs(sl.Perks.Storage) do
+                                    if type(v) == "table" and v.Name and not v.Equipped then n = n + 1 end
+                                end
+                                after = n
+                            end
+                        end
                     end)
 
                     if after and after < n0 then
@@ -2276,9 +2159,8 @@ task.spawn(function()
 
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
-                    refreshPerks()   -- ⭐ อ่านสดจากแหล่งเดียวกับ Lobby (ตัวเลขตรงกันแน่)
-                    local sellTarget = getPerkSellTarget()
-                    if getSellablePerkCount() >= sellTarget then shouldLeaveForPerks = true end
+                    local sellTarget = getPerkSellTarget()   -- 30 / 100 / 500
+                    if (_G.TotalPerksCount or 0) >= sellTarget then shouldLeaveForPerks = true end
                 end
 
                 -- 🔥 พร้อมจุติ? — ⚠️ ต้องตรงกับ Lobby เป๊ะ!
