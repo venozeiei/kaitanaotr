@@ -782,7 +782,11 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
                     if not v.Parent:FindFirstChild("Humanoid") and not string.find(v.Name, "Titan") and not v:GetAttribute("Max_Refills") then
                         pcall(function()
                             v.Material = Enum.Material.SmoothPlastic; v.Reflectance = 0
-                            v.Transparency = 1; v.CanCollide = false; v.CastShadow = false
+                            v.Transparency = 1; v.CastShadow = false
+                            -- 🚫 ไม่แตะ CanCollide!
+                            --    เดิม: ตั้ง false → พื้นดิน+ผนังไม่ collision
+                            --    → ไททันวิ่งตกทะลุแมพ → รถม้าเดินตก → quest ไม่นับ
+                            --    ตอนนี้ประหยัด render ได้ แต่ physics ยังทำงาน
                         end)
                     end
                 end
