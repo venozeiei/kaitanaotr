@@ -281,84 +281,6 @@ local PERK_NORMAL   = 100
 local PERK_LOW_LVL  = 30
 local PERK_GOLDFARM = 500   -- ⭐ ตอนตันรอเงินจุติ
 
--- ============================================================
--- ⚔️ PERK READER — ใช้ได้ทั้ง Lobby และในด่าน
--- ============================================================
--- 🐛 บั๊ก: Lobby โชว์ Perks = 0 → ไม่ขาย → เข้าด่านใหม่ → ถึงเป้า → ออก → วนไม่จบ
---    สาเหตุ: Tracker อ่านจาก slotData.TotalPerksCount / .PerksUUIDs
---            → 2 field นี้ "actor สร้างให้" เท่านั้น (Phase 3)
---            → Lobby ไม่มี actor → raw slot ไม่มี field นี้ → ไม่ set → 0
---
--- ✅ แก้: อ่าน slot table จาก getgc ตรงๆ
---    (pattern เดียวกับที่ TS quest / Skills ใช้ — ทำงานได้ทั้ง 2 phase แน่นอน)
---    slot มี: Progression, Quests, Perks, Inventory, Currency ...
--- ============================================================
-local function readPerksFromGame()
-    local total, uuids, found = 0, {}, false
-
-    -- 1️⃣ getgc: หา "slot table" (ที่มี Progression + Perks)
-    pcall(function()
-        for _, v in pairs(_getgc(true)) do
-            if type(v) == "table"
-            and rawget(v, "Progression")
-            and rawget(v, "Perks") then
-                local st = rawget(v.Perks, "Storage")
-                if type(st) == "table" then
-                    for k, p in pairs(st) do
-                        total = total + 1
-                        if type(p) == "table" and p.Name and not p.Equipped then
-                            table.insert(uuids, k)
-                        end
-                    end
-                    found = true
-                end
-                break
-            end
-        end
-    end)
-
-    -- 2️⃣ สำรอง: server remote
-    if not found then
-        pcall(function()
-            local raw = GET:InvokeServer("Functions", "Settings", "Blur", "Off")
-            if type(raw) == "table" and type(raw.Slots) == "table" then
-                local slot = raw.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
-                if slot and slot.Perks and type(slot.Perks.Storage) == "table" then
-                    total, uuids = 0, {}
-                    for k, p in pairs(slot.Perks.Storage) do
-                        total = total + 1
-                        if type(p) == "table" and p.Name and not p.Equipped then
-                            table.insert(uuids, k)
-                        end
-                    end
-                    found = true
-                end
-            end
-        end)
-    end
-
-    if not found then return nil end
-    return total, uuids
-end
-
--- 🔄 อัปเดต _G — เรียกได้ทุกที่ (Lobby + ด่าน ได้เลขเดียวกัน)
-local function refreshPerks()
-    local total, uuids = readPerksFromGame()
-    if total then
-        _G.TotalPerksCount = total
-        _G.PerksUUIDs      = uuids
-        return true
-    end
-    return false
-end
-
--- 🔢 นับ perk ที่ "ขายได้จริง" (ไม่รวมที่ใส่อยู่)
-local function getSellablePerkCount()
-    local u = _G.PerksUUIDs
-    if type(u) == "table" then return #u end
-    return 0
-end
-
 local function getPerkSellTarget()
     local level    = tonumber(_G.LastLevel)    or tonumber(plr:GetAttribute("Level"))    or 0
     local prestige = tonumber(_G.LastPrestige) or tonumber(plr:GetAttribute("Prestige")) or 0
@@ -1025,10 +947,8 @@ task.spawn(function()
                         end
                         if slotData then
                             if slotData.Inventory then _G.LastInventory = slotData.Inventory end
-                            -- ⚔️ PERK — อ่านจาก getgc (ได้ทั้ง Lobby + ด่าน)
-                            --    เดิม: slotData.TotalPerksCount/.PerksUUIDs = actor สร้าง (Phase 3 เท่านั้น)
-                            --          → Lobby ไม่มี actor → ไม่ set → โชว์ 0
-                            refreshPerks()
+                            if slotData.TotalPerksCount then _G.TotalPerksCount = slotData.TotalPerksCount end
+                            if slotData.PerksUUIDs then _G.PerksUUIDs = slotData.PerksUUIDs end
                             if slotData.Currency then _G.LastGold = slotData.Currency.Gold end
                             if slotData.Currencies then _G.LastGems = slotData.Currencies.Gems end
                             if slotData.Progression then
@@ -1477,11 +1397,8 @@ if placeId == 14916516914 then
                 local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
 
-                -- ⚔️ อ่าน perk สดจาก getgc ก่อน (Lobby ก็อ่านได้แล้ว)
-                refreshPerks()
-
                 local requiredPerksToSell = getPerkSellTarget()   -- 30 / 100 / 500
-                if Config.AutoDeletePerk and getSellablePerkCount() >= requiredPerksToSell then
+                if currentTime - lastInventoryCheck < 20 and Config.AutoDeletePerk and _G.PerksUUIDs and #_G.PerksUUIDs >= requiredPerksToSell then
                     local uuids = _G.PerksUUIDs
                     local n0 = #uuids
                     _G.CurrentAction = "Auto Selling " .. n0 .. " Perks..."
@@ -2232,9 +2149,8 @@ task.spawn(function()
 
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
-                    refreshPerks()   -- ⭐ อ่านจากแหล่งเดียวกับ Lobby
                     local sellTarget = getPerkSellTarget()   -- 30 / 100 / 500
-                    if getSellablePerkCount() >= sellTarget then shouldLeaveForPerks = true end
+                    if (_G.TotalPerksCount or 0) >= sellTarget then shouldLeaveForPerks = true end
                 end
 
                 -- 🔥 พร้อมจุติ? — ⚠️ ต้องตรงกับ Lobby เป๊ะ!
@@ -2292,13 +2208,13 @@ task.spawn(function()
                         tostring(_G.LastGold or 0), curPrestige))
                 elseif shouldLeaveForPerks then
                     buttonToClick = btnLeave
-                    print(string.format("[Retry/Leave] 🚪 LEAVE — Perk เต็ม (ขายได้ %d/%d | ทั้งหมด %d)",
-                        getSellablePerkCount(), getPerkSellTarget(), _G.TotalPerksCount or 0))
+                    print(string.format("[Retry/Leave] 🚪 LEAVE — Perk เต็ม (%d/%d)",
+                        _G.TotalPerksCount or 0, getPerkSellTarget()))
                 elseif btnRetry then
                     buttonToClick = btnRetry
-                    print(string.format("[Retry/Leave] 🔁 RETRY — Lv%d/%d XP=%d/%d Perk(ขายได้)=%d/%d",
+                    print(string.format("[Retry/Leave] 🔁 RETRY — Lv%d/%d XP=%d/%d Perk=%d/%d",
                         curLevel, maxLevelReq, curXP, curMaxXP,
-                        getSellablePerkCount(), getPerkSellTarget()))
+                        _G.TotalPerksCount or 0, getPerkSellTarget()))
                 else
                     buttonToClick = btnLeave
                     warn("[Retry/Leave] ⚠️ LEAVE — ไม่พบปุ่ม Retry!")
