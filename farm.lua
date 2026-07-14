@@ -2645,63 +2645,34 @@ task.spawn(function()
                     end
                 elseif TS_STATE == "KILL_ALL" then
                     local carts = findCarts()
-                    if #carts > 0 then
-                        _G.CurrentAction = string.format("🐎 เฝ้าขบวน %d คัน (titan ใกล้=%d)",
+                    local phase = "GUARD"
+                    pcall(function()
+                        local e = ReplicatedStorage:FindFirstChild("Objectives")
+                                and ReplicatedStorage.Objectives:FindFirstChild("Escort")
+                        if e and (e.Value or 0) >= (e:GetAttribute("Requirement") or 1) then
+                            phase = "CLEANUP"
+                        end
+                    end)
+                    if phase == "CLEANUP" then
+                        _G.CurrentAction = string.format("⚔️ CLEANUP: ไล่ตี titan ที่เหลือ (%d)", aliveCount)
+                    elseif #carts > 0 then
+                        _G.CurrentAction = string.format("🐎 GUARD %d คัน (titan ใกล้=%d)",
                             #carts, aliveCount)
                     else
                         _G.CurrentAction = string.format("⚡ KILL_ALL (alive=%d)", aliveCount)
                     end
 
-                    -- 🎯 เช็ค inventory ทุก ~4 วิ: ถ้าได้ Handle แล้ว → LEAVE ทันที
-                    --    ป้องกันเคส "ไททันหลุด 1 ตัวติดในแมพ" → mission ค้าง 66/67
-                    --    เควสจริง (Escort Convoy) อาจเสร็จแล้ว → Handle เข้ากระเป๋าแล้ว
-                    _G._HandleTick = (_G._HandleTick or 0) + 1
-                    if _G._HandleTick % 40 == 0 and not _G.TS_MUST_LEAVE then
-                        task.spawn(function()
-                            -- 🎁 claim ก่อน! item ต้องผ่านการ claim ถึงจะเข้ากระเป๋า
-                            pcall(function()
-                                claimAllSpearsQuests()
-                                clickAllClaimButtons()
-                            end)
-                            task.wait(0.5)
-                            local inv = fetchServerInventory() or _G.LastInventory or {}
-                            if hasThunderSpearPart("Handle", inv) then
-                                print("[TS] 🎉 Handle ได้แล้ว mid-mission → LEAVE!")
-                                _G.TS_MUST_LEAVE = true
-                                for i = 1, 8 do
-                                    pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
-                                    task.wait(1)
-                                    if game.PlaceId ~= placeId then break end
-                                end
-                            end
-                        end)
-                    end
+                    -- 🎯 ไม่กด LEAVE mid-mission!
+                    --    ทำให้ mission ถูกนับเป็น "abandon" → SPEARS Escort quest ไม่ credit
+                    --    (Rewards UI จะโผล่เอง → Retry/Leave logic จัดการต่อ)
+                    --    Anti-lag ถูกปิดใน TS map แล้ว → ไททันไม่ตกแมพ → mission จบธรรมชาติได้
                 end
             -- THRUSTER: Utgard (kill 3 Ice Burst — แต่ตีทุก titan เพื่อ progress)
             elseif TS_MAP == "Utgard" then
                 _G.CurrentAction = string.format("❄️ Ice Burst %d/3 (ตี titan ทั้งหมด)", TS_ICE_KILLS)
 
-                -- 🎯 เช็ค Thruster mid-mission (ทุก ~4 วิ) — ป้องกันไททันติดค้าง
-                _G._ThrusterTick = (_G._ThrusterTick or 0) + 1
-                if _G._ThrusterTick % 40 == 0 and not _G.TS_MUST_LEAVE then
-                    task.spawn(function()
-                        pcall(function()
-                            claimAllSpearsQuests()
-                            clickAllClaimButtons()
-                        end)
-                        task.wait(0.5)
-                        local inv = fetchServerInventory() or _G.LastInventory or {}
-                        if hasThunderSpearPart("Thruster", inv) then
-                            print("[TS] 🎉 Thruster ได้แล้ว mid-mission → LEAVE!")
-                            _G.TS_MUST_LEAVE = true
-                            for i = 1, 8 do
-                                pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
-                                task.wait(1)
-                                if game.PlaceId ~= placeId then break end
-                            end
-                        end
-                    end)
-                end
+                -- 🎯 ไม่กด LEAVE mid-mission ตัวจะทำให้ SPEARS Ice Burst quest ไม่ credit
+                --    ปล่อย mission จบ 3 Ice Burst → Rewards UI โผล่ → Retry/Leave logic จัดการ
             -- BASE: Forest (collect crates → deliver → defend)
             elseif TS_MAP == "Forest" then
                 if TS_STATE == "INIT" then TS_STATE = "KILL_TO_MARGIN" end
@@ -2753,27 +2724,8 @@ task.spawn(function()
                 elseif TS_STATE == "KILL_ALL" then
                     _G.CurrentAction = string.format("⚡ KILL_ALL (Defend %s)", tostring(ds or "-"))
 
-                    -- 🎯 เช็ค Base mid-mission
-                    _G._BaseTick = (_G._BaseTick or 0) + 1
-                    if _G._BaseTick % 40 == 0 and not _G.TS_MUST_LEAVE then
-                        task.spawn(function()
-                            pcall(function()
-                                claimAllSpearsQuests()
-                                clickAllClaimButtons()
-                            end)
-                            task.wait(0.5)
-                            local inv = fetchServerInventory() or _G.LastInventory or {}
-                            if hasThunderSpearPart("Base", inv) then
-                                print("[TS] 🎉 Base ได้แล้ว mid-mission → LEAVE!")
-                                _G.TS_MUST_LEAVE = true
-                                for i = 1, 8 do
-                                    pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
-                                    task.wait(1)
-                                    if game.PlaceId ~= placeId then break end
-                                end
-                            end
-                        end)
-                    end
+                    -- 🎯 ไม่กด LEAVE mid-mission ทำให้ SPEARS Defend quest ไม่ credit
+                    --    Mission จะจบเองเมื่อรอด defend phase → Rewards UI โผล่
                 end
             end
         end
@@ -2788,22 +2740,53 @@ task.spawn(function()
         -- 🎯 Filter เป้าหมาย
         local filterFn = nil
 
-        -- 🐎 ESCORT (Outskirts): ตีเฉพาะไททันที่เข้าใกล้รถม้า
-        --    ถ้าปล่อยให้ไล่ทั่วแมพ → รถม้าโดนทุบพัง → Escort Convoy 0/4
+        -- 🐎 ESCORT (Outskirts) — 2-Phase
+        --   Phase 1: GUARD  → เกาะรถ ตีไททันใกล้รถ (จนกว่ารถถึงปลายทาง)
+        --   Phase 2: CLEANUP → ไล่ล่าไททันที่เหลือทุกตัวในแมพ (mission ต้องฆ่าครบ)
+        --   สลับเมื่อ Objectives.Escort.Value >= Requirement
         local escortCarts, convoyPos = nil, nil
+        local escortPhase = "GUARD"
         if TS_ACTIVE and TS_MAP == "Outskirts" then
+            -- เช็ค Escort objective — ถ้าครบแล้ว = สลับเป็น CLEANUP
+            pcall(function()
+                local objf = ReplicatedStorage:FindFirstChild("Objectives")
+                local e = objf and objf:FindFirstChild("Escort")
+                if e then
+                    local cur = e.Value or 0
+                    local req = e:GetAttribute("Requirement") or 1
+                    if cur >= req then escortPhase = "CLEANUP" end
+                end
+            end)
+
             escortCarts = findCarts()
-            if #escortCarts > 0 then
+
+            if escortPhase == "CLEANUP" then
+                -- 🎯 CLEANUP: ไล่ล่าทุกไททัน — ไม่ filter
+                if not _G._CleanupAnnounced then
+                    _G._CleanupAnnounced = true
+                    _G._EscortAnnounced = false
+                    print("[TS] ⚔️ Escort ✅ ครบแล้ว → CLEANUP: ตี titan ที่เหลือทุกตัว")
+                end
+                -- filterFn = nil = ตีทุก titan
+                -- convoyPos = nil = บอทบินตาม titan ปกติ (ไม่เกาะรถ)
+            elseif #escortCarts > 0 then
+                -- 🐎 GUARD phase
                 convoyPos = convoyCenter(escortCarts)
+                _G._LastConvoyPos = convoyPos
                 filterFn = function(t) return nearAnyCart(t, escortCarts) end
 
                 if not _G._EscortAnnounced then
                     _G._EscortAnnounced = true
-                    print(string.format("[TS] 🐎 พบรถม้า %d คัน → เฝ้าขบวน (รัศมี %d studs)",
+                    _G._CleanupAnnounced = false
+                    print(string.format("[TS] 🐎 GUARD — พบรถม้า %d คัน (รัศมี %d studs)",
                         #escortCarts, ESCORT_RADIUS))
                 end
-            elseif _G._EscortAnnounced then
-                _G._EscortAnnounced = false
+            else
+                -- findCarts พลาดชั่วคราว → ใช้ตำแหน่งเก่า
+                if _G._LastConvoyPos then
+                    convoyPos = _G._LastConvoyPos
+                end
+                if _G._EscortAnnounced then _G._EscortAnnounced = false end
             end
         end
 
@@ -2891,19 +2874,11 @@ task.spawn(function()
             local FloatHeight = 250
             local targetPos = Vector3.new(targetTitan.root.Position.X, targetTitan.root.Position.Y + FloatHeight, targetTitan.root.Position.Z)
 
-            -- 🐎 ESCORT: ไม่ไล่ไททัน — เกาะรถม้าไว้!
-            --    hitbox ยิงได้ไกล 400 studs อยู่แล้ว (Register(nape, 400, ...))
-            --    → อยู่เหนือรถ 80 studs แล้วยิงไททันรอบๆ ได้เลย
-            --    เดิม: ลอยเหนือไททัน 250 → ห่างรถ 400+ → เกมไม่นับว่า escort
-            if escortCarts and #escortCarts > 0 then
-                local bestCart, bestD
-                for _, c in ipairs(escortCarts) do
-                    local d = (c.Position - targetTitan.root.Position).Magnitude
-                    if not bestD or d < bestD then bestCart, bestD = c, d end
-                end
-                if bestCart then
-                    targetPos = bestCart.Position + Vector3.new(0, 80, 0)
-                end
+            -- 🐎 ESCORT GUARD: ล็อคที่ขบวน (ไม่ตามไททัน)
+            --    ⭐ เฉพาะช่วง GUARD phase — CLEANUP ให้บินตามไททัน (เพื่อเก็บให้ครบ)
+            if TS_ACTIVE and TS_MAP == "Outskirts"
+            and escortPhase == "GUARD" and convoyPos then
+                targetPos = convoyPos + Vector3.new(0, 80, 0)
             end
 
             -- 🎯 ANTI-SHAKE
