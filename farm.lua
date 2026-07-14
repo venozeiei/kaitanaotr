@@ -2455,7 +2455,10 @@ local function findCarts()
 
     for _, c in ipairs(esc:GetChildren()) do
         if c.Name == "Cart" and c.Parent then
-            local base = c:FindFirstChild("LPCartBase")
+            -- ⭐ ใช้ "Main" (โครงหลักของรถ) ก่อน — LPCartBase คือ mesh พื้น
+            --    เกาะกับ Main = อยู่ตรงกลางเบาะจริง = server นับเป็น "riding"
+            local base = c:FindFirstChild("Main")
+                      or c:FindFirstChild("LPCartBase")
                       or c:FindFirstChildWhichIsA("BasePart", true)
             if base and base:IsA("BasePart") then
                 table.insert(list, base)
@@ -2847,12 +2850,14 @@ task.spawn(function()
             elseif TS_ACTIVE and TS_MAP == "Utgard" then
                 _G.CurrentAction = string.format("⏳ รอ titan spawn (Ice Burst %d/3)", TS_ICE_KILLS)
             elseif TS_ACTIVE and TS_MAP == "Outskirts" then
-                -- 🐎 ไม่มีไททันใกล้รถ → ลอยเกาะขบวนไว้
+                -- 🐎 ไม่มีไททันใกล้รถ → เกาะรถแน่น (คันหลัก)
                 local carts = findCarts()
-                local center = convoyCenter(carts)
-                if center then
-                    safePos = center + Vector3.new(0, 80, 0)
-                    _G.CurrentAction = string.format("🐎 เฝ้าขบวน (%d คัน)", #carts)
+                if carts[1] then
+                    safePos = carts[1].Position + Vector3.new(0, 6, 0)   -- เกาะแนบ
+                    _G.CurrentAction = string.format("🐎 เกาะรถ %d คัน", #carts)
+                elseif _G._LastConvoyPos then
+                    safePos = _G._LastConvoyPos + Vector3.new(0, 6, 0)
+                    _G.CurrentAction = "🐎 เกาะรถ (cached)"
                 else
                     _G.CurrentAction = "⏳ รอ titan / รถม้า"
                 end
@@ -2861,7 +2866,9 @@ task.spawn(function()
             end
 
             -- ขยับเฉพาะเมื่อหลุดเกิน 10 studs (deadzone = ไม่สั่น)
-            if (currentRoot.Position - safePos).Magnitude > 10 then
+            -- 🐎 escort = deadzone 2 (ตามรถขยับ) / อื่นๆ deadzone 10
+            local idleDead = (TS_ACTIVE and TS_MAP == "Outskirts") and 2 or 10
+            if (currentRoot.Position - safePos).Magnitude > idleDead then
                 currentRoot.CFrame = CFrame.new(safePos)
             end
             continue
@@ -2874,11 +2881,17 @@ task.spawn(function()
             local FloatHeight = 250
             local targetPos = Vector3.new(targetTitan.root.Position.X, targetTitan.root.Position.Y + FloatHeight, targetTitan.root.Position.Z)
 
-            -- 🐎 ESCORT GUARD: ล็อคที่ขบวน (ไม่ตามไททัน)
-            --    ⭐ เฉพาะช่วง GUARD phase — CLEANUP ให้บินตามไททัน (เพื่อเก็บให้ครบ)
-            if TS_ACTIVE and TS_MAP == "Outskirts"
-            and escortPhase == "GUARD" and convoyPos then
-                targetPos = convoyPos + Vector3.new(0, 80, 0)
+            -- 🐎 ESCORT GUARD: เกาะรถแน่น (ไม่ลอย ไม่ห่าง)
+            --    ⭐ พิกัดอิงตรงกับ escortCarts[1] (คันหลัก) + offset นิดเดียว
+            --    → บอทติดรถแน่น physics ตามรถทันที
+            --    ⚠️ CLEANUP → บินตามไททันปกติ (เพื่อเก็บให้ครบ mission จบ)
+            local isEscortGuard = TS_ACTIVE and TS_MAP == "Outskirts" and escortPhase == "GUARD"
+            if isEscortGuard and escortCarts and escortCarts[1] then
+                -- เกาะคันหลัก (คันแรก) เพื่อ server track ว่าเรา ride cart นี้อยู่
+                targetPos = escortCarts[1].Position + Vector3.new(0, 6, 0)
+            elseif isEscortGuard and convoyPos then
+                -- fallback ถ้าไม่มี escortCarts (findCarts พลาด)
+                targetPos = convoyPos + Vector3.new(0, 6, 0)
             end
 
             -- 🎯 ANTI-SHAKE
@@ -2893,7 +2906,9 @@ task.spawn(function()
                 currentRoot.Anchored = true
             end
 
-            if distToTarget > 40 then
+            -- 🐎 เกาะรถแน่น deadzone 2 studs / combat ปกติ 40 studs
+            local deadzone = isEscortGuard and 2 or 40
+            if distToTarget > deadzone then
                 currentRoot.CFrame = CFrame.new(targetPos)   -- anchored อยู่ = วาร์ปนิ่ง ไม่มี wait
             end
 
