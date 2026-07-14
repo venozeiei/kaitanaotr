@@ -173,7 +173,9 @@ end
 local function hasAllThunderSpears(inventory)
     inventory = inventory or fetchServerInventory()
     if not inventory then return false end
-    for _, part in ipairs({"Handle", "Thruster", "Base"}) do
+    -- ⚠️ Handle ไม่นับ! เควส Escort broken ในเกม (ดู getNextIncompleteMapByItem)
+    -- นับแค่ Thruster + Base = "ครบ" เพื่อไม่ให้บอทวน Outskirts ตลอดกาล
+    for _, part in ipairs({ "Thruster", "Base" }) do
         if not hasThunderSpearPart(part, inventory) then return false end
     end
     return true
@@ -183,9 +185,14 @@ end
 local function getNextIncompleteMapByItem(inventory)
     inventory = inventory or fetchServerInventory()
     if not inventory then return "Forest" end  -- fallback
+
+    -- ⚠️ SKIP HANDLE — เควส Escort broken โดย dev bug
+    --   ยืนยันจาก Questline.lua (line 176) ไม่มี Update_Spear_Escort
+    --   ทดสอบ 12 remote pattern คืน nil ทุกอัน
+    --   → ข้าม Outskirts ไม่งั้นบอทจะวนไม่จบ
     if not hasThunderSpearPart("Base", inventory) then return "Forest" end
     if not hasThunderSpearPart("Thruster", inventory) then return "Utgard" end
-    if not hasThunderSpearPart("Handle", inventory) then return "Outskirts" end
+    -- Handle: skip. Bot จะได้แค่ 2/3 ชิ้นจนกว่าเกมจะ patch
     return nil
 end
 
@@ -2446,26 +2453,57 @@ end
 -- ============================================================
 local ESCORT_RADIUS = 400   -- ตีเฉพาะไททันที่อยู่ในรัศมีนี้จากรถม้า
 
+-- 🎯 หา cart ทั้งหมดใน Objective folder — โครงสร้างจริงคือ:
+--   workspace.Unclimbable.Objective:
+--     [1] Escort (Model)  ← main + side #1
+--         └── Cart.Main   ← จุดเกาะจริง
+--         └── Health      ← มี Max_Health attribute
+--     [2] Escort (Model)  ← MAIN convoy (Max_Health=41 = 2x)
+--     [3] Escort (Model)  ← side #2
+-- 🚨 บอทต้องเฝ้า MAIN (Max_Health สูงสุด) เป็นอันดับแรก!
+--    ไม่งั้น main ตาย → Objective.Escort ไม่มีทาง = 1/1 → SPEARS ไม่ credit
 local function findCarts()
     local list = {}
     local unc = workspace:FindFirstChild("Unclimbable")
-    local obj = unc and unc:FindFirstChild("Objective")
-    local esc = obj and obj:FindFirstChild("Escort")
-    if not esc then return list end
+    local objFolder = unc and unc:FindFirstChild("Objective")
+    if not objFolder then return list end
 
-    for _, c in ipairs(esc:GetChildren()) do
-        if c.Name == "Cart" and c.Parent then
-            -- ⭐ ใช้ "Main" (โครงหลักของรถ) ก่อน — LPCartBase คือ mesh พื้น
-            --    เกาะกับ Main = อยู่ตรงกลางเบาะจริง = server นับเป็น "riding"
-            local base = c:FindFirstChild("Main")
-                      or c:FindFirstChild("LPCartBase")
-                      or c:FindFirstChildWhichIsA("BasePart", true)
+    for _, escModel in ipairs(objFolder:GetChildren()) do
+        if escModel.Name == "Escort" and not escModel:GetAttribute("Dead") then
+            -- ข้าม cart ที่ตายแล้ว
+            local cart = escModel:FindFirstChild("Cart")
+            local health = escModel:FindFirstChild("Health")
+            local maxHP = health and health:GetAttribute("Max_Health") or 0
+
+            local base = cart and (cart:FindFirstChild("Main")
+                                or cart:FindFirstChild("LPCartBase")
+                                or cart:FindFirstChildWhichIsA("BasePart", true))
             if base and base:IsA("BasePart") then
-                table.insert(list, base)
+                table.insert(list, {
+                    part = base,
+                    maxHP = maxHP,
+                    curHP = health and health.Value or 0,
+                    isMain = maxHP > 25,   -- main = HP > 25 (main=41, side=21)
+                    esc = escModel,
+                })
             end
         end
     end
-    return list
+
+    -- 🎯 เรียงลำดับ: MAIN ก่อน (Max_HP สูงสุด) → ตามด้วย HP ต่ำสุด (ใกล้ตาย)
+    table.sort(list, function(a, b)
+        if a.isMain ~= b.isMain then return a.isMain end   -- main มาก่อน
+        return a.curHP < b.curHP                            -- HP ต่ำก่อน (urgent)
+    end)
+
+    -- แปลงเป็น array ของ BasePart (backward compat กับโค้ดเดิม)
+    local parts = {}
+    for _, c in ipairs(list) do table.insert(parts, c.part) end
+
+    -- ส่ง metadata ผ่าน _G เผื่อ debug
+    _G._CartInfo = list
+
+    return parts
 end
 
 local function convoyCenter(carts)
@@ -2781,8 +2819,15 @@ task.spawn(function()
                 if not _G._EscortAnnounced then
                     _G._EscortAnnounced = true
                     _G._CleanupAnnounced = false
-                    print(string.format("[TS] 🐎 GUARD — พบรถม้า %d คัน (รัศมี %d studs)",
-                        #escortCarts, ESCORT_RADIUS))
+                    local info = _G._CartInfo or {}
+                    local msg = string.format("[TS] 🐎 GUARD — %d คัน", #escortCarts)
+                    for i, c in ipairs(info) do
+                        msg = msg .. string.format("\n   #%d %s HP=%d/%d %s",
+                            i, c.isMain and "MAIN⭐" or "side ",
+                            c.curHP, c.maxHP,
+                            i == 1 and "← เฝ้าก่อน" or "")
+                    end
+                    print(msg)
                 end
             else
                 -- findCarts พลาดชั่วคราว → ใช้ตำแหน่งเก่า
