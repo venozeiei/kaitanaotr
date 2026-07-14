@@ -36,6 +36,13 @@ end
 _G.AutoFarm = Config.AutoFarm
 _G.TargetSlot = Config.TargetSlot
 _G.CurrentAction = "Initializing..."
+
+-- ⚡ [PERF] DEBUG LOG TOGGLE — ปิด print ที่ spam (30 จอ = แลค)
+--    เปิดกลับ: _G.VenozDebug = true
+_G.VenozDebug = _G.VenozDebug or false
+local function dprint(...)
+    if _G.VenozDebug then print(...) end
+end
 _G.SessionStartTime = _G.SessionStartTime or os.time() 
 
 local Players = game:GetService("Players")
@@ -151,6 +158,111 @@ local function hasItemInInventory(inventory, itemName)
 end
 
 -- ดึง inventory สดจาก server (ผ่าน Settings remote)
+-- ============================================================
+-- ⚔️ PERK READER — อ่านตรงจาก CoreTable (getgc)
+-- ============================================================
+-- 🐛 บั๊กเดิม: Lobby อ่าน perk ไม่ได้ → โชว์ 0 → ไม่ขาย
+--    • actor bindable = มีเฉพาะ Phase 3 (ในด่าน)
+--    • server remote  = timeout ง่ายตอน 50 จอ (3 วิ)
+--    → _G.PerksUUIDs ไม่ถูก set → ไม่ขาย → เข้าด่านใหม่ → วนไม่จบ
+--
+-- ✅ แก้: อ่านจาก CoreTable.Cache.Data ตรงๆ (แหล่งเดียวกับที่ actor ใช้)
+--    ทำงานทั้ง Lobby + ในด่าน, ไม่ยิง remote, ไม่มี timeout
+--
+-- return: total, uuids   |   nil ถ้าอ่านไม่ได้
+-- ============================================================
+local function readPerksFromGame()
+    local best_total, best_uuids, best_found = 0, {}, false
+
+    -- 1️⃣ getgc CoreTable — วนทั้งหมด เลือก candidate ที่ perk เยอะสุด
+    --    (ไม่ break ทันที เพราะใน Lobby อาจมี Cache.Data ค้างหลายตัว)
+    pcall(function()
+        for _, v in pairs(_getgc(true)) do
+            if type(v) == "table" and rawget(v, "Cache")
+            and type(v.Cache) == "table" and rawget(v.Cache, "Data") then
+                local data = v.Cache.Data
+                if type(data.Slots) == "table" then
+                    local key = data.Current_Slot
+                             or plr:GetAttribute("Slot")
+                             or _G.TargetSlot or "A"
+                    local slot = data.Slots[key]
+                    if slot and slot.Perks and type(slot.Perks.Storage) == "table" then
+                        local total, uuids = 0, {}
+                        for k, p in pairs(slot.Perks.Storage) do
+                            total = total + 1
+                            if type(p) == "table" and p.Name and not p.Equipped then
+                                table.insert(uuids, k)
+                            end
+                        end
+                        -- เก็บ candidate ที่ perk เยอะที่สุด (ตัวจริง)
+                        if total > best_total or not best_found then
+                            best_total, best_uuids, best_found = total, uuids, true
+                        end
+                    end
+                end
+                -- ⚠️ ไม่ break — วนต่อจนหมด (ป้องกันเลือก table ว่างค้าง)
+            end
+        end
+    end)
+
+    -- getgc เจอค่ามีจริง (>0) → ใช้เลย ไม่ต้องยิง remote
+    if best_found and best_total > 0 then
+        return best_total, best_uuids
+    end
+
+    -- 2️⃣ fallback: server remote
+    --    (Lobby / เพิ่งเข้าเกม / getgc ทั้งหมดว่าง)
+    local fb_total, fb_uuids, fb_ok = 0, {}, false
+    pcall(function()
+        local raw = GET:InvokeServer("Functions", "Settings", "Blur", "Off")
+        if type(raw) == "table" and type(raw.Slots) == "table" then
+            local slot = raw.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
+            if slot and slot.Perks and type(slot.Perks.Storage) == "table" then
+                for k, p in pairs(slot.Perks.Storage) do
+                    fb_total = fb_total + 1
+                    if type(p) == "table" and p.Name and not p.Equipped then
+                        table.insert(fb_uuids, k)
+                    end
+                end
+                fb_ok = true
+            end
+        end
+    end)
+
+    -- server ตอบ → ใช้ค่า server (authoritative)
+    if fb_ok then return fb_total, fb_uuids end
+
+    -- getgc เจอแต่ว่าง + server timeout → ยอมใช้ค่าจาก getgc
+    if best_found then return best_total, best_uuids end
+
+    -- ทั้ง 2 ทางล้ม
+    return nil
+end
+
+-- 🔄 อัปเดต _G จากแหล่งที่ชัวร์ — เรียกได้ทุกที่
+-- 🛡️ ANTI-OVERWRITE: ไม่ทับค่าเดิมที่มี > 0 ด้วย 0 (กัน getgc/server ตอบว่างชั่วขณะ)
+--    เพราะรอบต่อไปข้อมูลจะสด และค่าเดิมยังใช้ได้ (สูงกว่าเสียเวลาแค่รอบเดียว)
+local function refreshPerks()
+    local total, uuids = readPerksFromGame()
+    if total == nil then
+        warn("[Perk] ⚠️ อ่าน perk ไม่ได้เลย! (ทั้ง getgc + server remote)")
+        return false
+    end
+
+    -- 🛡️ อ่านได้ 0 แต่ค่าเดิม > 0 → skip (อาจเป็นการอ่านที่พลาดชั่วขณะ)
+    local prevTotal = _G.TotalPerksCount or 0
+    local prevUUIDs = #(type(_G.PerksUUIDs) == "table" and _G.PerksUUIDs or {})
+    if total == 0 and (prevTotal > 0 or prevUUIDs > 0) then
+        warn(string.format("[Perk] ⚠️ อ่านได้ 0 แต่ค่าเดิม %d/%d → skip (รอรอบหน้า)",
+            prevUUIDs, prevTotal))
+        return false
+    end
+
+    _G.TotalPerksCount = total
+    _G.PerksUUIDs      = uuids
+    return true
+end
+
 local function fetchServerInventory()
     local ok, result = pcall(function()
         return GET:InvokeServer("Functions", "Settings", "Blur", "Off")
@@ -254,6 +366,67 @@ local function safeInvokeServer(remote, timeout, ...)
 
     if not finished then return nil end   -- timeout
     return success and result or nil
+end
+
+-- ============================================================
+-- ⚔️ PERK SELL THRESHOLD (dynamic)
+-- ============================================================
+-- แนวคิด: ตอน "ตัน" แล้วรอเงินจุติ = บอทแค่ฟาร์มเงินอย่างเดียว
+--         ไม่ควรออกจากด่านบ่อยๆ เพื่อขาย perk (เสียเวลา teleport ไป-กลับ)
+--         → ยกเพดานเป็น 500 ให้ RETRY ยาวๆ ใน Chapel
+--
+-- เงื่อนไข 500:
+--   • Level ตัน (>= 100 + prestige*25)  AND
+--   • ยังไม่ถึง PrestigeTarget           AND
+--   • Gold ยังไม่ถึง RequiredGold ของจุติถัดไป
+--
+-- นอกนั้น: Level <= 45 → 30 | อื่นๆ → 100 (เหมือนเดิม)
+-- ============================================================
+local PERK_NORMAL   = 100
+local PERK_LOW_LVL  = 30
+local PERK_GOLDFARM = 500   -- ⭐ ตอนตันรอเงินจุติ
+
+-- 🔢 นับ perk ที่ "ขายได้จริง" (ไม่รวมที่ใส่อยู่)
+-- 🐛 บั๊กเดิม: LEAVE ใช้ TotalPerksCount (รวมที่ใส่) แต่ SELL ใช้ #PerksUUIDs (ไม่รวม)
+--    → มี 30 อัน ใส่อยู่ 6 → LEAVE (30>=30) แต่ไม่ขาย (24<30) → วนไม่จบ!
+--    แก้: ใช้ตัวเดียวกันทั้ง 2 จุด
+local function getSellablePerkCount()
+    local u = _G.PerksUUIDs
+    if type(u) == "table" then return #u end
+    return 0   -- ยังไม่โหลด → 0 (ไม่ออก ปลอดภัยกว่า)
+end
+
+local function getPerkSellTarget()
+    local level    = tonumber(_G.LastLevel)    or tonumber(plr:GetAttribute("Level"))    or 0
+    local prestige = tonumber(_G.LastPrestige) or tonumber(plr:GetAttribute("Prestige")) or 0
+    local gold     = tonumber(_G.LastGold)     or 0
+
+    -- 🛡️ ข้อมูลยังไม่โหลด (level = 0) → อย่าใช้ 30 (จะออกไปขายเร็วเกิน)
+    if level <= 0 then return PERK_NORMAL end
+
+    -- เลเวลต่ำ → ขายไว (perk เยอะทำให้ช้า)
+    if level <= 45 then return PERK_LOW_LVL end
+
+    -- ตันหรือยัง?
+    local maxLevel = 100 + (prestige * 25)
+    local isTan = (level >= maxLevel)
+
+    -- ยังจุติได้อีกไหม?
+    local canStillPrestige = (Config.AutoPrestige and prestige < (Config.PrestigeTarget or 5))
+
+    if isTan and canStillPrestige then
+        -- เงินถึงเป้าจุติถัดไปหรือยัง?
+        local pk  = "P" .. tostring(prestige + 1)
+        local ps  = (Config.VenozPrestige and Config.VenozPrestige[pk]) or { RequiredGold = 0 }
+        local req = (ps.RequiredGold or 0) * 1000000
+
+        if gold < req then
+            -- 💰 ตัน + เงินไม่พอ = กำลังฟาร์มเงิน → ขาย perk ที่ 500 (ไม่ออกบ่อย)
+            return PERK_GOLDFARM
+        end
+    end
+
+    return PERK_NORMAL
 end
 
 local function forceClickGui(element)
@@ -564,7 +737,7 @@ local function executeAutoBoostLogic()
         local itemsInv = (_G.LastInventory and _G.LastInventory["Items"]) or {}
         local itemCount = 0
         for _ in pairs(itemsInv) do itemCount = itemCount + 1 end
-        print(string.format("[Boost] 🔍 check: Prestige=%d Level=%d Gems=%d Items=%d Config=%s",
+        dprint(string.format("[Boost] 🔍 check: Prestige=%d Level=%d Gems=%d Items=%d Config=%s",
             prestige, level, gemsNow, itemCount, tostring(Config.AutoBoost)))
 
         local boostsNeeded = {}
@@ -580,7 +753,7 @@ local function executeAutoBoostLogic()
             elseif prestige >= 5 and level <= 130 then table.insert(boostsNeeded, "XP") end
             if prestige <= 4 then table.insert(boostsNeeded, "Gold") end
         end
-        print(string.format("[Boost]    needed = {%s}", table.concat(boostsNeeded, ", ")))
+        dprint(string.format("[Boost]    needed = {%s}", table.concat(boostsNeeded, ", ")))
 
         local actionTaken = false
         for _, boostType in ipairs(boostsNeeded) do
@@ -594,7 +767,7 @@ local function executeAutoBoostLogic()
                     if bv and tonumber(bv.Value) and tonumber(bv.Value) > 0 then isActive = true end
                 end
             end)
-            print(string.format("[Boost]    %s: active=%s", boostType, tostring(isActive)))
+            dprint(string.format("[Boost]    %s: active=%s", boostType, tostring(isActive)))
             if isActive then continue end
 
             -- 🍷 ลองหาของในกระเป๋าก่อน (case-insensitive)
@@ -606,7 +779,7 @@ local function executeAutoBoostLogic()
                     print(string.format("[Boost] 🍷 กินของ: %s (x%s)", realItemName, tostring(qty)))
                     _G.CurrentAction = "AutoBoost: Using " .. realItemName
                     local res = safeInvokeServer(GET, 3, "S_Inventory", "Item", realItemName)
-                    print(string.format("[Boost]    res = %s", tostring(res)))
+                    dprint(string.format("[Boost]    res = %s", tostring(res)))
                     if res ~= nil then
                         print("[Boost] ✅ กินสำเร็จ")
                         activated = true; actionTaken = true; task.wait(0.3); break
@@ -617,9 +790,9 @@ local function executeAutoBoostLogic()
 
             -- 💎 ซื้อจาก market
             local minGems = Config.MinGemsToBuyBoosts or 4500
-            print(string.format("[Boost]    Gems=%d MinToBuy=%d", gemsNow, minGems))
+            dprint(string.format("[Boost]    Gems=%d MinToBuy=%d", gemsNow, minGems))
             if gemsNow < minGems then
-                print("[Boost]    ⏭️ Gems ไม่พอ ข้าม")
+                dprint("[Boost]    ⏭️ Gems ไม่พอ ข้าม")
                 continue
             end
 
@@ -634,7 +807,7 @@ local function executeAutoBoostLogic()
                     print(string.format("[Boost] 💎 ซื้อ %s (%d gems)", name, price))
                     _G.CurrentAction = "AutoBoost: Buying " .. name
                     local res = safeInvokeServer(GET, 5, "S_Market", "Buy", "1_Boosts", idx, 1)
-                    print(string.format("[Boost]    buy res = %s (type=%s)", tostring(res), type(res)))
+                    dprint(string.format("[Boost]    buy res = %s (type=%s)", tostring(res), type(res)))
                     if res ~= nil and type(res) ~= "string" then
                         task.wait(0.5)
                         local ur = safeInvokeServer(GET, 3, "S_Inventory", "Item", name)
@@ -646,7 +819,7 @@ local function executeAutoBoostLogic()
         end
 
         if not actionTaken then
-            print("[Boost] ⏸ ไม่ทำอะไร → cooldown 5 นาที")
+            dprint("[Boost] ⏸ ไม่ทำอะไร → cooldown 5 นาที")
             lastBoostCheck = currentTime + 300
         else
             lastBoostCheck = currentTime + Config.BoostCheckInterval
@@ -775,7 +948,21 @@ if Config.AutoAntiLag and not _G.OptimizedMap and not isTSMap() then
                 for _, target in ipairs(lobbyTargets) do
                     if target then
                         for _, v in ipairs(target:GetDescendants()) do hidePart(v) end
-                        target.DescendantAdded:Connect(hidePart)
+                        -- ⚡ [PERF] DescendantAdded ยิงทุก part ใหม่ (ไททันเกิด = 50+ part)
+                        --    → throttle: batch เก็บไว้ แล้วประมวลผลทุก 0.5 วิ
+                        local queue = {}
+                        target.DescendantAdded:Connect(function(v)
+                            queue[#queue + 1] = v
+                        end)
+                        task.spawn(function()
+                            while task.wait(0.5) do
+                                if #queue > 0 then
+                                    local batch = queue
+                                    queue = {}
+                                    for _, v in ipairs(batch) do hidePart(v) end
+                                end
+                            end
+                        end)
                     end
                 end
                 task.spawn(function()
@@ -863,20 +1050,57 @@ task.spawn(function()
                 _G.LastFetch = currentTick
                 task.spawn(function()
                     pcall(function()
-                        local bindable = MarketplaceService:FindFirstChild("Remote")
+                        -- 🐛 [FIX] actor bindable ใช้ได้เฉพาะในด่าน (Phase 3)
+                        --    Lobby ไม่มี actor → bindable ค้างจากด่านก่อน → คืน table ว่าง
+                        --    → PerksUUIDs = 0 → Tracker โชว์ 0 → ไม่ขาย perk!
+                        local inMission = (game.PlaceId ~= 14916516914 and game.PlaceId ~= 13379208636)
                         local slotData = nil
-                        if bindable then slotData = bindable:Invoke("CALL", "GetSlotData") end
+
+                        if inMission then
+                            local bindable = MarketplaceService:FindFirstChild("Remote")
+                            if bindable then
+                                local ok, sd = pcall(function() return bindable:Invoke("CALL", "GetSlotData") end)
+                                -- ✅ เชื่อเฉพาะเมื่อมีข้อมูลจริง (ไม่ใช่ table ว่าง)
+                                if ok and type(sd) == "table" and sd.Progression then slotData = sd end
+                            end
+                        end
+
+                        -- Lobby หรือ actor อ่านไม่ได้ → ใช้ server remote + สร้าง PerksUUIDs เอง
                         if not slotData then
-                            GET:InvokeServer("Functions", "Settings", "Blur", "Off")
-                            local sd = GET:InvokeServer("Functions", "Settings", "Blur", "Off")
-                            if type(sd) == "table" and sd.Slots then
-                                slotData = sd.Slots[p:GetAttribute("Slot") or _G.TargetSlot or "A"]
+                            local raw = GET:InvokeServer("Functions", "Settings", "Blur", "Off")
+                            if type(raw) == "table" and raw.Slots then
+                                local s = raw.Slots[p:GetAttribute("Slot") or _G.TargetSlot or "A"]
+                                if s then
+                                    local uuids, total = {}, 0
+                                    if s.Perks and type(s.Perks.Storage) == "table" then
+                                        for k, v in pairs(s.Perks.Storage) do
+                                            total = total + 1
+                                            if type(v) == "table" and v.Name and not v.Equipped then
+                                                table.insert(uuids, k)
+                                            end
+                                        end
+                                    end
+                                    slotData = {
+                                        Inventory       = s.Inventory,
+                                        Currency        = s.Currency,
+                                        Currencies      = s.Currencies,
+                                        Progression     = s.Progression,
+                                        PerksUUIDs      = uuids,     -- ⭐ สร้างเองจาก Perks.Storage
+                                        TotalPerksCount = total,
+                                    }
+                                end
                             end
                         end
                         if slotData then
                             if slotData.Inventory then _G.LastInventory = slotData.Inventory end
-                            if slotData.TotalPerksCount then _G.TotalPerksCount = slotData.TotalPerksCount end
-                            if slotData.PerksUUIDs then _G.PerksUUIDs = slotData.PerksUUIDs end
+                            -- ⚔️ PERK — ใช้ค่าจาก slotData ที่เพิ่งอ่านมาตรงๆ
+                            --    🐛 บั๊กเดิม: เรียก refreshPerks() → readPerksFromGame()
+                            --       ที่ยิง getgc/server รอบใหม่ → อาจตอบ 0 → ทับ 50 ที่ถูกต้อง
+                            --    ✅ แก้: ใช้ค่าจาก slotData โดยตรง (source of truth)
+                            if slotData.PerksUUIDs then
+                                _G.PerksUUIDs = slotData.PerksUUIDs
+                                _G.TotalPerksCount = slotData.TotalPerksCount or #slotData.PerksUUIDs
+                            end
                             if slotData.Currency then _G.LastGold = slotData.Currency.Gold end
                             if slotData.Currencies then _G.LastGems = slotData.Currencies.Gems end
                             if slotData.Progression then
@@ -973,11 +1197,15 @@ task.spawn(function()
                 tsStatus = string.format("\n⚡ <font color='#ff00ff'>TS: %s</font>", tostring(_G.ThunderSpearPart or "?"))
             end
             local totalPerks = _G.TotalPerksCount or 0
-            local perkColor = totalPerks >= 100 and "#ff3333" or "#aaffaa"
+            local sellable   = getSellablePerkCount()   -- ⭐ ตัวที่ใช้ตัดสินใจจริง
+            local perkTarget = getPerkSellTarget()
+            local perkColor = sellable >= perkTarget and "#ff3333" or "#aaffaa"
+            -- 💰 โหมดฟาร์มเงิน (ตันแล้วรอเงินจุติ) → โชว์เป็นสีทอง
+            if perkTarget == PERK_GOLDFARM then perkColor = "#ffdd55" end
             logText.Text = string.format(
-                "🎖️ <b>Level:</b> %d / %d (%s/%s)\n👑 <b>Prestige:</b> P%d\n💰 <b>Gold:</b> %s | 💎 <b>Gems:</b> %s\n🧪 <b>Gold:</b> %s\n🧪 <b>XP:</b> %s\n⚔️ <b>Perks:</b> <font color='%s'>%d</font>\n📍 %s | 🗺️ %s%s\n🔄 <font color='#00ffff'>%s</font>",
+                "🎖️ <b>Level:</b> %d / %d (%s/%s)\n👑 <b>Prestige:</b> P%d\n💰 <b>Gold:</b> %s | 💎 <b>Gems:</b> %s\n🧪 <b>Gold:</b> %s\n🧪 <b>XP:</b> %s\n⚔️ <b>Perks:</b> <font color='%s'>%d / %d</font> <font color='#888888'>(รวม %d)</font>\n📍 %s | 🗺️ %s%s\n🔄 <font color='#00ffff'>%s</font>",
                 level, maxLevelReq, formatNumber(displayXP), formatNumber(displayMaxXP), prestige, formatNumber(gold), formatNumber(gems),
-                formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, totalPerks,
+                formatTime(goldBoostTime), formatTime(xpBoostTime), perkColor, sellable, perkTarget, totalPerks,
                 statusStr, displayMapString, tsStatus, _G.CurrentAction or "Idle"
             )
         end
@@ -991,6 +1219,183 @@ task.spawn(function()
     while task.wait(5) do
         pcall(function() 
             game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, false) 
+        end)
+    end
+end)
+
+-- ============================================================
+-- 🐎 HORST MANAGER REPORTER (+ Disk Cache)
+-- ============================================================
+-- ส่งสถานะไปโชว์ในหน้า Horst Manager
+--   • เซฟลงฮาร์ดดิสก์ → ค่าไม่มีวันเป็น 0 แม้ตอนโหลด/teleport
+--   • อ่านจาก 3 ทาง: attribute → UI Topbar → server remote (ชัวร์สุด)
+--   • ⚡ TS = เช็คแค่ Thruster + Base (Handle บั๊กในเกม ทำไม่ได้)
+--   • ทำงานทุก phase (Title / Lobby / Mission)
+-- ============================================================
+task.spawn(function()
+    local HttpService = game:GetService("HttpService")
+    local CacheFile = "VenozHub_Cache_" .. tostring(plr.UserId) .. ".json"
+
+    local function fmt(n)
+        return tostring(n):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+    end
+
+    local function saveCache()
+        pcall(function()
+            if writefile then
+                writefile(CacheFile, HttpService:JSONEncode({
+                    Level    = _G.LastLevel    or 0,
+                    Prestige = _G.LastPrestige or 0,
+                    Gold     = _G.LastGold     or 0,
+                    Gems     = _G.LastGems     or 0,
+                    TS       = _G.TSUnlocked   or false,
+                    SB       = _G.LastSB,        -- ⭐ สถานะแบน (true = ปกติ / false = โดนแบน)
+                }))
+            end
+        end)
+    end
+
+    -- 📥 โหลดค่าเดิมจากดิสก์ทันที (กันโชว์ 0 / SB ผิด ตอนเพิ่งเข้าเกม)
+    pcall(function()
+        if isfile and readfile and isfile(CacheFile) then
+            local d = HttpService:JSONDecode(readfile(CacheFile))
+            _G.LastLevel    = _G.LastLevel    or d.Level    or 0
+            _G.LastPrestige = _G.LastPrestige or d.Prestige or 0
+            _G.LastGold     = _G.LastGold     or d.Gold     or 0
+            _G.LastGems     = _G.LastGems     or d.Gems     or 0
+            if d.TS then _G.TSUnlocked = true end
+            if _G.LastSB == nil and d.SB ~= nil then _G.LastSB = d.SB end
+        end
+    end)
+
+    while true do
+        pcall(function()
+            local dirty = false
+
+            -- 1️⃣ attribute จากตัวละคร
+            local lv = plr:GetAttribute("Level")
+            local pr = plr:GetAttribute("Prestige")
+            if lv and lv > 0    then _G.LastLevel = lv;    dirty = true end
+            if pr ~= nil        then _G.LastPrestige = pr; dirty = true end
+
+            -- 2️⃣ UI Topbar (เฉพาะตอนอยู่ Lobby)
+            pcall(function()
+                local cur = plr.PlayerGui.Interface.Topbar.Main.Currencies
+                local g = tonumber((cur.Gold.Amount.Text:gsub("[,%s]", "")))
+                local m = tonumber((cur.Gems.Amount.Text:gsub("[,%s]", "")))
+                if g and g > 0 then _G.LastGold = g; dirty = true end
+                if m and m > 0 then _G.LastGems = m; dirty = true end
+            end)
+
+            -- 3️⃣ server remote (ชัวร์สุด — ทะลุด่านได้)
+            -- ⚡ [PERF] เดิม: ยิงทุก 3 วิ ตลอดเวลา = 30 จอ × 20 remote/นาที
+            --    แก้: ยิงทุก 30 วิ (attribute + UI อัปเดตทุก 3 วิ อยู่แล้ว พอ)
+            local inventory = nil
+            _G._HorstFetch = _G._HorstFetch or 0
+            if os.time() - _G._HorstFetch >= 30 or os.time() < _G._HorstFetch then
+                _G._HorstFetch = os.time()
+                local ok, sd = pcall(function()
+                    return GET:InvokeServer("Functions", "Settings", "Blur", "Off")
+                end)
+                if ok and type(sd) == "table" and sd.Slots then
+                    local slot = sd.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
+                    if slot then
+                        inventory = slot.Inventory
+                        if slot.Currency then
+                            if slot.Currency.Gold then _G.LastGold = slot.Currency.Gold; dirty = true end
+                            if slot.Currency.Gems then _G.LastGems = slot.Currency.Gems; dirty = true end
+                        end
+                        if slot.Currencies and slot.Currencies.Gems then
+                            _G.LastGems = slot.Currencies.Gems; dirty = true
+                        end
+                        if slot.Progression then
+                            if slot.Progression.Level    then _G.LastLevel    = slot.Progression.Level;    dirty = true end
+                            if slot.Progression.Prestige then _G.LastPrestige = slot.Progression.Prestige; dirty = true end
+                        end
+                    end
+                end
+            end
+
+            -- ⚡ THUNDER SPEAR — เช็คแค่ Thruster + Base
+            --    (Handle บั๊กในเกม: Questline.lua ไม่มี Update_Spear_Escort)
+            if not _G.TSUnlocked and inventory then
+                local hasThruster = hasThunderSpearPart("Thruster", inventory)
+                local hasBase     = hasThunderSpearPart("Base",     inventory)
+                if hasThruster and hasBase then
+                    _G.TSUnlocked = true
+                    dirty = true
+                    print("[Horst] ⚡ Thunder Spear ครบ (Thruster + Base) → ติ๊กถูก ✅")
+                end
+            end
+
+            if dirty then saveCache() end
+
+            -- 🛡️ SB (สถานะแบน) — อัปเดตเฉพาะเมื่อ attribute โหลดจริงแล้ว
+            --    ⚠️ ตอนเพิ่งเข้าเกม attribute ยังเป็น nil → อย่าเพิ่งสรุปว่า "ปกติ"
+            --       ใช้ค่าที่เซฟไว้ในดิสก์แทน จนกว่า server จะส่งค่าจริงมา
+            local bl  = plr:GetAttribute("Blacklisted")
+            local trd = plr:GetAttribute("Trades")
+
+            if bl ~= nil or trd ~= nil then
+                -- server ส่งค่ามาแล้ว → คำนวณใหม่ + เซฟ
+                local isOK = not (bl == true or trd == 0)
+                if _G.LastSB ~= isOK then
+                    if isOK then
+                        print("[Horst] 🛡️ SB: ✅ ปกติ")
+                    else
+                        warn(string.format("[Horst] 🚨 SB: ❌ โดนแบน! (Blacklisted=%s Trades=%s)",
+                            tostring(bl), tostring(trd)))
+                    end
+                    _G.LastSB = isOK
+                    saveCache()
+                end
+            end
+
+            -- 📤 ส่งไป Horst Manager
+            local sbIcon = (_G.LastSB == false) and "❌" or "✅"   -- nil = ยังไม่รู้ → โชว์ ✅
+            local tsIcon = _G.TSUnlocked and "⚡TS:✅" or "⚡TS:❌"
+
+            if _G.Horst_SetDescription then
+                _G.Horst_SetDescription(string.format(
+                    "SB:%s 🎖️Lv.%d 👑P.%d 💰G:%s 💎Gem:%s %s",
+                    sbIcon,
+                    _G.LastLevel    or 0,
+                    _G.LastPrestige or 0,
+                    fmt(_G.LastGold or 0),
+                    fmt(_G.LastGems or 0),
+                    tsIcon
+                ))
+            end
+        end)
+        task.wait(3)
+    end
+end)
+
+-- ============================================================
+-- 🧹 MEMORY GUARD (สำหรับเปิดหลายจอ นานๆ)
+-- ============================================================
+-- ⚡ ปัญหา: เปิดนานๆ แล้วหน่วง/สคริปต์ไม่โหลด
+--    สาเหตุ: cache ใน _G โตไม่หยุด + Lua GC ไม่คืนหน่วยความจำ
+--    แก้: เคลียร์ cache ที่ไม่จำเป็นทุก 10 นาที + บังคับ GC
+--    ⚠️ ไม่แตะ cache ที่ logic ต้องใช้ (SkillCache / TSUnlocked / LastSB)
+-- ============================================================
+task.spawn(function()
+    while task.wait(600) do   -- ทุก 10 นาที
+        pcall(function()
+            -- เคลียร์ QuestCache (โตเรื่อยๆ จาก 80+ tag × ทุก 5 นาที)
+            local qn = 0
+            if _G.QuestCache then for _ in pairs(_G.QuestCache) do qn = qn + 1 end end
+            if qn > 200 then _G.QuestCache = {} end
+
+            -- ล้าง reference ที่ไม่ใช้แล้ว
+            -- ⚠️ ห้ามลบ _G.PerksUUIDs! logic ตัดสินใจ LEAVE/SELL ใช้อยู่
+            _G._CartInfo = nil
+
+            -- บังคับ GC (คืนหน่วยความจำให้ OS)
+            collectgarbage("collect")
+
+            local mb = collectgarbage("count") / 1024
+            print(string.format("[MEM] 🧹 เคลียร์แล้ว — Lua ใช้ %.1f MB", mb))
         end)
     end
 end)
@@ -1040,17 +1445,23 @@ end
 if placeId == 14916516914 then
     _G.CurrentAction = "Loading Town Central..."
 
-    -- 🎁 Persistent Claim Loop — ยิง claim ทุก 5 วิ (จับ reward ที่ค้าง)
+    -- 🎁 Persistent Claim Loop — จับ reward ที่ค้าง
+    -- ⚡ [PERF] เดิม: ยิง 15 remote ทุก 5 วิ ตลอดกาล แม้ TS ครบแล้ว
+    --    แก้: TS ครบ → หยุดถาวร | poll 5 → 10 วิ
     if Config.AutoThunderSpearQuest then
         task.spawn(function()
             task.wait(3)
             while game.PlaceId == 14916516914 do
+                if _G.TSUnlocked then
+                    print("[TS] ✅ TS ครบแล้ว → หยุด claim loop (ประหยัด remote)")
+                    break
+                end
                 pcall(function()
                     claimAllSpearsQuests()
                     task.wait(0.3)
-                    clickAllClaimButtons()  -- fallback: click UI button
+                    clickAllClaimButtons()
                 end)
-                task.wait(5)
+                task.wait(10)
             end
         end)
     end
@@ -1072,15 +1483,28 @@ if placeId == 14916516914 then
                 if currentTime - lastInventoryCheck > 15 then
                     lastInventoryCheck = currentTime
                     _G.CurrentAction = "Checking Stats & Inventory..."
+
+                    -- 🐛 [FIX] เดิม: ลอง actor bindable ก่อน
+                    --    ⚠️ แต่ Lobby "ไม่มี actor"! (สร้างที่ Phase 3 เท่านั้น)
+                    --    bindable ค้างอยู่ใน MarketplaceService จากด่านก่อน → Invoke คืน table ว่าง
+                    --    → serverData ~= nil → ไม่เข้า fallback → PerksUUIDs = {} → นับได้ 0
+                    --    → ไม่ขาย perk เลย! (ในด่านอ่านได้เพราะมี actor)
+                    --    ✅ แก้: Lobby ใช้ server remote ตรงๆ อย่างเดียว
+                    -- 🐛 [FIX v2] จอ 30+ คน server แออัด → safeInvokeServer(5s) timeout
+                    --    → raw = nil → PerksUUIDs ไม่ update → sell ข้าม → เข้าด่านทั้งที่ perk เต็ม
+                    --    ✅ แก้: ถ้า safeInvokeServer พลาด → fallback direct InvokeServer (ไม่มี timeout)
                     local serverData = nil
-                    pcall(function() 
-                        local b = MarketplaceService:FindFirstChild("Remote")
-                        if b then serverData = b:Invoke("CALL", "GetSlotData") end
-                    end)
-                    if not serverData then
-                        serverData = safeInvokeServer(GET, 3, "Functions", "Settings", "Blur", "Off")
-                        if serverData and type(serverData) == "table" and serverData.Slots then
-                            local slotData = serverData.Slots[plr:GetAttribute("Slot") or "A"]
+                    do
+                        local raw = safeInvokeServer(GET, 5, "Functions", "Settings", "Blur", "Off")
+                        -- fallback: server ช้า → ยิงตรง (Roblox default timeout ~30s)
+                        if not raw then
+                            print("[Perk] ⚠️ safeInvokeServer timeout → ลอง direct call...")
+                            pcall(function()
+                                raw = GET:InvokeServer("Functions", "Settings", "Blur", "Off")
+                            end)
+                        end
+                        if raw and type(raw) == "table" and raw.Slots then
+                            local slotData = raw.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
                             if slotData then
                                 local mapped = {}
                                 if slotData.Currency then mapped.Currency = { Gold = slotData.Currency.Gold } end
@@ -1103,7 +1527,12 @@ if placeId == 14916516914 then
                     end
                     if serverData and type(serverData) == "table" then
                         if serverData.Inventory then _G.LastInventory = serverData.Inventory end
-                        if serverData.PerksUUIDs then _G.PerksUUIDs = serverData.PerksUUIDs; _G.TotalPerksCount = serverData.TotalPerksCount or 0 end
+                        if serverData.PerksUUIDs then
+                            _G.PerksUUIDs = serverData.PerksUUIDs
+                            _G.TotalPerksCount = serverData.TotalPerksCount or 0
+                            print(string.format("[Perk] 📊 Lobby อ่านได้: ขายได้ %d | ทั้งหมด %d | เป้า %d",
+                                #serverData.PerksUUIDs, _G.TotalPerksCount, getPerkSellTarget()))
+                        end
                         if serverData.Progression then
                             _G.LastLevel = serverData.Progression.Level
                             _G.LastPrestige = serverData.Progression.Prestige
@@ -1111,6 +1540,8 @@ if placeId == 14916516914 then
                             _G.LastXP = serverData.Progression.XP
                         end
                         if serverData.Currency then _G.LastGold = serverData.Currency.Gold end
+                    else
+                        warn("[Perk] ⚠️ Lobby อ่าน slot data ไม่ได้! (server remote ล้ม)")
                     end
                 end
                 
@@ -1137,50 +1568,44 @@ if placeId == 14916516914 then
                 
                 local currentPrestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
-                local requiredPerksToSell = (currentLevel <= 45) and 30 or 100
-                if currentTime - lastInventoryCheck < 20 and Config.AutoDeletePerk and _G.PerksUUIDs and #_G.PerksUUIDs >= requiredPerksToSell then
+
+                -- ⚔️ ใช้ค่า perk ที่อ่านมาจาก direct server fetch ด้านบน (ทุก 15 วิ)
+                --    🐛 บั๊กเดิม: refreshPerks() ที่นี่จะยิง getgc/server รอบใหม่
+                --       → getgc ใน Lobby อาจตอบว่าง → ทับ _G.PerksUUIDs ด้วย {} → ไม่ขาย
+                --    ✅ แก้: ไม่เรียก refreshPerks() ใน Lobby — _G ที่มีอยู่คือค่าจาก server ล่าสุด
+                local requiredPerksToSell = getPerkSellTarget()   -- 30 / 100 / 500
+                local sellable = getSellablePerkCount()
+
+                if Config.AutoDeletePerk and sellable >= requiredPerksToSell then
                     local uuids = _G.PerksUUIDs
                     local n0 = #uuids
                     _G.CurrentAction = "Auto Selling " .. n0 .. " Perks..."
+                    print(string.format("[Perk] 🗑️ ขาย %d ชิ้น (เป้า %d%s)",
+                        n0, requiredPerksToSell,
+                        requiredPerksToSell == PERK_GOLDFARM and " — 💰 โหมดฟาร์มเงินจุติ" or ""))
 
-                    -- ⚡ [SPEED] เดิม: ยิง bulk แล้ว "ยิงทีละอันอีก 200 ครั้ง" ทุกครั้ง
-                    --            + wait(0.05) × 100 = ~13 วินาที (ทั้งๆ ที่ bulk มักผ่านแล้ว)
-                    --    ใหม่: ยิง bulk → เช็คผล → ผ่านแล้วจบ (2 call)
+                    -- ⚡ [FIX v2] revert เป็น sequential แบบโค้ดเก่า
+                    -- 🐛 บั๊กเดิม: parallel task.spawn ยิงเร็วเกิน server → drop commands
+                    --    → บอทเข้าด่านทั้งที่ perk ยังไม่ลบ
+                    -- ✅ แก้: ยิงทีละอัน + task.wait(0.05) ให้ server ประมวลผลทัน
+                    --        + task.wait(1) หลังจบ ให้ sync ค่าก่อนตัดสินใจต่อ
 
-                    -- 1️⃣ Bulk
+                    -- 1️⃣ Bulk (ยิงก่อน — บางครั้ง server รับ bulk ได้เร็วกว่า)
                     pcall(function() safeInvokeServer(GET, 3, "S_Equipment", "Delete", "Perk", uuids) end)
                     pcall(function() safeInvokeServer(GET, 3, "S_Equipment", "Delete", "Perks", uuids) end)
-                    task.wait(0.5)
 
-                    -- 2️⃣ เช็คว่าลดจริงไหม
-                    local after = nil
-                    pcall(function()
-                        local b = MarketplaceService:FindFirstChild("Remote")
-                        if b then
-                            local sd = b:Invoke("CALL", "GetSlotData")
-                            if sd and sd.PerksUUIDs then after = #sd.PerksUUIDs end
-                        end
-                    end)
-
-                    if after and after < n0 then
-                        print(string.format("[Perk] ⚡ Bulk delete สำเร็จ (%d → %d) — 2 calls", n0, after))
-                        _G.PerksUUIDs = {}
-                    else
-                        -- 3️⃣ Bulk ไม่ผ่าน → ยิงทีละอัน แต่ parallel เป็นชุดละ 10
-                        print("[Perk] ⚠️ Bulk ไม่ผ่าน → ยิงทีละอัน (ชุดละ 10)")
-                        for i = 1, n0, 10 do
-                            for j = i, math.min(i + 9, n0) do
-                                local uuid = uuids[j]
-                                task.spawn(function()
-                                    pcall(function() GET:InvokeServer("S_Equipment", "Delete", "Perk", { uuid }) end)
-                                    pcall(function() GET:InvokeServer("S_Equipment", "Delete", "Perks", { uuid }) end)
-                                end)
-                            end
-                            task.wait(0.1)
-                        end
-                        task.wait(0.5)
-                        _G.PerksUUIDs = {}
+                    -- 2️⃣ Individual (sequential + wait) — ครอบคลุมกรณี bulk พลาด
+                    for _, uuid in ipairs(uuids) do
+                        pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perk", { uuid }) end)
+                        pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perks", { uuid }) end)
+                        task.wait(0.05)
                     end
+
+                    -- 3️⃣ รอ server sync ก่อนคิดต่อ + เคลียร์ทั้ง 2 ตัวแปร
+                    task.wait(1)
+                    _G.PerksUUIDs      = {}
+                    _G.TotalPerksCount = 0   -- ⭐ ล้างด้วย ไม่ให้ tracker โชว์เลขเก่า
+                    print(string.format("[Perk] ✅ ขายเสร็จ %d ชิ้น", n0))
                 end
             end)
 
@@ -1545,6 +1970,31 @@ if placeId == 14916516914 then
                     print("[Upgrade] ✅ เสร็จหมด → สร้างด่าน")
                 end
 
+                -- 🛡️ SAFETY GATE: ก่อนสร้าง mission เช็คว่า perk ขายหมดหรือยัง
+                --    🐛 บั๊กเดิม: iteration 1 fetch fail → sell ข้าม → สร้าง mission ทั้งที่ perk ล้น
+                --    ✅ แก้: ถ้ายังมี perk เกินเป้า → ยิงขายอีกรอบก่อนสร้าง mission
+                if Config.AutoDeletePerk then
+                    local sellNow = getSellablePerkCount()
+                    local targetNow = getPerkSellTarget()
+                    if sellNow >= targetNow then
+                        warn(string.format("[Perk] ⚠️ ยังมี %d/%d perk ค้าง → ขายก่อนสร้าง mission!",
+                            sellNow, targetNow))
+                        local uuidsX = _G.PerksUUIDs
+                        _G.CurrentAction = "🛡️ Safety Sell " .. sellNow .. " Perks..."
+                        pcall(function() safeInvokeServer(GET, 3, "S_Equipment", "Delete", "Perk", uuidsX) end)
+                        pcall(function() safeInvokeServer(GET, 3, "S_Equipment", "Delete", "Perks", uuidsX) end)
+                        for _, uuid in ipairs(uuidsX) do
+                            pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perk", { uuid }) end)
+                            pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perks", { uuid }) end)
+                            task.wait(0.05)
+                        end
+                        task.wait(1)
+                        _G.PerksUUIDs = {}
+                        _G.TotalPerksCount = 0
+                        print(string.format("[Perk] ✅ Safety sell เสร็จ (%d ชิ้น) → ต่อสร้าง mission", sellNow))
+                    end
+                end
+
                 _G.PreparingNewMap = true
                 _G.CurrentAction = "Preparing Mission..."
                 local targetMap = "Chapel"
@@ -1673,78 +2123,81 @@ end
 -- ============================================================
 if not TS_MAP and Config.AutoThunderSpearQuest then
     task.spawn(function()
-        task.wait(3)  -- รอสั้นๆ ให้ actor พร้อม
+        task.wait(3)
         local checkCount = 0
-        while task.wait(5) do  -- เช็คทุก 5 วิ (เดิม 15 = ช้าเกิน)
+
+        -- ⚡ [PERF] เดิม: ยิง 16 remote ทุก 5 วิ ตลอดกาล — แม้ TS ครบแล้ว!
+        --    30 จอ = 96 remote/วินาที → server rate-limit → บอทค้าง/โหลดไม่ติด
+        --    แก้: 1) เช็คเงื่อนไข "ถูก" ก่อน (level/prestige) → ไม่ผ่านก็ไม่ยิง remote
+        --         2) TS ครบแล้ว → หยุด loop ถาวร
+        --         3) poll 5 → 15 วิ
+        while task.wait(15) do
             checkCount = checkCount + 1
 
-            -- ตรวจว่ายังอยู่ใน mission หรือ Rewards UI ขึ้นแล้ว
             local rewardsUI = interface:FindFirstChild("Rewards")
             if rewardsUI and rewardsUI.Visible then continue end
 
-            -- อ่านสถานะปัจจุบัน
+            -- อ่านสถานะจาก cache (ไม่ยิง remote)
             local curLevel = tonumber(_G.LastLevel) or tonumber(plr:GetAttribute("Level")) or 0
             local curPrestige = tonumber(_G.LastPrestige) or tonumber(plr:GetAttribute("Prestige")) or 0
             local curXP = math.max(tonumber(_G.LastXP) or 0, tonumber(plr:GetAttribute("XP")) or 0)
             local curMaxXP = math.max(tonumber(_G.LastMaxXP) or 0, tonumber(plr:GetAttribute("Max_XP")) or 0)
             local tarLevelReq = 100 + (curPrestige * 25)
 
-            -- ต้องมี MaxXP ที่ valid (ไม่ใช่ 0)
-            if curMaxXP == 0 then
-                if checkCount % 6 == 0 then
-                    print(string.format("[TS AUTO-LEAVE] ⏳ รอ MaxXP โหลด... (L=%d P=%d XP=%d/?)",
-                        curLevel, curPrestige, curXP))
-                end
-                continue
-            end
+            if curMaxXP == 0 then continue end   -- ข้อมูลยังไม่โหลด
 
             local isTan = (curLevel >= tarLevelReq and curXP >= curMaxXP)
             local prstOK = curPrestige >= (Config.ThunderSpearAtPrestige or 2)
 
-            -- Claim + check status (ใช้ inventory เป็นหลัก)
+            -- 🚪 GATE: ยังไม่ตัน / prestige ไม่ถึง → ไม่ต้องยิง remote เลย
+            if not (isTan and prstOK) then continue end
+
+            -- 🛑 TS ครบแล้ว (จำไว้ใน _G) → หยุด loop ถาวร ไม่ยิงอีก
+            if _G.TSUnlocked then
+                print("[TS AUTO-LEAVE] ✅ TS ครบแล้ว → หยุดเช็ค (ประหยัด remote)")
+                break
+            end
+
+            -- ผ่านทุกเงื่อนไขแล้วค่อยยิง remote
             claimAllSpearsQuests()
             task.wait(0.3)
             local inv = fetchServerInventory() or _G.LastInventory or {}
             local hHandle = hasThunderSpearPart("Handle", inv)
             local hThruster = hasThunderSpearPart("Thruster", inv)
             local hBase = hasThunderSpearPart("Base", inv)
-            local allDone = hHandle and hThruster and hBase
+            local allDone = hThruster and hBase   -- Handle บั๊ก → ไม่นับ
 
-            -- Log ทุก 15 วิ (checkCount % 3 = ทุก 3 loop × 5s = 15s)
-            if checkCount % 3 == 0 then
-                print(string.format(
-                    "[TS AUTO-LEAVE #%d] Prestige=%d>=%d(%s) ตัน=%s(L%d/%d XP=%d/%d) Handle=%s Thruster=%s Base=%s",
-                    checkCount, curPrestige, (Config.ThunderSpearAtPrestige or 2), tostring(prstOK),
-                    tostring(isTan), curLevel, tarLevelReq, curXP, curMaxXP,
-                    hHandle and "✅" or "❌",
-                    hThruster and "✅" or "❌",
-                    hBase and "✅" or "❌"))
-            end
-
-            if prstOK and isTan and not allDone then
-                -- ⚡ ควรทำ TS แต่อยู่ Chapel → LEAVE!
-                local nextMap = getNextIncompleteMapByItem(inv)
-                print("═══════════════════════════════════════════")
-                print("⚡ [AUTO-LEAVE] อยู่ Chapel แต่ควรทำ Thunder Spear!")
-                print(string.format("   → ต่อไปทำ: %s", tostring(nextMap)))
-                print(string.format("   Handle=%s Thruster=%s Base=%s",
-                    hHandle and "✅" or "❌",
-                    hThruster and "✅" or "❌",
-                    hBase and "✅" or "❌"))
-                print("🚪 กด LEAVE ต่อเนื่อง 10 ครั้ง")
-                print("═══════════════════════════════════════════")
-                _G.CurrentAction = "🚪 LEAVE → ทำ TS: "..tostring(nextMap)
-                _G.TS_MUST_LEAVE = true
-
-                -- ยิง LEAVE หลายครั้ง (mid-mission ก็ leave ได้)
-                for i = 1, 10 do
-                    pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
-                    pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
-                    task.wait(1)
-                    if game.PlaceId ~= placeId then break end
-                end
+            if allDone then
+                _G.TSUnlocked = true
+                print("[TS AUTO-LEAVE] ✅ TS ครบ (Thruster + Base) → หยุดเช็ค")
                 break
             end
+
+            -- ⚡ ควรทำ TS แต่อยู่ Chapel → LEAVE!
+            local nextMap = getNextIncompleteMapByItem(inv)
+            if not nextMap then
+                _G.TSUnlocked = true
+                break
+            end
+
+            print("═══════════════════════════════════════════")
+            print("⚡ [AUTO-LEAVE] อยู่ Chapel แต่ควรทำ Thunder Spear!")
+            print(string.format("   → ต่อไปทำ: %s", tostring(nextMap)))
+            print(string.format("   Handle=%s Thruster=%s Base=%s",
+                hHandle and "✅" or "❌",
+                hThruster and "✅" or "❌",
+                hBase and "✅" or "❌"))
+            print("═══════════════════════════════════════════")
+            _G.CurrentAction = "🚪 LEAVE → ทำ TS: "..tostring(nextMap)
+            _G.TS_MUST_LEAVE = true
+
+            for i = 1, 10 do
+                pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
+                pcall(function() GET:InvokeServer("S_Missions", "Retry") end)
+                task.wait(1)
+                if game.PlaceId ~= placeId then break end
+            end
+            break
         end
     end)
 end
@@ -1877,12 +2330,25 @@ task.spawn(function()
 
                 local shouldLeaveForPerks = false
                 if Config.AutoDeletePerk then
-                    local sellTarget = (curLevel <= 45) and 30 or 100
-                    if (_G.TotalPerksCount or 0) >= sellTarget then shouldLeaveForPerks = true end
+                    refreshPerks()   -- ⭐ อ่านสดจากแหล่งเดียวกับ Lobby (ตัวเลขตรงกันแน่)
+                    local sellTarget = getPerkSellTarget()
+                    if getSellablePerkCount() >= sellTarget then shouldLeaveForPerks = true end
                 end
 
+                -- 🔥 พร้อมจุติ? — ⚠️ ต้องตรงกับ Lobby เป๊ะ!
+                --    🐛 บั๊กเดิม: เช็คแค่ Level ไม่เช็ค XP
+                --       → Level ตันแต่ XP ยังไม่เต็ม + RequiredGold=0 (gold >= 0 = จริงเสมอ)
+                --       → Phase 3 คิดว่า "พร้อมจุติ" → LEAVE
+                --       → Lobby เห็นว่า XP ไม่เต็ม → ไม่จุติ → สร้าง Chapel ใหม่
+                --       → เล่นจบ → LEAVE อีก → วนไม่จบ 🔁
+                local curXP    = math.max(tonumber(_G.LastXP) or 0, tonumber(plr:GetAttribute("XP")) or 0)
+                local curMaxXP = math.max(tonumber(_G.LastMaxXP) or 0, tonumber(plr:GetAttribute("Max_XP")) or 0)
+                if curMaxXP == 0 then curMaxXP = 999999999 end   -- ข้อมูลยังไม่โหลด = ถือว่าไม่ตัน
+
+                local isTan = (curLevel >= maxLevelReq and curXP >= curMaxXP)   -- ⭐ เช็ค XP ด้วย!
+
                 local isReadyToPrestige = false
-                if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
+                if isTan and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
                     local pk = "P" .. (curPrestige + 1)
                     local ps = Config.VenozPrestige and Config.VenozPrestige[pk] or { RequiredGold = 0 }
                     local rq = (ps.RequiredGold or 0) * 1000000
@@ -1916,14 +2382,24 @@ task.spawn(function()
 
                 elseif _G.TS_MUST_LEAVE then
                     buttonToClick = btnLeave
+                    print("[Retry/Leave] 🚪 LEAVE — TS_MUST_LEAVE flag")
                 elseif isReadyToPrestige then
                     buttonToClick = btnLeave
+                    print(string.format("[Retry/Leave] 🚪 LEAVE — พร้อมจุติ (Lv%d/%d XP=%d/%d Gold=%s P%d)",
+                        curLevel, maxLevelReq, curXP, curMaxXP,
+                        tostring(_G.LastGold or 0), curPrestige))
                 elseif shouldLeaveForPerks then
                     buttonToClick = btnLeave
+                    print(string.format("[Retry/Leave] 🚪 LEAVE — Perk เต็ม (ขายได้ %d/%d | ทั้งหมด %d)",
+                        getSellablePerkCount(), getPerkSellTarget(), _G.TotalPerksCount or 0))
                 elseif btnRetry then
                     buttonToClick = btnRetry
+                    print(string.format("[Retry/Leave] 🔁 RETRY — Lv%d/%d XP=%d/%d Perk(ขายได้)=%d/%d",
+                        curLevel, maxLevelReq, curXP, curMaxXP,
+                        getSellablePerkCount(), getPerkSellTarget()))
                 else
                     buttonToClick = btnLeave
+                    warn("[Retry/Leave] ⚠️ LEAVE — ไม่พบปุ่ม Retry!")
                 end
 
                 if buttonToClick then
@@ -2374,7 +2850,7 @@ end
 task.spawn(function()
     while currentID == _G.VenozScriptID do
         task.wait(5)
-        print(string.format("[Blade] 📊 Sets=%s/3  Broken=%s  Refills=%s%s",
+        dprint(string.format("[Blade] 📊 Sets=%s/3  Broken=%s  Refills=%s%s",
             tostring(readSets() or "?"),
             isBladeBroken() and "YES" or "no",
             tostring(plr:GetAttribute("Refills") or "?"),
