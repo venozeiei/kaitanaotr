@@ -2637,15 +2637,46 @@ task.spawn(function()
                     else
                         _G.CurrentAction = string.format("⚡ KILL_ALL (alive=%d)", aliveCount)
                     end
-                    -- 🎯 ไม่กด LEAVE mid-mission!
-                    -- ปล่อย mission จบธรรมชาติ → Retry/Leave logic ตัดสินใจเอง
+
+                    -- 🎯 เช็ค inventory ทุก ~4 วิ: ถ้าได้ Handle แล้ว → LEAVE ทันที
+                    --    ป้องกันเคส "ไททันหลุด 1 ตัวติดในแมพ" → mission ค้าง 66/67
+                    --    เควสจริง (Escort Convoy) อาจเสร็จแล้ว → Handle เข้ากระเป๋าแล้ว
+                    _G._HandleTick = (_G._HandleTick or 0) + 1
+                    if _G._HandleTick % 40 == 0 and not _G.TS_MUST_LEAVE then
+                        task.spawn(function()
+                            local inv = fetchServerInventory() or _G.LastInventory or {}
+                            if hasThunderSpearPart("Handle", inv) then
+                                print("[TS] 🎉 Handle ได้แล้ว mid-mission → LEAVE!")
+                                _G.TS_MUST_LEAVE = true
+                                for i = 1, 8 do
+                                    pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
+                                    task.wait(1)
+                                    if game.PlaceId ~= placeId then break end
+                                end
+                            end
+                        end)
+                    end
                 end
             -- THRUSTER: Utgard (kill 3 Ice Burst — แต่ตีทุก titan เพื่อ progress)
             elseif TS_MAP == "Utgard" then
                 _G.CurrentAction = string.format("❄️ Ice Burst %d/3 (ตี titan ทั้งหมด)", TS_ICE_KILLS)
-                -- 🎯 ตีทุก titan ตลอด mission — Retry/Leave logic จะตัดสินใจเอง
-                --   ครบ 3 Ice Burst → Thruster item จะเข้า inventory
-                --   Mission จบ → Retry/Leave เช็ค inventory → LEAVE ถ้าได้ / RETRY ถ้ายัง
+
+                -- 🎯 เช็ค Thruster mid-mission (ทุก ~4 วิ) — ป้องกันไททันติดค้าง
+                _G._ThrusterTick = (_G._ThrusterTick or 0) + 1
+                if _G._ThrusterTick % 40 == 0 and not _G.TS_MUST_LEAVE then
+                    task.spawn(function()
+                        local inv = fetchServerInventory() or _G.LastInventory or {}
+                        if hasThunderSpearPart("Thruster", inv) then
+                            print("[TS] 🎉 Thruster ได้แล้ว mid-mission → LEAVE!")
+                            _G.TS_MUST_LEAVE = true
+                            for i = 1, 8 do
+                                pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
+                                task.wait(1)
+                                if game.PlaceId ~= placeId then break end
+                            end
+                        end
+                    end)
+                end
             -- BASE: Forest (collect crates → deliver → defend)
             elseif TS_MAP == "Forest" then
                 if TS_STATE == "INIT" then TS_STATE = "KILL_TO_MARGIN" end
@@ -2696,6 +2727,23 @@ task.spawn(function()
                     continue
                 elseif TS_STATE == "KILL_ALL" then
                     _G.CurrentAction = string.format("⚡ KILL_ALL (Defend %s)", tostring(ds or "-"))
+
+                    -- 🎯 เช็ค Base mid-mission
+                    _G._BaseTick = (_G._BaseTick or 0) + 1
+                    if _G._BaseTick % 40 == 0 and not _G.TS_MUST_LEAVE then
+                        task.spawn(function()
+                            local inv = fetchServerInventory() or _G.LastInventory or {}
+                            if hasThunderSpearPart("Base", inv) then
+                                print("[TS] 🎉 Base ได้แล้ว mid-mission → LEAVE!")
+                                _G.TS_MUST_LEAVE = true
+                                for i = 1, 8 do
+                                    pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
+                                    task.wait(1)
+                                    if game.PlaceId ~= placeId then break end
+                                end
+                            end
+                        end)
+                    end
                 end
             end
         end
