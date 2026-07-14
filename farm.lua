@@ -606,6 +606,22 @@ task.spawn(function()
 end)
 
 -- ============================================================
+-- 🎥 ปิดเอฟเฟกต์กล้องที่ตัวเกม (ครั้งเดียว) — ลดภาพสั่น + ลด render
+--    ไม่ยุ่งกับ logic อะไรเลย เป็น setting ฝั่งเกมล้วนๆ
+-- ============================================================
+if not _G.VenozSettingsApplied then
+    _G.VenozSettingsApplied = true
+    task.spawn(function()
+        task.wait(3)
+        for _, s in ipairs({ "Camera_Shake", "Action_Cam", "Hit_Effect", "Blur" }) do
+            pcall(function() GET:InvokeServer("Functions", "Settings", s, "Off") end)
+            task.wait(0.15)
+        end
+        print("[Venoz] 🎥 ปิด Camera_Shake / Action_Cam / Hit_Effect / Blur แล้ว")
+    end)
+end
+
+-- ============================================================
 -- 🛡️ ANTI-AFK
 -- ============================================================
 task.spawn(function()
@@ -698,18 +714,8 @@ if Config.AutoAntiLag and not _G.OptimizedMap then
             for _, v in ipairs(workspace:GetDescendants()) do
                 pcall(function() optimizePart(v) end)
             end
-            pcall(function()
-                local rs = game:GetService("ReplicatedStorage")
-                local mods = rs:FindFirstChild("Modules") and rs.Modules:FindFirstChild("Utilities")
-                local eff = mods and mods:FindFirstChild("Effects")
-                if eff then
-                    local effectsTable = require(eff)
-                    if type(effectsTable) == "table" then
-                        if effectsTable.Shake then effectsTable.Shake = function() return end end
-                        pcall(function() if effectsTable.Shake_Amount ~= nil then effectsTable.Shake_Amount = 0 end end)
-                    end
-                end
-            end)
+            -- ❌ ลบทิ้ง: patch Effects.Shake จาก ReplicatedStorage = คนละ VM กับ Actor
+            --    ไม่เคยทำงานเลย → ย้ายไปทำในตัว actor แล้ว (ดู script_actor)
             local safePlat = Instance.new("Part")
             safePlat.Name = "VenozSafePlat"
             safePlat.Size = Vector3.new(1000, 10, 1000)
@@ -1668,7 +1674,7 @@ task.spawn(function()
                 end
             end
         end)
-        task.wait(0.1)
+        task.wait(0.5)   -- [OPT] 0.1 → 0.5 (collision ปิดอยู่แล้ว แค่ re-assert, ไม่ต้องถี่)
     end
 end)
 
@@ -1734,6 +1740,56 @@ local script_actor = [[
     end
     local Modules = CoreTable.Modules
     local Func = {}
+
+    -- ========================================================
+    -- 🎥 KILL CAMERA SHAKE (ต้องทำ "ในแอคเตอร์" เท่านั้น!)
+    -- ========================================================
+    -- Effects.Shake_Amount = ตัวสะสมค่าสั่น มีคนบวกเข้าไปหลายที่:
+    --   Zones.lua:287   += 3   ← ตอนยิง hitbox ใส่คอไททัน (ตัวหลัก!)
+    --   Char.lua:1240   += 10  ← ลงพื้น
+    --   Char.lua:1324   += 10  ← roll
+    --   Ragdoll.lua:93  += 5   ← ล้ม
+    --
+    -- ⚠️ module พวกนี้อยู่ใน Actor = คนละ Luau VM กับสคริปต์หลัก
+    --    require() จากข้างนอกได้ "คนละ copy" → ตั้ง 0 ยังไงก็ไม่มีผล
+    -- ========================================================
+    task.spawn(function()
+        local Effects = Modules and Modules.Effects
+        if not Effects then return end
+
+        local hasMT = false
+        pcall(function() hasMT = getmetatable(Effects) ~= nil end)
+
+        local done = false
+
+        -- วิธีที่ 1: metatable — อ่านได้ 0 / เขียนไม่เข้า (ต้นทุน 0 ต่อเฟรม)
+        if not hasMT then
+            done = pcall(function()
+                Effects.Shake_Amount = nil   -- ต้องลบ key ก่อน __newindex ถึงจะทำงาน
+                setmetatable(Effects, {
+                    __index = function(_, k)
+                        if k == "Shake_Amount" then return 0 end
+                        return nil
+                    end,
+                    __newindex = function(t, k, v)
+                        if k == "Shake_Amount" then return end   -- กลืนทิ้ง
+                        rawset(t, k, v)
+                    end,
+                })
+            end)
+        end
+
+        -- วิธีที่ 2 (สำรอง): บังคับเป็น 0 ทุกเฟรม
+        if not done then
+            while true do
+                pcall(function()
+                    Effects.Shake_Amount = 0
+                    Effects.Small = false
+                end)
+                task.wait()
+            end
+        end
+    end)
     
     function Func.SlashOnly() CoreTable:Send("Attacks", "Slash", true) end
     function Func.RegisterHitOnly(basePart) 
@@ -2461,30 +2517,36 @@ task.spawn(function()
                 end
             end
 
-            currentRoot.Anchored = true
-            currentRoot.CFrame = CFrame.new(safePos)
+            -- 🎯 คำนวณจุดที่ควรอยู่ให้เสร็จก่อน แล้วค่อยขยับ "ครั้งเดียว"
+            --    เดิม: set CFrame 2 ครั้ง ทุก 0.1 วิ (ซ้ำที่เดิม) → สั่น + เปลือง
+            if not currentRoot.Anchored then currentRoot.Anchored = true end
 
             if TS_ACTIVE and TS_MAP == "Forest" then
                 -- ระหว่าง defend, hover ที่ Supplies_Circle
                 local circle = findCircle()
                 if circle and circle.hitbox then
-                    currentRoot.CFrame = CFrame.new(circle.hitbox.Position + Vector3.new(0, 150, 0))
+                    safePos = circle.hitbox.Position + Vector3.new(0, 150, 0)
                 end
                 _G.CurrentAction = "⏳ รอ titan spawn (Defend)"
             elseif TS_ACTIVE and TS_MAP == "Utgard" then
                 _G.CurrentAction = string.format("⏳ รอ titan spawn (Ice Burst %d/3)", TS_ICE_KILLS)
             elseif TS_ACTIVE and TS_MAP == "Outskirts" then
-                -- 🐎 ไม่มีไททันใกล้รถ → ลอยเกาะขบวนไว้ (พร้อมป้องกัน)
+                -- 🐎 ไม่มีไททันใกล้รถ → ลอยเกาะขบวนไว้
                 local carts = findCarts()
                 local center = convoyCenter(carts)
                 if center then
-                    currentRoot.CFrame = CFrame.new(center + Vector3.new(0, 80, 0))
+                    safePos = center + Vector3.new(0, 80, 0)
                     _G.CurrentAction = string.format("🐎 เฝ้าขบวน (%d คัน)", #carts)
                 else
                     _G.CurrentAction = "⏳ รอ titan / รถม้า"
                 end
             else
                 _G.CurrentAction = "Combat: Waiting for Titans..."
+            end
+
+            -- ขยับเฉพาะเมื่อหลุดเกิน 10 studs (deadzone = ไม่สั่น)
+            if (currentRoot.Position - safePos).Magnitude > 10 then
+                currentRoot.CFrame = CFrame.new(safePos)
             end
             continue
         end
@@ -2511,18 +2573,20 @@ task.spawn(function()
                 end
             end
 
-            -- 🎯 ANTI-SHAKE: reposition เฉพาะเมื่อไกล + anchor เสมอ
+            -- 🎯 ANTI-SHAKE
+            --   • ตั้ง CFrame ตอน Anchored อยู่ได้เลย → วาร์ปเนียน ไม่มี physics
+            --     (เดิม: ปลด anchor → wait(0.02) → anchor กลับ
+            --            = แรงโน้มถ่วงเข้ามา 1 เฟรม → ตัวกระตุก + หยุดลูปตี)
+            --   • deadzone 40 studs → ขยับน้อยลง กล้องนิ่งกว่ามาก
+            --     (hitbox ยิงได้ไกล 400 อยู่แล้ว ไม่ต้องเกาะติดขนาดนั้น)
             local distToTarget = (currentRoot.Position - targetPos).Magnitude
 
-            if distToTarget > 15 then
-                currentRoot.Anchored = false
-                currentRoot.CFrame = CFrame.new(targetPos)
-                task.wait(0.02)
+            if not currentRoot.Anchored then
                 currentRoot.Anchored = true
-            else
-                if not currentRoot.Anchored then
-                    currentRoot.Anchored = true
-                end
+            end
+
+            if distToTarget > 40 then
+                currentRoot.CFrame = CFrame.new(targetPos)   -- anchored อยู่ = วาร์ปนิ่ง ไม่มี wait
             end
 
             -- ลบ BodyVelocity ทิ้ง (Anchored แล้วไม่ต้องใช้)
