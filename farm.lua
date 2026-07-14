@@ -286,6 +286,9 @@ local function getPerkSellTarget()
     local prestige = tonumber(_G.LastPrestige) or tonumber(plr:GetAttribute("Prestige")) or 0
     local gold     = tonumber(_G.LastGold)     or 0
 
+    -- 🛡️ ข้อมูลยังไม่โหลด (level = 0) → อย่าใช้ 30 (จะออกไปขายเร็วเกิน)
+    if level <= 0 then return PERK_NORMAL end
+
     -- เลเวลต่ำ → ขายไว (perk เยอะทำให้ช้า)
     if level <= 45 then return PERK_LOW_LVL end
 
@@ -2143,8 +2146,20 @@ task.spawn(function()
                     if (_G.TotalPerksCount or 0) >= sellTarget then shouldLeaveForPerks = true end
                 end
 
+                -- 🔥 พร้อมจุติ? — ⚠️ ต้องตรงกับ Lobby เป๊ะ!
+                --    🐛 บั๊กเดิม: เช็คแค่ Level ไม่เช็ค XP
+                --       → Level ตันแต่ XP ยังไม่เต็ม + RequiredGold=0 (gold >= 0 = จริงเสมอ)
+                --       → Phase 3 คิดว่า "พร้อมจุติ" → LEAVE
+                --       → Lobby เห็นว่า XP ไม่เต็ม → ไม่จุติ → สร้าง Chapel ใหม่
+                --       → เล่นจบ → LEAVE อีก → วนไม่จบ 🔁
+                local curXP    = math.max(tonumber(_G.LastXP) or 0, tonumber(plr:GetAttribute("XP")) or 0)
+                local curMaxXP = math.max(tonumber(_G.LastMaxXP) or 0, tonumber(plr:GetAttribute("Max_XP")) or 0)
+                if curMaxXP == 0 then curMaxXP = 999999999 end   -- ข้อมูลยังไม่โหลด = ถือว่าไม่ตัน
+
+                local isTan = (curLevel >= maxLevelReq and curXP >= curMaxXP)   -- ⭐ เช็ค XP ด้วย!
+
                 local isReadyToPrestige = false
-                if curLevel >= maxLevelReq and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
+                if isTan and Config.AutoPrestige and curPrestige < Config.PrestigeTarget then
                     local pk = "P" .. (curPrestige + 1)
                     local ps = Config.VenozPrestige and Config.VenozPrestige[pk] or { RequiredGold = 0 }
                     local rq = (ps.RequiredGold or 0) * 1000000
@@ -2178,14 +2193,24 @@ task.spawn(function()
 
                 elseif _G.TS_MUST_LEAVE then
                     buttonToClick = btnLeave
+                    print("[Retry/Leave] 🚪 LEAVE — TS_MUST_LEAVE flag")
                 elseif isReadyToPrestige then
                     buttonToClick = btnLeave
+                    print(string.format("[Retry/Leave] 🚪 LEAVE — พร้อมจุติ (Lv%d/%d XP=%d/%d Gold=%s P%d)",
+                        curLevel, maxLevelReq, curXP, curMaxXP,
+                        tostring(_G.LastGold or 0), curPrestige))
                 elseif shouldLeaveForPerks then
                     buttonToClick = btnLeave
+                    print(string.format("[Retry/Leave] 🚪 LEAVE — Perk เต็ม (%d/%d)",
+                        _G.TotalPerksCount or 0, getPerkSellTarget()))
                 elseif btnRetry then
                     buttonToClick = btnRetry
+                    print(string.format("[Retry/Leave] 🔁 RETRY — Lv%d/%d XP=%d/%d Perk=%d/%d",
+                        curLevel, maxLevelReq, curXP, curMaxXP,
+                        _G.TotalPerksCount or 0, getPerkSellTarget()))
                 else
                     buttonToClick = btnLeave
+                    warn("[Retry/Leave] ⚠️ LEAVE — ไม่พบปุ่ม Retry!")
                 end
 
                 if buttonToClick then
