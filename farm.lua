@@ -227,31 +227,25 @@ end
 -- 🛠️ SHARED UTILS
 -- ============================================================
 local function safeInvokeServer(remote, timeout, ...)
+    -- 🔧 executor-agnostic: ใช้ polling แทน coroutine.yield + task.spawn(thread,args)
+    --    เดิม: Potassium (บาง version) resume thread แล้ว args หาย → return nil ตลอด
+    --          → AutoBoost/AutoQuest คิดว่า remote fail → ไม่ทำงาน
     local args = table.pack(...)
-    local currentThread = coroutine.running()
-    local finished = false
-    local success = false
-    local result = nil
-    local yielded = false
+    local finished, success, result = false, false, nil
+
     task.spawn(function()
         local s, res = pcall(function() return remote:InvokeServer(_unpack(args, 1, args.n)) end)
-        if not finished then
-            finished = true
-            success, result = s, res
-            if yielded then task.spawn(currentThread, s, res) end
-        end
+        success, result = s, res
+        finished = true
     end)
-    task.delay(timeout, function()
-        if not finished then
-            finished = true
-            success, result = false, nil
-            if yielded then task.spawn(currentThread, false, nil) end
-        end
-    end)
-    if not finished then
-        yielded = true
-        success, result = coroutine.yield()
+
+    -- polling — ปลอดภัยทุก executor
+    local deadline = os.clock() + timeout
+    while not finished and os.clock() < deadline do
+        task.wait()
     end
+
+    if not finished then return nil end   -- timeout
     return success and result or nil
 end
 
@@ -530,6 +524,42 @@ local function executeAutoBoostLogic()
     pcall(function()
         local prestige = _G.LastPrestige or plr:GetAttribute("Prestige") or 0
         local level = _G.LastLevel or plr:GetAttribute("Level") or 0
+
+        -- 🔍 อ่าน gems หลายทาง — Potassium บางที `_G.LastGems` ยังไม่ populate
+        local function readGems()
+            local g = tonumber(_G.LastGems)
+                   or tonumber(plr:GetAttribute("Gems"))
+                   or tonumber(plr:GetAttribute("Gem"))
+            if g and g > 0 then return g end
+            -- fallback: อ่านจาก topbar GUI
+            pcall(function()
+                local iface = plr.PlayerGui:FindFirstChild("Interface")
+                local top   = iface and iface:FindFirstChild("Topbar")
+                local main  = top and top:FindFirstChild("Main")
+                local cur   = main and main:FindFirstChild("Currencies")
+                if cur then
+                    local gemLbl = cur:FindFirstChild("Gems") or cur:FindFirstChild("Gem")
+                    if gemLbl then
+                        for _, d in ipairs(gemLbl:GetDescendants()) do
+                            if d:IsA("TextLabel") and d.Text ~= "" then
+                                local n = tonumber(string.gsub(d.Text, "[^%d]", ""))
+                                if n then g = n; return end
+                            end
+                        end
+                    end
+                end
+            end)
+            return g or 0
+        end
+
+        -- 🐛 DEBUG: log สถานะทุกครั้งที่ boost check ทำงาน (ทุก 10 วิ)
+        local gemsNow = readGems()
+        local itemsInv = (_G.LastInventory and _G.LastInventory["Items"]) or {}
+        local itemCount = 0
+        for _ in pairs(itemsInv) do itemCount = itemCount + 1 end
+        print(string.format("[Boost] 🔍 check: Prestige=%d Level=%d Gems=%d Items=%d Config=%s",
+            prestige, level, gemsNow, itemCount, tostring(Config.AutoBoost)))
+
         local boostsNeeded = {}
         if Config.BoostTypes then
             for _, b in ipairs(Config.BoostTypes) do
@@ -543,6 +573,8 @@ local function executeAutoBoostLogic()
             elseif prestige >= 5 and level <= 130 then table.insert(boostsNeeded, "XP") end
             if prestige <= 4 then table.insert(boostsNeeded, "Gold") end
         end
+        print(string.format("[Boost]    needed = {%s}", table.concat(boostsNeeded, ", ")))
+
         local actionTaken = false
         for _, boostType in ipairs(boostsNeeded) do
             if actionTaken then break end
@@ -555,22 +587,35 @@ local function executeAutoBoostLogic()
                     if bv and tonumber(bv.Value) and tonumber(bv.Value) > 0 then isActive = true end
                 end
             end)
+            print(string.format("[Boost]    %s: active=%s", boostType, tostring(isActive)))
             if isActive then continue end
+
+            -- 🍷 ลองหาของในกระเป๋าก่อน (case-insensitive)
             local activated = false
-            local itemsInv = (_G.LastInventory and _G.LastInventory["Items"]) or {}
+            local boostLower = string.lower(boostType)
             for realItemName, qty in pairs(itemsInv) do
-                if tonumber(qty) > 0 and string.find(realItemName, boostType) and string.find(realItemName, "Boost") then
-                    local prevAction = _G.CurrentAction
+                local nameLower = string.lower(realItemName)
+                if tonumber(qty) > 0 and string.find(nameLower, boostLower) and string.find(nameLower, "boost") then
+                    print(string.format("[Boost] 🍷 กินของ: %s (x%s)", realItemName, tostring(qty)))
                     _G.CurrentAction = "AutoBoost: Using " .. realItemName
                     local res = safeInvokeServer(GET, 3, "S_Inventory", "Item", realItemName)
-                    _G.CurrentAction = prevAction
-                    if res ~= nil then activated = true; actionTaken = true; task.wait(0.3); break end
+                    print(string.format("[Boost]    res = %s", tostring(res)))
+                    if res ~= nil then
+                        print("[Boost] ✅ กินสำเร็จ")
+                        activated = true; actionTaken = true; task.wait(0.3); break
+                    end
                 end
             end
             if activated then continue end
-            local gems = _G.LastGems or plr:GetAttribute("Gems") or 0
+
+            -- 💎 ซื้อจาก market
             local minGems = Config.MinGemsToBuyBoosts or 4500
-            if gems < minGems then continue end
+            print(string.format("[Boost]    Gems=%d MinToBuy=%d", gemsNow, minGems))
+            if gemsNow < minGems then
+                print("[Boost]    ⏭️ Gems ไม่พอ ข้าม")
+                continue
+            end
+
             local buyOrder = (boostType == "Gold") and {
                 {9, "2x Gold Boost [2h]", 13999}, {8, "2x Gold Boost [1h]", 7999}, {7, "2x Gold Boost [30m]", 4499}
             } or {
@@ -578,20 +623,27 @@ local function executeAutoBoostLogic()
             }
             for _, target in ipairs(buyOrder) do
                 local idx, name, price = target[1], target[2], target[3]
-                local currentGems = _G.LastGems or plr:GetAttribute("Gems") or 0
-                if currentGems >= price then
+                if gemsNow >= price then
+                    print(string.format("[Boost] 💎 ซื้อ %s (%d gems)", name, price))
                     _G.CurrentAction = "AutoBoost: Buying " .. name
                     local res = safeInvokeServer(GET, 5, "S_Market", "Buy", "1_Boosts", idx, 1)
+                    print(string.format("[Boost]    buy res = %s (type=%s)", tostring(res), type(res)))
                     if res ~= nil and type(res) ~= "string" then
                         task.wait(0.5)
-                        safeInvokeServer(GET, 3, "S_Inventory", "Item", name)
+                        local ur = safeInvokeServer(GET, 3, "S_Inventory", "Item", name)
+                        print(string.format("[Boost] ✅ ซื้อ+ใช้สำเร็จ (use res = %s)", tostring(ur)))
                         actionTaken = true; break
                     end
                 end
             end
         end
-        if not actionTaken then lastBoostCheck = currentTime + 300
-        else lastBoostCheck = currentTime + Config.BoostCheckInterval end
+
+        if not actionTaken then
+            print("[Boost] ⏸ ไม่ทำอะไร → cooldown 5 นาที")
+            lastBoostCheck = currentTime + 300
+        else
+            lastBoostCheck = currentTime + Config.BoostCheckInterval
+        end
     end)
 end
 
@@ -752,7 +804,7 @@ task.spawn(function()
         if targetParent:FindFirstChild("VenozTracker") then targetParent.VenozTracker:Destroy() end
         local sg = Instance.new("ScreenGui"); sg.Name = "VenozTracker"; sg.ResetOnSpawn = false; sg.Parent = targetParent
         local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(0, 260, 0, 300); frame.Position = UDim2.new(0, 20, 0, 20)
+        frame.Size = UDim2.new(0, 265, 0, 320); frame.Position = UDim2.new(0, 20, 0, 20)
         frame.BackgroundColor3 = Color3.fromRGB(15, 15, 20); frame.BackgroundTransparency = 0.15
         frame.BorderSizePixel = 0; frame.Active = true; frame.Draggable = true 
         Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8); frame.Parent = sg
@@ -849,8 +901,48 @@ task.spawn(function()
             elseif inTown then statusStr = "<font color='#00ff00'>LOBBY</font>"
             else statusStr = "<font color='#ff3333'>MISSION</font>" end
             local mapStr = currentMap ~= "Unknown" and currentMap or Config.MissionMap or "Unknown"
-            local displayMapString = cleanStr(mapStr)
-            _G.LastMapStr = mapStr
+
+            -- 🎯 ระดับความยาก + โหมด (อ่านจาก workspace attribute ที่เกมตั้งไว้)
+            local diffStr, objStr = nil, nil
+            pcall(function()
+                local d = workspace:GetAttribute("Difficulty")
+                local o = workspace:GetAttribute("Objective")
+                if d and tostring(d) ~= "" then diffStr = tostring(d) end
+                if o and tostring(o) ~= "" then objStr  = tostring(o) end
+            end)
+
+            -- สีตามระดับความยาก
+            local DIFF_COLOR = {
+                easy       = "#88ff88",
+                normal     = "#ffffff",
+                hard       = "#ffdd55",
+                severe     = "#ff9933",
+                aberrant   = "#ff5555",
+                ["aberrant+"]  = "#ff3399",
+                ["aberrant++"] = "#cc44ff",
+            }
+
+            local displayMapString
+            if game.PlaceId == 14916516914 or game.PlaceId == 13379208636 then
+                -- Lobby / Title → โชว์แค่ชื่อที่
+                displayMapString = cleanStr(mapStr)
+            else
+                -- ในด่าน → Chapel · Skirmish · [Aberrant++]
+                local parts = { cleanStr(mapStr) }
+                if objStr then table.insert(parts, cleanStr(objStr)) end
+                displayMapString = table.concat(parts, " · ")
+
+                if diffStr then
+                    local col = DIFF_COLOR[string.lower(diffStr)] or "#ffaa00"
+                    displayMapString = displayMapString ..
+                        string.format("\n🔥 <b>Difficulty:</b> <font color='%s'><b>%s</b></font>",
+                            col, string.upper(diffStr))
+                end
+            end
+
+            _G.LastMapStr  = mapStr
+            _G.LastDiffStr = diffStr
+            _G.LastObjStr  = objStr
             local tsStatus = ""
             if _G.ThunderSpearMode then
                 tsStatus = string.format("\n⚡ <font color='#ff00ff'>TS: %s</font>", tostring(_G.ThunderSpearPart or "?"))
@@ -1022,15 +1114,48 @@ if placeId == 14916516914 then
                 local currentLevel = _G.LastLevel or plr:GetAttribute("Level") or 0
                 local requiredPerksToSell = (currentLevel <= 45) and 30 or 100
                 if currentTime - lastInventoryCheck < 20 and Config.AutoDeletePerk and _G.PerksUUIDs and #_G.PerksUUIDs >= requiredPerksToSell then
-                    _G.CurrentAction = "Auto Selling " .. tostring(#_G.PerksUUIDs) .. " Perks..."
-                    pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perk", _G.PerksUUIDs) end)
-                    pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perks", _G.PerksUUIDs) end)
-                    for _, uuid in ipairs(_G.PerksUUIDs) do
-                        pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perk", {uuid}) end)
-                        pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perks", {uuid}) end)
-                        task.wait(0.05)
+                    local uuids = _G.PerksUUIDs
+                    local n0 = #uuids
+                    _G.CurrentAction = "Auto Selling " .. n0 .. " Perks..."
+
+                    -- ⚡ [SPEED] เดิม: ยิง bulk แล้ว "ยิงทีละอันอีก 200 ครั้ง" ทุกครั้ง
+                    --            + wait(0.05) × 100 = ~13 วินาที (ทั้งๆ ที่ bulk มักผ่านแล้ว)
+                    --    ใหม่: ยิง bulk → เช็คผล → ผ่านแล้วจบ (2 call)
+
+                    -- 1️⃣ Bulk
+                    pcall(function() safeInvokeServer(GET, 3, "S_Equipment", "Delete", "Perk", uuids) end)
+                    pcall(function() safeInvokeServer(GET, 3, "S_Equipment", "Delete", "Perks", uuids) end)
+                    task.wait(0.5)
+
+                    -- 2️⃣ เช็คว่าลดจริงไหม
+                    local after = nil
+                    pcall(function()
+                        local b = MarketplaceService:FindFirstChild("Remote")
+                        if b then
+                            local sd = b:Invoke("CALL", "GetSlotData")
+                            if sd and sd.PerksUUIDs then after = #sd.PerksUUIDs end
+                        end
+                    end)
+
+                    if after and after < n0 then
+                        print(string.format("[Perk] ⚡ Bulk delete สำเร็จ (%d → %d) — 2 calls", n0, after))
+                        _G.PerksUUIDs = {}
+                    else
+                        -- 3️⃣ Bulk ไม่ผ่าน → ยิงทีละอัน แต่ parallel เป็นชุดละ 10
+                        print("[Perk] ⚠️ Bulk ไม่ผ่าน → ยิงทีละอัน (ชุดละ 10)")
+                        for i = 1, n0, 10 do
+                            for j = i, math.min(i + 9, n0) do
+                                local uuid = uuids[j]
+                                task.spawn(function()
+                                    pcall(function() GET:InvokeServer("S_Equipment", "Delete", "Perk", { uuid }) end)
+                                    pcall(function() GET:InvokeServer("S_Equipment", "Delete", "Perks", { uuid }) end)
+                                end)
+                            end
+                            task.wait(0.1)
+                        end
+                        task.wait(0.5)
+                        _G.PerksUUIDs = {}
                     end
-                    task.wait(1); _G.PerksUUIDs = {}
                 end
             end)
 
@@ -1068,10 +1193,10 @@ if placeId == 14916516914 then
             local allDone = (hasHandle and hasThruster and hasBase)
             local shouldDoTS = (Config.AutoThunderSpearQuest and prestigeOK and isTanState and not allDone)
 
-            -- 🔍 Debug log (ทุก 30 วิ)
+            -- 🔍 Debug log (ทุก 30 วิ) — ใช้ os.time() กัน os.clock() รีเซ็ตตอน teleport
             _G._LastTSDebug = _G._LastTSDebug or 0
-            if os.clock() - _G._LastTSDebug > 30 then
-                _G._LastTSDebug = os.clock()
+            if os.time() - _G._LastTSDebug > 30 or os.time() < _G._LastTSDebug then
+                _G._LastTSDebug = os.time()
                 print(string.format(
                     "[TS DEBUG] shouldDo=%s | AutoTS=%s Prestige=%d>=%d(%s) | ตัน=%s (L%d/%d XP=%d/%d) | Handle=%s Thruster=%s Base=%s | allDone=%s",
                     tostring(shouldDoTS),
@@ -1214,6 +1339,8 @@ if placeId == 14916516914 then
                         _G.LastLevel = nil; _G.LastPrestige = nil; _G.LastXP = nil
                         _G.HasUpgradedOnce = false; _G.HighestLevelUpgraded = 0
                         _G.SkillCache = {}; _G.QuestCache = {}
+                        _G.SkillCacheLevel = nil   -- ⚡ จุติ = สกิลรีเซ็ต → ต้องปลดใหม่หมด
+                        _G.LastUpgradeTime = nil   -- ให้อัปเกรดรอบใหม่ทันที ไม่ต้องรอ 60 วิ
                         _G.IsPrestigeing = false
                         task.wait(5)
                     end
@@ -1231,42 +1358,166 @@ if placeId == 14916516914 then
             if not root then _G.CurrentAction = "Waiting for Character..."; task.wait(2); continue end
             
             pcall(function()
-                local currentTime = os.clock()
-                if Config.AutoUpgrade and (not _G.LastUpgradeTime or (currentTime - _G.LastUpgradeTime >= 60)) then
+                -- 🐛 [FIX] เดิมใช้ os.clock() = เวลาตั้งแต่ Lua state เริ่ม
+                --    → teleport = เริ่มนับ 0 ใหม่ แต่ _G.LastUpgradeTime ค้างค่าเก่า (เช่น 3000)
+                --    → currentTime - LastUpgradeTime = 5 - 3000 = -2995 → ไม่ถึง 60 → ข้ามตลอดกาล!
+                --    → ใช้ os.time() (wall clock) แทน = ข้าม teleport ได้
+                local currentTime = os.time()
+
+                -- กันค่าเพี้ยน (ถ้าย้อนหลัง = รีเซ็ตทิ้ง)
+                if _G.LastUpgradeTime and currentTime < _G.LastUpgradeTime then
+                    _G.LastUpgradeTime = nil
+                end
+
+                -- gate 20 วิ (พอกัน spam ตอนสร้าง mission ล้มเหลว แต่ยังอัปทุกครั้งที่กลับ Lobby)
+                if Config.AutoUpgrade and (not _G.LastUpgradeTime or (currentTime - _G.LastUpgradeTime >= 20)) then
                     _G.LastUpgradeTime = currentTime
-                    _G.CurrentAction = "Upgrading All Equipment..."
-                    local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
-                    for i = 1, 3 do 
-                        pcall(function() GET:InvokeServer("Equipment", "Upgrade_All") end)
-                        pcall(function() GET:InvokeServer("Equipment", "Grade_Up") end)
-                        pcall(function() GET:InvokeServer("Equipment", "Tier_Up") end)
-                        for _, stat in ipairs(bladeUpgrades) do 
-                            pcall(function() GET:InvokeServer("Equipment", "Upgrade", {stat}) end)
-                        end
-                        pcall(function() GET:InvokeServer("S_Equipment", "Upgrade_All") end)
-                        pcall(function() GET:InvokeServer("S_Equipment", "Grade_Up") end)
-                        pcall(function() GET:InvokeServer("S_Equipment", "Tier_Up") end)
-                        for _, stat in ipairs(bladeUpgrades) do 
-                            pcall(function() GET:InvokeServer("S_Equipment", "Upgrade", {stat}) end)
-                        end
+                    _G.CurrentAction = "⚙️ Upgrading Equipment..."
+
+                    -- 💰 อ่านทองปัจจุบัน (ใช้ attribute = เร็ว ไม่ต้อง fetch slotdata)
+                    local function readGold()
+                        return tonumber(plr:GetAttribute("Gold"))
+                            or tonumber(_G.LastGold) or 0
                     end
+                    local goldStart = readGold()
+                    print(string.format("[Upgrade] ⚙️ เริ่มอัปเกรดดาบ... (Gold %s)", tostring(goldStart)))
+
+                    local bladeUpgrades = { "ODM_Damage", "Blade_Durability", "Crit_Damage", "Crit_Chance", "ODM_Gas", "ODM_Speed", "ODM_Control", "ODM_Range" }
+
+                    -- ═══════════════════════════════════════════════════════
+                    -- 1️⃣ EQUIPMENT — 3 รอบตายตัว (เร็ว + พิสูจน์แล้วว่าทำงาน)
+                    -- ═══════════════════════════════════════════════════════
+                    --   ⚡ ใช้ array format = 1 call ต่อ prefix (เดิม 8 call)
+                    --   ไม่เช็คทองแล้ว — attribute sync ช้า ทำให้ break ก่อนเวลา
+                    --   3 รอบ = ครอบคลุมกรณีทั่วไป + ไม่ค้าง Lobby นาน
+                    for i = 1, 3 do
+                        for _, prefix in ipairs({ "Equipment", "S_Equipment" }) do
+                            pcall(function() GET:InvokeServer(prefix, "Upgrade_All") end)
+                            pcall(function() GET:InvokeServer(prefix, "Grade_Up") end)
+                            pcall(function() GET:InvokeServer(prefix, "Tier_Up") end)
+                            pcall(function() GET:InvokeServer(prefix, "Upgrade", bladeUpgrades) end)
+                        end
+                        task.wait(0.3)
+                    end
+
+                    local goldAfterEq = readGold()
+                    local spent = goldStart - goldAfterEq
+                    if spent > 0 then
+                        print(string.format("[Upgrade] ✅ อัปดาบ | ใช้ทอง %s | เหลือ %s",
+                            tostring(spent), tostring(goldAfterEq)))
+                    else
+                        print("[Upgrade] ✅ ดาบ: ไม่มีที่จะอัป (max/หมดเงิน)")
+                    end
+
+                    -- ═══════════════════════════════════════════════════════
+                    -- 2️⃣ SKILL TREE — ทำหลังอัปดาบเสร็จ (ด้วยทองที่เหลือ)
+                    -- ═══════════════════════════════════════════════════════
+                    -- ⚠️ ไม่ยิงเป็น array ใหญ่ (server อาจอ่านแค่ตัวแรก) → ใช้ format เดิม
+                    -- ตัวเร่งจริงคือ CACHE:
+                    --   เดิม: 116 call ทุก 60 วิ ตลอดชีวิต
+                    --   ใหม่: 116 call ครั้งเดียวต่อ level → 0 call จนกว่าจะ level up
                     _G.CurrentAction = "Upgrading Skill Tree..."
                     local bannedSkills = { ["103"]=true, ["158"]=true, ["163"]=true }
+
+                    -- เคลียร์ cache เมื่อ: level เปลี่ยน / ครบ 10 นาที (safety net)
+                    local curLv = _G.LastLevel or plr:GetAttribute("Level") or 0
+                    if ((_G.SkillCacheLevel or -1) ~= curLv)
+                    or (not _G.SkillCacheTime)
+                    or (os.time() - _G.SkillCacheTime > 600) then
+                        _G.SkillCache = {}
+                        _G.SkillCacheLevel = curLv
+                        _G.SkillCacheTime = os.time()
+                    end
+                    _G.SkillCache = _G.SkillCache or {}
+
+                    -- 🎯 MULTI-PASS UNLOCK
+                    -- ปัญหาเดิม: สาย 99-168 บางตัวมี dependency ที่ ID ไม่เรียง
+                    --   → ยิงตามลำดับตัวเลข = ปลดพ่อไม่ทันลูก = ลูกถูกปฏิเสธ
+                    -- แก้: ยิงหลายรอบ + อ่านของจริงจาก server ยืนยัน
+                    --   รอบ 1: ปลดพ่อทั้งหมด → รอบ 2-4: ลูก/หลานที่ปลดได้เพิ่ม
+
+                    -- helper: อ่านสกิลที่ปลดจริงจาก server (ผ่าน getgc)
+                    local function readUnlockedFromServer()
+                        local set = {}
+                        pcall(function()
+                            for _, v in pairs(getgc(true)) do
+                                if type(v) == "table" and rawget(v, "Progression")
+                                and rawget(v, "Skills") then
+                                    local u = rawget(v.Skills, "Unlocked")
+                                    if type(u) == "table" then
+                                        for _, sid in pairs(u) do
+                                            set[tostring(sid)] = true
+                                        end
+                                    end
+                                    return
+                                end
+                            end
+                        end)
+                        return set
+                    end
+
+                    local sent = 0
+
+                    -- ═══════════════════════════════════════════════════════
+                    -- 🎯 ลำดับปลดสกิล (ตามที่ user สอน)
+                    -- ═══════════════════════════════════════════════════════
+                    --   1) ซ้าย    1-80  (ยกเว้น 38-69 = Support ไม่เอา)
+                    --   2) ข้าม   81-89  (สายซ้ายที่ต่อขึ้น — ไม่เอา)
+                    --   3) ขวา main chain  90 → 91 → ... → 98  (จากล่างขึ้นบน!)
+                    --   4) ขวา สาขาย่อย   99-168  (ยกเว้น ban list = สายขวาสุด)
+                    -- ═══════════════════════════════════════════════════════
+                    local targets = {}
+
+                    -- 1) ซ้าย 1-80 (ข้าม Support)
                     for s = 1, 80 do
-                        local sStr = tostring(s)
-                        if not (s >= 38 and s <= 69) and not bannedSkills[sStr] then
-                            pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
+                        if not (s >= 38 and s <= 69) then
+                            table.insert(targets, tostring(s))
                         end
                     end
-                    pcall(function()
-                        GET:InvokeServer("S_Equipment", "Unlock", {"98","97","96","95","94","93","92","91","90"})
-                    end)
-                    for s = 99, 168 do
-                        local sStr = tostring(s)
-                        if not bannedSkills[sStr] then
-                            pcall(function() GET:InvokeServer("S_Equipment", "Unlock", {sStr}) end)
-                        end
+
+                    -- 2) ⛔ ข้าม 81-89 (สายซ้ายต่อขึ้น — ไม่แตะ)
+
+                    -- 3) ขวา main chain: 90 → 98 (up — 90 เป็น root ปลดก่อน)
+                    for s = 90, 98 do
+                        table.insert(targets, tostring(s))
                     end
+
+                    -- 4) ขวา สาขาย่อย 99-168 (ban list = สายขวาสุดหลัก 103/158/163)
+                    for s = 99, 168 do table.insert(targets, tostring(s)) end
+
+                    -- ยิง 2 รอบ (พอสำหรับ dependency ปกติ + เร็ว)
+                    local serverSet = readUnlockedFromServer()
+                    for pass = 1, 2 do
+                        local passSent = 0
+                        for _, ss in ipairs(targets) do
+                            if not bannedSkills[ss]
+                            and not _G.SkillCache[ss]
+                            and not serverSet[ss] then
+                                pcall(function() GET:InvokeServer("S_Equipment", "Unlock", { ss }) end)
+                                passSent = passSent + 1
+                            end
+                        end
+                        sent = sent + passSent
+
+                        if passSent == 0 then break end
+
+                        task.wait(0.2)
+                        serverSet = readUnlockedFromServer()
+                    end
+
+                    -- Mark cache ตามที่ปลดสำเร็จจริงเท่านั้น (ไม่ mark สิ่งที่ยิงไปแล้วพลาด)
+                    for ss in pairs(serverSet) do _G.SkillCache[ss] = true end
+
+                    if sent > 0 then
+                        local cached = 0
+                        for _ in pairs(_G.SkillCache) do cached = cached + 1 end
+                        print(string.format("[Skill] ⚡ ยิง %d call (Lv.%d) — ปลดสำเร็จรวม %d",
+                            sent, curLv, cached))
+                    else
+                        print("[Skill] ✅ ครบแล้ว (0 calls)")
+                    end
+
+                    print("[Upgrade] ✅ เสร็จหมด → สร้างด่าน")
                 end
 
                 _G.PreparingNewMap = true
