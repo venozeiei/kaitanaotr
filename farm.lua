@@ -683,7 +683,21 @@ end)
 -- ============================================================
 -- 🔥 OPTIMIZED ANTI-LAG
 -- ============================================================
-if Config.AutoAntiLag and not _G.OptimizedMap then
+-- ============================================================
+-- 🛡️ Anti-Lag SKIP ในแมพ Thunder Spear
+-- ============================================================
+-- User รายงาน: TS mission จบแล้ว Rewards UI ไม่โผล่
+--   สาเหตุน่าจะเป็นเรา hide/optimize map ทำให้ collision box/objective marker
+--   บางส่วนใช้งานไม่ได้ → mission ไม่สรุปสถานะ
+--   → ในแมพ TS ไม่แตะแมพเลย
+local function isTSMap()
+    for _, ids in pairs(THUNDER_MAP_IDS) do
+        if ids[game.PlaceId] then return true end
+    end
+    return false
+end
+
+if Config.AutoAntiLag and not _G.OptimizedMap and not isTSMap() then
     _G.OptimizedMap = true
     task.spawn(function()
         pcall(function()
@@ -2644,6 +2658,12 @@ task.spawn(function()
                     _G._HandleTick = (_G._HandleTick or 0) + 1
                     if _G._HandleTick % 40 == 0 and not _G.TS_MUST_LEAVE then
                         task.spawn(function()
+                            -- 🎁 claim ก่อน! item ต้องผ่านการ claim ถึงจะเข้ากระเป๋า
+                            pcall(function()
+                                claimAllSpearsQuests()
+                                clickAllClaimButtons()
+                            end)
+                            task.wait(0.5)
                             local inv = fetchServerInventory() or _G.LastInventory or {}
                             if hasThunderSpearPart("Handle", inv) then
                                 print("[TS] 🎉 Handle ได้แล้ว mid-mission → LEAVE!")
@@ -2665,6 +2685,11 @@ task.spawn(function()
                 _G._ThrusterTick = (_G._ThrusterTick or 0) + 1
                 if _G._ThrusterTick % 40 == 0 and not _G.TS_MUST_LEAVE then
                     task.spawn(function()
+                        pcall(function()
+                            claimAllSpearsQuests()
+                            clickAllClaimButtons()
+                        end)
+                        task.wait(0.5)
                         local inv = fetchServerInventory() or _G.LastInventory or {}
                         if hasThunderSpearPart("Thruster", inv) then
                             print("[TS] 🎉 Thruster ได้แล้ว mid-mission → LEAVE!")
@@ -2732,6 +2757,11 @@ task.spawn(function()
                     _G._BaseTick = (_G._BaseTick or 0) + 1
                     if _G._BaseTick % 40 == 0 and not _G.TS_MUST_LEAVE then
                         task.spawn(function()
+                            pcall(function()
+                                claimAllSpearsQuests()
+                                clickAllClaimButtons()
+                            end)
+                            task.wait(0.5)
                             local inv = fetchServerInventory() or _G.LastInventory or {}
                             if hasThunderSpearPart("Base", inv) then
                                 print("[TS] 🎉 Base ได้แล้ว mid-mission → LEAVE!")
