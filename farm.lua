@@ -1941,13 +1941,18 @@ if placeId == 14916516914 then
                             "Mendmaster", "Tactician", "Omnirange"
                         }
                         pcall(function() GET:InvokeServer("S_Equipment", "Talents") end)
+                        -- ⚡ [FIX-verified] prestige จริงยิงครั้งเดียว (ดู UI Equipment.Prestige:
+                        --    Invoke("S_Equipment","Prestige", {Boosts=..,Talents=..}) ครั้งเดียว)
+                        --    เดิม loop ยิง 33 ครั้ง (32 ครั้งหลัง fail เปล่า). ใหม่: หยุดทันทีที่สำเร็จ = ปกติ 1 ครั้ง
                         for _, tagName in ipairs(MyTalentList) do
+                            local pres = nil
                             pcall(function()
-                                GET:InvokeServer("S_Equipment", "Prestige", {
+                                pres = GET:InvokeServer("S_Equipment", "Prestige", {
                                     Boosts = pSettings.TargetBoost or "Gold Boost",
                                     Talents = tagName
                                 })
                             end)
+                            if pres ~= nil then break end   -- สำเร็จ = หยุด (ไม่ยิงเปล่าอีก 32 ครั้ง)
                             task.wait(0.3)
                         end
                         if tracker then tracker.Enabled = true end
