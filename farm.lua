@@ -661,18 +661,23 @@ local function claimAllSpearsQuests()
     if _G._LastSpearsClaim and (_nowClaim - _G._LastSpearsClaim) < 3 then return false end
     _G._LastSpearsClaim = _nowClaim
     local claimedAny = false
+    -- [OPT] อ่านสถานะเควสครั้งเดียว → ครบหมดแล้วไม่ต้องยิงอะไรเลย
+    local quests = getSpearsQuests()
+    if areAllSpearsComplete(quests) then return false end
     for _, tag in ipairs(ALL_SPEARS_TAGS) do
-        -- ยิง 3 ครั้งต่อ tag (เผื่อ server ไม่ตอบครั้งแรก)
-        for attempt = 1, 3 do
-            local ok, res = pcall(function()
-                return GET:InvokeServer("Functions", "Quest", tag, "Spears")
-            end)
-            if ok and res then
-                claimedAny = true
-                print(string.format("[TS] 🎁 Claimed: %s (attempt %d)", tag, attempt))
-                break
+        -- [OPT] ข้าม tag ที่รับรางวัลไปแล้ว (ไม่ยิงซ้ำของที่ claim แล้ว)
+        if not isSpearsQuestDone(tag, quests) then
+            for attempt = 1, 2 do
+                local ok, res = pcall(function()
+                    return GET:InvokeServer("Functions", "Quest", tag, "Spears")
+                end)
+                if ok and res then
+                    claimedAny = true
+                    print(string.format("[TS] 🎁 Claimed: %s (attempt %d)", tag, attempt))
+                    break
+                end
+                task.wait(0.1)
             end
-            task.wait(0.1)
         end
     end
     return claimedAny
@@ -2911,6 +2916,13 @@ local function ensureAntiFall(hrp)
         bg.D         = 500
         bg.CFrame    = CFrame.new(hrp.Position, hrp.Position + Vector3.new(0, 0, -1))
         bg.Parent    = hrp
+    end
+
+    -- 🔒 [FIX] กันตัวหมุนตอนบิน: ปิด Humanoid.AutoRotate + ตรึง gyro ตั้งตรงทุกครั้ง
+    local hum = hrp.Parent and hrp.Parent:FindFirstChildWhichIsA("Humanoid")
+    if hum and hum.AutoRotate then hum.AutoRotate = false end
+    if bg and bg.Parent then
+        bg.CFrame = CFrame.new(hrp.Position, hrp.Position + Vector3.new(0, 0, -1))
     end
 
     return bp, bg
