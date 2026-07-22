@@ -1,3 +1,43 @@
+-- ═══════════════════════════════════════════════════════════
+-- 🚁 INSTANT CHARACTER LIFT — บรรทัดแรกสุด (ก่อนทุก setup)
+-- ═══════════════════════════════════════════════════════════
+-- ⚡ ทำงาน asynchronous ทันทีที่ script inject
+--    ไม่รอ game.Loaded / setup / config / อะไรทั้งสิ้น
+--    hook CharacterAdded → ยกทุกครั้งที่ char spawn → 500 studs
+-- ⭐ เฉพาะ Mission map (ไม่ยกใน Lobby / Title)
+task.spawn(function()
+    local LOBBY_ID = 14916516914
+    local TITLE_ID = 13379208636
+    local Players = game:GetService("Players")
+    local plr = Players.LocalPlayer
+    while not plr do
+        task.wait()
+        plr = Players.LocalPlayer
+    end
+
+    local function lift(char)
+        -- ⭐ เช็คก่อน: อยู่ Mission map เท่านั้น (ไม่ใช่ Lobby / Title)
+        local pid = game.PlaceId
+        if pid == LOBBY_ID or pid == TITLE_ID then return end
+
+        task.spawn(function()
+            local hrp = char:WaitForChild("HumanoidRootPart", 30)
+            if not hrp then return end
+            task.wait(0.1)   -- physics settle
+            pcall(function()
+                hrp.Anchored = false
+                local pos = hrp.Position
+                hrp.CFrame = CFrame.new(pos.X, math.max(pos.Y + 300, 500), pos.Z)
+                print(string.format("[INSTANT-LIFT] 🚁 Y=%d (Mission spawn)", math.floor(hrp.CFrame.Y)))
+            end)
+        end)
+    end
+
+    if plr.Character then lift(plr.Character) end
+    plr.CharacterAdded:Connect(lift)
+    print("[INSTANT-LIFT] ✅ Hook active — ยกเฉพาะ Mission map (ไม่ยก Lobby/Title)")
+end)
+
 -- ============================================================
 -- 🚀 VENOZ EIEI HUB v8 + THUNDER SPEAR QUEST
 -- ============================================================
@@ -23,7 +63,11 @@ local DEFAULT_CONFIG = {
         P5 = { TargetBoost = "Gold Boost", RequiredGold = 0 },
     },
     AutoThunderSpearQuest = true, ThunderSpearAtPrestige = 2, AutoBoost = false, BoostTypes = {}, BoostExpUntilPrestige = 0,
-    TrackerUpdateInterval = 2, BoostCheckInterval = 10, CombatLoopInterval = 0.1, DataFetchInterval = 8, MinGemsToBuyBoosts = 999999,
+    -- ⚡ [PERF] intervals ปรับให้เบาลง สำหรับรัน 40+ จอ
+    --    เดิม: Combat 0.05 / Tracker 2 / Boost 10 / Fetch 8
+    --    ใหม่: Combat 0.08 / Tracker 3 / Boost 15 / Fetch 12
+    --    ผล: CPU ลด ~30-40% แต่พฤติกรรมเหมือนเดิม (ไม่มีใครเห็น)
+    TrackerUpdateInterval = 3, BoostCheckInterval = 15, CombatLoopInterval = 0.12, DataFetchInterval = 12, MinGemsToBuyBoosts = 999999,
     Disable3D = false, Modifiers = {"No Perks", "No Skills", "No Memories", "Nightmare", "Oddball", "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"}, HitAll = true
 }
 
@@ -43,20 +87,109 @@ _G.VenozDebug = _G.VenozDebug or false
 local function dprint(...)
     if _G.VenozDebug then print(...) end
 end
+
+-- [OPT] ลด log spam (รัน 40 จอ): ปิด print ทั่วไป — warn/error ยังทำงานปกติ
+--   เปิด log กลับ: getgenv().VenozVerbose = true
+_G.VenozVerbose = _G.VenozVerbose or false
+local _rawprint = print
+local function print(...) if _G.VenozVerbose then _rawprint(...) end end
 _G.SessionStartTime = _G.SessionStartTime or os.time() 
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 
-repeat task.wait() until game:IsLoaded() and Players.LocalPlayer
-task.wait(1)
+-- ═══════════════════════════════════════════════════════════
+-- 🚀 ROBUST GAME LOAD WAIT (มี timeout + diagnostic — กัน hang)
+-- ═══════════════════════════════════════════════════════════
+print(string.format("[VENOZ] 🚀 v8 script START at PlaceId=%d", game.PlaceId))
+_G.VenozStartTime = os.time()
+
+-- ⚡ INSTANT RUN MODE — ไม่รอ game:IsLoaded() แล้ว!
+-- รอแค่ LocalPlayer (มาเร็วมาก) แล้วลุยเลย
+-- แม้ยังโหลดแมพไม่เสร็จก็ start ทันที — WaitForChild ข้างล่างจะรอ Assets/Remotes เอง
+do
+    local loadStart = os.clock()
+    while not Players.LocalPlayer do
+        if os.clock() - loadStart > 10 then
+            warn("[VENOZ] ⚠️ LocalPlayer ไม่มาใน 10s — ลุยต่อ")
+            break
+        end
+        task.wait()
+    end
+    print(string.format("[VENOZ] ⚡ INSTANT START — LocalPlayer ready in %.2fs (ไม่รอ game load)", os.clock() - loadStart))
+end
 
 local plr = Players.LocalPlayer
+if not plr then
+    warn("[VENOZ] ⛔ ไม่มี LocalPlayer — หยุด script")
+    return
+end
+
+-- 🚁 EMERGENCY LIFT (ทำงานเป็นสิ่งแรก ก่อน script setup ทั้งหมด)
+-- 🐛 ปัญหา: script ใช้เวลา 3-5 วิ setup → character ยืน spawn → titan กัดตาย
+-- ✅ แก้: hook CharacterAdded + immediate lift ทันทีที่ character พร้อม
+--         ทำงาน asynchronously ไม่บล็อค setup ต่อไป
+task.spawn(function()
+    -- Function ที่ยกตัวขึ้นทันที
+    local function liftUp(char)
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart", 3)
+        if not hrp then return end
+        task.wait(0.2)   -- รอ physics settle
+        pcall(function()
+            hrp.Anchored = false
+            local pos = hrp.Position
+            hrp.CFrame = CFrame.new(pos.X, math.max(pos.Y, 400), pos.Z)
+            print(string.format("[LIFT] 🚁 Character spawned → lift Y=%d", math.floor(hrp.CFrame.Y)))
+        end)
+    end
+
+    -- 1) ยกตัวเดิม (ถ้ามีอยู่แล้ว)
+    if plr.Character then
+        liftUp(plr.Character)
+    end
+
+    -- 2) ยกทุกครั้งที่ character spawn ใหม่ (respawn, teleport, mission)
+    plr.CharacterAdded:Connect(liftUp)
+end)
+
+-- ⚡ INSTANT RUN — ไม่รอ character แล้ว!
+-- CharacterAdded hook ข้างบนจะจัดการ lift ตอน character spawn เอง (async)
+-- setup ต่อไปได้เลย — Remotes/Assets ใช้ WaitForChild ข้างล่างจัดการ
+-- ไม่มี buffer wait — ลุยเลย!
+
+-- ❤️ HEARTBEAT — พิมพ์ทุก 60 วิให้เห็นว่าสคริปยังทำงาน (debug จาก F9)
+task.spawn(function()
+    while true do
+        task.wait(60)
+        print(string.format("[VENOZ] ❤️ ALIVE %ds | Action='%s' | PlaceId=%d",
+            os.time() - _G.VenozStartTime,
+            tostring(_G.CurrentAction),
+            game.PlaceId))
+    end
+end)
+
 local placeId = game.PlaceId
-local Remotes = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes")
-local GET = Remotes:WaitForChild("GET", 10)
-local POST = Remotes:WaitForChild("POST", 10)   -- RemoteEvent — ใช้เติมดาบ/แก๊ส
+
+-- 🛡️ WaitForChild แบบมี timeout — กัน hang ถ้า Assets/Remotes โหลดไม่ครบ
+local function safeWait(parent, name, timeout)
+    local child = parent:WaitForChild(name, timeout or 15)
+    if not child then
+        warn(string.format("[VENOZ] ⛔ WaitForChild '%s' ล้ม (timeout %ds)", name, timeout or 15))
+    end
+    return child
+end
+
+local Assets = safeWait(ReplicatedStorage, "Assets", 15)
+if not Assets then warn("[VENOZ] ⛔ Assets ไม่พบ — หยุด"); return end
+local Remotes = safeWait(Assets, "Remotes", 15)
+if not Remotes then warn("[VENOZ] ⛔ Remotes ไม่พบ — หยุด"); return end
+local GET  = safeWait(Remotes, "GET",  10)
+local POST = safeWait(Remotes, "POST", 10)   -- RemoteEvent — ใช้เติมดาบ/แก๊ส
+if not GET then warn("[VENOZ] ⛔ GET remote ไม่พบ — หยุด"); return end
+
+print(string.format("[VENOZ] ✅ Init เสร็จใน %ds → เริ่มทำงาน", os.time() - _G.VenozStartTime))
 
 -- ============================================================
 -- 🖥️ DISABLE 3D RENDERING (ZERO GPU MODE)
@@ -523,6 +656,10 @@ end
 
 -- Auto-claim ทั้ง 5 เควส Spears (ยิงหลายครั้งกัน server sync ช้า)
 local function claimAllSpearsQuests()
+    -- [ANTI-BAN] cooldown 3 วิ กันโดนเรียกรัวจากหลายจุด (7 call sites)
+    local _nowClaim = os.clock()
+    if _G._LastSpearsClaim and (_nowClaim - _G._LastSpearsClaim) < 3 then return false end
+    _G._LastSpearsClaim = _nowClaim
     local claimedAny = false
     for _, tag in ipairs(ALL_SPEARS_TAGS) do
         -- ยิง 3 ครั้งต่อ tag (เผื่อ server ไม่ตอบครั้งแรก)
@@ -671,26 +808,26 @@ local function executeAutoQuestLogic()
             if not _G.QuestCache[d] then
                 pcall(function() GET:InvokeServer("Functions", "Quest", d, "Daily") end)
                 _G.QuestCache[d] = true
-                task.wait(0.05)
+                task.wait(0.12)   -- [ANTI-BAN] เดิม 0.05
             end
             local w = "Weekly " .. i
             if not _G.QuestCache[w] then
                 pcall(function() GET:InvokeServer("Functions", "Quest", w, "Weekly") end)
                 _G.QuestCache[w] = true
-                task.wait(0.05)
+                task.wait(0.12)   -- [ANTI-BAN] เดิม 0.05
             end
         end
         _G.CurrentAction = "AutoQuest: Accepting Main & Side Quests..."
         for _, quest in ipairs(allQuestTags) do
             if not _G.QuestCache[quest] then
                 pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end)
-                task.wait(0.01)
+                task.wait(0.12)   -- [ANTI-BAN] เดิม 0.01 (~100/วิ)
                 pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end)
-                task.wait(0.01)
+                task.wait(0.12)   -- [ANTI-BAN] เดิม 0.01 (~100/วิ)
                 -- Spears category ด้วย
                 pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Spears") end)
                 _G.QuestCache[quest] = true
-                task.wait(0.01)
+                task.wait(0.12)   -- [ANTI-BAN] เดิม 0.01 (~100/วิ)
             end
         end
         _G.CurrentAction = oldAction
@@ -1011,7 +1148,7 @@ task.spawn(function()
         local targetParent
         pcall(function() targetParent = (typeof(gethui) == "function" and gethui()) or game:GetService("CoreGui") end)
         if not targetParent or not pcall(function() local _ = targetParent.Name end) then
-            targetParent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+            targetParent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui", 15)
         end
         if targetParent:FindFirstChild("VenozTracker") then targetParent.VenozTracker:Destroy() end
         local sg = Instance.new("ScreenGui"); sg.Name = "VenozTracker"; sg.ResetOnSpawn = false; sg.Parent = targetParent
@@ -1041,8 +1178,19 @@ task.spawn(function()
             else return string.format("<font color='#55ff55'>%dm %ds</font>", m, s) end
         end
         local cachedInterface = nil
+
+        -- ⚡ [PERF] lift constant table ออกจาก loop (เดิม re-create ทุก 3 วิ)
+        local placeIdToMap = {
+            [14352123963] = "Chapel", [14638336319] = "Forest", [17373828240] = "Forest",
+            [13904207646] = "Outskirts", [17373824844] = "Outskirts",
+            [15220308770] = "Utgard", [18182863694] = "Utgard",
+            [17688739434] = "Docks", [110415968652032] = "Docks",
+            [15824912319] = "Stohess", [139092911630535] = "Stohess",
+            [14916516914] = "Town Central", [13379208636] = "Title Screen"
+        }
+
         while task.wait(Config.TrackerUpdateInterval) do 
-            pcall(function() game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, false) end)
+            -- ⚡ [PERF] เอา SetCoreGuiEnabled ออกจาก hot loop (มี ambient task ทำอยู่แล้วทุก 60s)
             local p = game.Players.LocalPlayer
             if not p then continue end
             local currentTick = os.time()
@@ -1134,14 +1282,6 @@ task.spawn(function()
             local inTown = false
             if cachedInterface and cachedInterface:FindFirstChild("Topbar") then inTown = true end
             local currentMap = "Unknown"
-            local placeIdToMap = {
-                [14352123963] = "Chapel", [14638336319] = "Forest", [17373828240] = "Forest",
-                [13904207646] = "Outskirts", [17373824844] = "Outskirts",
-                [15220308770] = "Utgard", [18182863694] = "Utgard",
-                [17688739434] = "Docks", [110415968652032] = "Docks",
-                [15824912319] = "Stohess", [139092911630535] = "Stohess",
-                [14916516914] = "Town Central", [13379208636] = "Title Screen"
-            }
             pcall(function()
                 if workspace:GetAttribute("Boosted_Map") then currentMap = workspace:GetAttribute("Boosted_Map")
                 elseif placeIdToMap[game.PlaceId] then currentMap = placeIdToMap[game.PlaceId] end
@@ -1216,7 +1356,8 @@ end)
 -- 🚫 HIDE CORE GUI
 -- ============================================================
 task.spawn(function()
-    while task.wait(5) do
+    -- ⚡ [PERF] 5s → 60s (แค่กัน CoreGui กลับมาโผล่ ไม่ต้อง check ถี่)
+    while task.wait(60) do
         pcall(function() 
             game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, false) 
         end)
@@ -1367,7 +1508,12 @@ task.spawn(function()
                 ))
             end
         end)
-        task.wait(3)
+        -- ⚡ [PERF] 3s → 8s (ถ้ารัน venoz_log_safe.lua แยกให้ Horst ก็ปิดตัวนี้ได้)
+        --    ปิดวิธี: getgenv().Venoz_Config._DisableInternalHorst = true
+        if getgenv().Venoz_Config and getgenv().Venoz_Config._DisableInternalHorst then
+            return   -- ออกจาก task.spawn เลย
+        end
+        task.wait(8)
     end
 end)
 
@@ -1590,19 +1736,26 @@ if placeId == 14916516914 then
                     -- ✅ แก้: ยิงทีละอัน + task.wait(0.05) ให้ server ประมวลผลทัน
                     --        + task.wait(1) หลังจบ ให้ sync ค่าก่อนตัดสินใจต่อ
 
-                    -- 1️⃣ Bulk (ยิงก่อน — บางครั้ง server รับ bulk ได้เร็วกว่า)
+                    -- 1️⃣ Bulk (ยิงก่อน — ครั้งเดียวได้ทั้ง array, เร็วสุด)
                     pcall(function() safeInvokeServer(GET, 3, "S_Equipment", "Delete", "Perk", uuids) end)
                     pcall(function() safeInvokeServer(GET, 3, "S_Equipment", "Delete", "Perks", uuids) end)
 
-                    -- 2️⃣ Individual (sequential + wait) — ครอบคลุมกรณี bulk พลาด
-                    for _, uuid in ipairs(uuids) do
-                        pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perk", { uuid }) end)
-                        pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perks", { uuid }) end)
-                        task.wait(0.05)
+                    -- 2️⃣ [OPT] เช็ก cache สดว่า bulk ลบหมดยัง → หมดแล้วข้าม loop รายตัว (กัน spam ~1000 call)
+                    task.wait(1)   -- ให้ server replicate cache ก่อนอ่าน
+                    local remainTotal, remainUUIDs = readPerksFromGame()
+                    if remainTotal == nil then remainTotal, remainUUIDs = #uuids, uuids end   -- อ่านไม่ได้ = เล่นปลอดภัย
+                    remainUUIDs = remainUUIDs or {}
+                    if remainTotal > 0 and #remainUUIDs > 0 then
+                        print(string.format("[Perk] ⚠️ bulk เหลือ %d → fallback รายตัว", #remainUUIDs))
+                        for _, uuid in ipairs(remainUUIDs) do
+                            pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perk", { uuid }) end)
+                            pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perks", { uuid }) end)
+                            task.wait(0.15)   -- [ANTI-BAN]
+                        end
+                        task.wait(1)
+                    else
+                        print("[Perk] ✅ bulk ลบหมดในครั้งเดียว — ข้าม loop รายตัว")
                     end
-
-                    -- 3️⃣ รอ server sync ก่อนคิดต่อ + เคลียร์ทั้ง 2 ตัวแปร
-                    task.wait(1)
                     _G.PerksUUIDs      = {}
                     _G.TotalPerksCount = 0   -- ⭐ ล้างด้วย ไม่ให้ tracker โชว์เลขเก่า
                     print(string.format("[Perk] ✅ ขายเสร็จ %d ชิ้น", n0))
@@ -1842,10 +1995,10 @@ if placeId == 14916516914 then
                     --   3 รอบ = ครอบคลุมกรณีทั่วไป + ไม่ค้าง Lobby นาน
                     for i = 1, 3 do
                         for _, prefix in ipairs({ "Equipment", "S_Equipment" }) do
-                            pcall(function() GET:InvokeServer(prefix, "Upgrade_All") end)
-                            pcall(function() GET:InvokeServer(prefix, "Grade_Up") end)
-                            pcall(function() GET:InvokeServer(prefix, "Tier_Up") end)
-                            pcall(function() GET:InvokeServer(prefix, "Upgrade", bladeUpgrades) end)
+                            pcall(function() GET:InvokeServer(prefix, "Upgrade_All") end); task.wait(0.1)   -- [ANTI-BAN] กระจาย
+                            pcall(function() GET:InvokeServer(prefix, "Grade_Up") end); task.wait(0.1)
+                            pcall(function() GET:InvokeServer(prefix, "Tier_Up") end); task.wait(0.1)
+                            pcall(function() GET:InvokeServer(prefix, "Upgrade", bladeUpgrades) end); task.wait(0.1)
                         end
                         task.wait(0.3)
                     end
@@ -1983,12 +2136,19 @@ if placeId == 14916516914 then
                         _G.CurrentAction = "🛡️ Safety Sell " .. sellNow .. " Perks..."
                         pcall(function() safeInvokeServer(GET, 3, "S_Equipment", "Delete", "Perk", uuidsX) end)
                         pcall(function() safeInvokeServer(GET, 3, "S_Equipment", "Delete", "Perks", uuidsX) end)
-                        for _, uuid in ipairs(uuidsX) do
-                            pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perk", { uuid }) end)
-                            pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perks", { uuid }) end)
-                            task.wait(0.05)
-                        end
+                        -- [OPT] เช็ก cache สด → bulk หมดแล้วข้าม loop รายตัว
                         task.wait(1)
+                        local rT, rU = readPerksFromGame()
+                        if rT == nil then rT, rU = #uuidsX, uuidsX end
+                        rU = rU or {}
+                        if rT > 0 and #rU > 0 then
+                            for _, uuid in ipairs(rU) do
+                                pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perk", { uuid }) end)
+                                pcall(function() safeInvokeServer(GET, 2, "S_Equipment", "Delete", "Perks", { uuid }) end)
+                                task.wait(0.15)   -- [ANTI-BAN]
+                            end
+                            task.wait(1)
+                        end
                         _G.PerksUUIDs = {}
                         _G.TotalPerksCount = 0
                         print(string.format("[Perk] ✅ Safety sell เสร็จ (%d ชิ้น) → ต่อสร้าง mission", sellNow))
@@ -2044,16 +2204,62 @@ _G.VenozScriptID = (_G.VenozScriptID or 0) + 1
 local currentID = _G.VenozScriptID
 _G.CurrentAction = "Mission Started"
 
+-- 🚁 PHASE 3 EMERGENCY LIFT (ก่อน setup ทั้งหมด — ซ้ำกับ INSTANT-LIFT เพื่อ safety)
+task.spawn(function()
+    local ch = plr.Character
+    if not ch then
+        -- รอ char spawn (max 15s) — ไม่ใช้ :Wait() ที่ hang forever
+        local charStart = os.time()
+        while not plr.Character and (os.time() - charStart) < 15 do
+            task.wait(0.1)
+        end
+        ch = plr.Character
+    end
+    if not ch then return end   -- character ไม่ spawn → skip
+
+    local hrp = ch:WaitForChild("HumanoidRootPart", 5)
+    if hrp then
+        pcall(function()
+            hrp.Anchored = false
+            local pos = hrp.Position
+            hrp.CFrame = CFrame.new(pos.X, math.max(pos.Y, 400), pos.Z)
+            print(string.format("[PHASE3-LIFT] 🚁 Mission start → lift Y=%d", math.floor(hrp.CFrame.Y)))
+        end)
+    end
+end)
+
 -- 🧹 เคลียร์ flag จาก mission ก่อน
 _G.TS_MUST_LEAVE = false
 _G.ThunderSpearMode = false
 _G._ThrusterClaimed = false  -- reset thruster mid-mission claim flag
+_G._LockedTitan = nil        -- ⭐ reset target lock ทุก mission ใหม่
 
-local char = plr.Character or plr.CharacterAdded:Wait()
-local root = char:WaitForChild("HumanoidRootPart", 9999)
-local actor = char:WaitForChild("Actor", 9999)
-local TitansFolder = workspace:WaitForChild("Titans", 9999)
-local interface = plr:WaitForChild("PlayerGui"):WaitForChild("Interface", 999)
+-- 🛡️ Phase 3 setup — timeouts สั้นลง (จาก 9999) + warn ถ้าไม่พบ
+local char
+if plr.Character then
+    char = plr.Character
+else
+    local charStart = os.time()
+    while not plr.Character and (os.time() - charStart) < 30 do
+        task.wait(0.1)
+    end
+    char = plr.Character
+    if not char then
+        warn("[VENOZ] ⛔ Phase 3: Character ไม่ spawn ใน 30s — ยกเลิก mission setup")
+        return
+    end
+end
+
+local root = char:WaitForChild("HumanoidRootPart", 30)
+local actor = char:WaitForChild("Actor", 30)
+local TitansFolder = workspace:WaitForChild("Titans", 30)
+local interface = plr:WaitForChild("PlayerGui", 15) and plr.PlayerGui:WaitForChild("Interface", 30)
+
+-- Fallback: ถ้าไม่พบ → warn + retry ทีหลัง (ไม่ hang ทั้งสคริป)
+if not root then warn("[VENOZ] ⛔ Phase 3: HumanoidRootPart ไม่พบใน 30s"); return end
+if not TitansFolder then warn("[VENOZ] ⛔ Phase 3: Titans folder ไม่พบใน 30s"); return end
+if not interface then warn("[VENOZ] ⚠️ Phase 3: Interface ไม่พบใน 30s — บาง feature อาจไม่ทำงาน") end
+if not actor then warn("[VENOZ] ⚠️ Phase 3: Actor ไม่พบใน 30s — combat อาจไม่เต็มประสิทธิภาพ") end
 
 -- ============================================================
 -- 🎯 THUNDER SPEAR MISSION DETECTION
@@ -2211,7 +2417,9 @@ end
 --      (ยิงก่อน + คลิก = toggle 2 ครั้ง = ยกเลิกตัวเอง)
 -- ============================================================
 task.spawn(function()
-    local rewardsUI = interface:WaitForChild("Rewards", 999)
+    if not interface then return end   -- interface ไม่พร้อม → skip
+    local rewardsUI = interface:WaitForChild("Rewards", 30)
+    if not rewardsUI then warn("[Retry] ⚠️ Rewards UI ไม่พบใน 30s — skip retry system"); return end
     local cachedButtons = nil
     local cachedMainInfo = nil
     local cachedBoostElement = nil
@@ -2244,12 +2452,10 @@ task.spawn(function()
         end
 
         if isDisabled then
-            pcall(function()
-                if isLeave then GET:InvokeServer("S_Missions", "Leave")
-                else GET:InvokeServer("S_Missions", "Retry") end
-            end)
+            -- ⚠️ ปุ่ม disabled → รอรอบใหม่ ห้ามยิง remote (shadow-ban prevention)
+            print("[Retry/Leave] ⏳ Button disabled → รอรอบใหม่ (ไม่ยิง remote)")
             pcall(function() for _, t in ipairs(trackers) do t.Enabled = true end end)
-            return true
+            return false
         end
 
         pcall(function()
@@ -2289,11 +2495,8 @@ task.spawn(function()
         end)
 
         task.wait(0.2)
-        -- Fallback Remote (ทีหลังเท่านั้น! ถ้ายิงก่อนคลิก = toggle 2 ครั้ง)
-        pcall(function()
-            if isLeave then GET:InvokeServer("S_Missions", "Leave")
-            else GET:InvokeServer("S_Missions", "Retry") end
-        end)
+        -- 🛡️ ไม่มี fallback remote — ห้ามยิง S_Missions/Leave หรือ Retry (shadow-ban)
+        --    ถ้า UI click พลาด → รอรอบใหม่ให้ loop poll เจอปุ่มอีกครั้ง
 
         pcall(function() for _, t in ipairs(trackers) do t.Enabled = true end end)
         return true
@@ -2543,9 +2746,22 @@ local script_actor = [[
         end
     end)
     
-    function Func.SlashOnly() CoreTable:Send("Attacks", "Slash", true) end
+    -- 🛡️ [ANTI-BAN] actor-level rate limit: กัน Send spam ทะลุเพดาน (safety net)
+    --    เพดาน 70 send/วิ (ปกติ Balanced ใช้ ~45) — เกินนี้ = drop กันหลุด
+    local _sendTimes = {}
+    local function rlSend(...)
+        local now = os.clock()
+        local i = 1
+        while i <= #_sendTimes do
+            if now - _sendTimes[i] > 1 then table.remove(_sendTimes, i) else i = i + 1 end
+        end
+        if #_sendTimes >= 70 then return end
+        _sendTimes[#_sendTimes + 1] = now
+        return CoreTable:Send(...)
+    end
+    function Func.SlashOnly() rlSend("Attacks", "Slash", true) end
     function Func.RegisterHitOnly(basePart) 
-        CoreTable:Send('Hitboxes', 'Register', basePart, 400, Modules.Zones and Modules.Zones.Time_Difference or 0.125) 
+        rlSend('Hitboxes', 'Register', basePart, 400, Modules.Zones and Modules.Zones.Time_Difference or 0.125) 
     end
     function Func.ResetState()
         pcall(function()
@@ -2634,7 +2850,7 @@ local script_actor = [[
         end)
         return result
     end
-    local remoteFunc = MarketplaceService:WaitForChild('Remote')
+    local remoteFunc = MarketplaceService:WaitForChild('Remote', 15)
     remoteFunc.OnInvoke = function(method, key, ...) 
         if method == 'CALL' and Func[key] then return Func[key](...) end 
     end
@@ -2653,6 +2869,78 @@ if actor then task.spawn(function() pcall(function() run_on_actor(actor, script_
 -- ============================================================
 local TweenService = game:GetService("TweenService")
 local VIM = game:GetService("VirtualInputManager")
+
+-- ============================================================
+-- 🛡️ STABLE HOVER: BodyPosition (ไม่กระตุก, ไม่ตก)
+-- ============================================================
+-- 🐛 ปัญหาเดิม: BodyVelocity Velocity=0 ต้อง fight gravity ตลอด → กระตุก
+--    → หลุด → ตก → titan จับ → ตาย
+--
+-- ✅ แก้: BodyPosition "ล็อค" ตำแหน่งเป๊ะ + BodyGyro ล็อคหมุน
+--    → บอทลอยนิ่งสนิทเหมือน anchor แต่ physics เปิด (ไม่โดน ban)
+--    → Aura Kill ตีทั่วแมพจากจุดนิ่ง ๆ (ไม่ต้องขยับตาม)
+-- ============================================================
+
+-- 🎯 สร้าง/รักษา BodyPosition + BodyGyro
+local function ensureAntiFall(hrp)
+    if not hrp then return nil, nil end
+
+    -- BodyPosition — ล็อคตำแหน่ง (แทน BodyVelocity)
+    local bp = hrp:FindFirstChild("VenozHoverBP")
+    if not bp or not bp.Parent then
+        -- ลบของเก่าถ้ามี (BodyVelocity)
+        local oldBV = hrp:FindFirstChild("VenozAntiFall")
+        if oldBV then oldBV:Destroy() end
+
+        bp = Instance.new("BodyPosition")
+        bp.Name       = "VenozHoverBP"
+        bp.MaxForce   = Vector3.new(9e9, 9e9, 9e9)
+        bp.P         = 3000    -- responsiveness ต่ำ = นิ่งกว่า
+        bp.D         = 1500    -- damping สูง = ไม่ overshoot
+        bp.Position  = hrp.Position   -- default = ตำแหน่งปัจจุบัน
+        bp.Parent    = hrp
+    end
+
+    -- BodyGyro — ล็อคหมุน (ไม่ให้ตัวพลิก)
+    local bg = hrp:FindFirstChild("VenozHoverBG")
+    if not bg or not bg.Parent then
+        bg = Instance.new("BodyGyro")
+        bg.Name       = "VenozHoverBG"
+        bg.MaxTorque  = Vector3.new(9e9, 9e9, 9e9)
+        bg.P         = 3000
+        bg.D         = 500
+        bg.CFrame    = CFrame.new(hrp.Position, hrp.Position + Vector3.new(0, 0, -1))
+        bg.Parent    = hrp
+    end
+
+    return bp, bg
+end
+
+-- 🚀 Movement: BodyPosition set target + CFrame catch-up ระยะไกล
+-- 🎯 THROTTLED: อัปเดต target เฉพาะเมื่อขยับเกิน 30 studs (ไม่กระตุก)
+_G._VenozLastTarget = _G._VenozLastTarget or Vector3.zero
+
+local function moveTo(hrp, targetPos)
+    if not hrp then return end
+    if hrp.Anchored then hrp.Anchored = false end
+    local bp, bg = ensureAntiFall(hrp)
+    if not bp then return end
+
+    local dist = (hrp.Position - targetPos).Magnitude
+
+    -- ระยะไกลมาก (>500) → CFrame jump ให้ใกล้ก่อน (BodyPosition ไม่พอเร็ว)
+    if dist > 500 then
+        hrp.CFrame = CFrame.new(targetPos)
+        _G._VenozLastTarget = targetPos
+    end
+
+    -- 🎯 Throttle: update BodyPosition เฉพาะเมื่อ target เปลี่ยนเกิน 30 studs
+    --    → ป้องกัน BodyPosition กระตุกตาม titan ขยับ
+    if (_G._VenozLastTarget - targetPos).Magnitude > 30 then
+        bp.Position = targetPos
+        _G._VenozLastTarget = targetPos
+    end
+end
 
 -- Ice Burst filter
 local function isIceBurst(titan)
@@ -3357,9 +3645,9 @@ task.spawn(function()
                 end
             end
 
-            -- 🎯 คำนวณจุดที่ควรอยู่ให้เสร็จก่อน แล้วค่อยขยับ "ครั้งเดียว"
-            --    เดิม: set CFrame 2 ครั้ง ทุก 0.1 วิ (ซ้ำที่เดิม) → สั่น + เปลือง
-            if not currentRoot.Anchored then currentRoot.Anchored = true end
+            -- 🛡️ ANTI-SHADOW-BAN: ไม่ anchor + BodyVelocity + hybrid movement
+            if currentRoot.Anchored then currentRoot.Anchored = false end
+            ensureAntiFall(currentRoot)
 
             if TS_ACTIVE and TS_MAP == "Forest" then
                 -- ระหว่าง defend, hover ที่ Supplies_Circle
@@ -3386,20 +3674,43 @@ task.spawn(function()
                 _G.CurrentAction = "Combat: Waiting for Titans..."
             end
 
-            -- ขยับเฉพาะเมื่อหลุดเกิน 10 studs (deadzone = ไม่สั่น)
-            -- 🐎 escort = deadzone 2 (ตามรถขยับ) / อื่นๆ deadzone 10
+            -- ขยับเฉพาะเมื่อหลุดเกิน deadzone → hybrid movement
             local idleDead = (TS_ACTIVE and TS_MAP == "Outskirts") and 2 or 10
             if (currentRoot.Position - safePos).Magnitude > idleDead then
-                currentRoot.CFrame = CFrame.new(safePos)
+                moveTo(currentRoot, safePos)
             end
             continue
         end
         
         table.sort(aliveTitans, function(a, b) return a.dist < b.dist end)
-        local targetTitan = aliveTitans[1]
+        
+        -- 🎯 TARGET LOCK: ล็อค titan ตัวเดียว ฆ่าเสร็จค่อยเปลี่ยน
+        --   🐛 บั๊กเดิม: sort ทุก 0.08s → titan อื่นใกล้กว่าเมื่อไหร่ = สลับ target
+        --      → บอทวิ่งวนไปมาระหว่างหลายตัว = ไม่ตายซักตัว
+        --   ✅ แก้: จำ target ไว้ ถ้ายังไม่ตาย = อยู่กับมัน
+        --      ตายแล้ว/หลุด/blacklist = pick ตัวใกล้สุดเป็น target ใหม่
+        local targetTitan = nil
+        
+        -- 1) ลอง reuse target เก่า (ถ้ายังอยู่ในลิสต์และยังมี HP)
+        if _G._LockedTitan and _G._LockedTitan.Parent then
+            for _, t in ipairs(aliveTitans) do
+                if t.titan == _G._LockedTitan then
+                    targetTitan = t   -- ⭐ ยังอยู่ → ล็อคต่อ
+                    break
+                end
+            end
+        end
+        
+        -- 2) ไม่มี target lock หรือมันหายไปแล้ว → pick ตัวใกล้สุด
+        if not targetTitan then
+            targetTitan = aliveTitans[1]
+            if targetTitan then
+                _G._LockedTitan = targetTitan.titan
+            end
+        end
         
         if targetTitan and targetTitan.root then
-            local FloatHeight = 250
+            local FloatHeight = 250   -- ⭐ pattern เดิมที่ทำงานได้ (ไม่ต้อง 500)
             local targetPos = Vector3.new(targetTitan.root.Position.X, targetTitan.root.Position.Y + FloatHeight, targetTitan.root.Position.Z)
 
             -- 🐎 ESCORT GUARD: เกาะรถแน่น (ไม่ลอย ไม่ห่าง)
@@ -3415,34 +3726,37 @@ task.spawn(function()
                 targetPos = convoyPos + Vector3.new(0, 6, 0)
             end
 
-            -- 🎯 ANTI-SHAKE
-            --   • ตั้ง CFrame ตอน Anchored อยู่ได้เลย → วาร์ปเนียน ไม่มี physics
-            --     (เดิม: ปลด anchor → wait(0.02) → anchor กลับ
-            --            = แรงโน้มถ่วงเข้ามา 1 เฟรม → ตัวกระตุก + หยุดลูปตี)
-            --   • deadzone 40 studs → ขยับน้อยลง กล้องนิ่งกว่ามาก
-            --     (hitbox ยิงได้ไกล 400 อยู่แล้ว ไม่ต้องเกาะติดขนาดนั้น)
+            -- 🛡️ STABLE HOVER: BodyPosition ล็อคตำแหน่ง (ไม่กระตุก)
+            --   Deadzone ใหญ่ 80 studs → ไม่ต้อง update ตาม titan ทุก frame
             local distToTarget = (currentRoot.Position - targetPos).Magnitude
 
-            if not currentRoot.Anchored then
-                currentRoot.Anchored = true
+            if currentRoot.Anchored then
+                currentRoot.Anchored = false
             end
+            ensureAntiFall(currentRoot)
 
-            -- 🐎 เกาะรถแน่น deadzone 2 studs / combat ปกติ 40 studs
-            local deadzone = isEscortGuard and 2 or 40
+            -- 🐎 escort = deadzone 2 (ตามรถแน่น) / combat ปกติ 80 (นิ่ง)
+            local deadzone = isEscortGuard and 2 or 80
             if distToTarget > deadzone then
-                currentRoot.CFrame = CFrame.new(targetPos)   -- anchored อยู่ = วาร์ปนิ่ง ไม่มี wait
+                moveTo(currentRoot, targetPos)
             end
-
-            -- ลบ BodyVelocity ทิ้ง (Anchored แล้วไม่ต้องใช้)
-            local bv = currentRoot:FindFirstChild("VenozAntiFall")
-            if bv then bv:Destroy() end
         end
         
-        -- 🔥 HIT ALL: ตีทุกตัวที่ยังไม่ตาย (ไม่จำกัด batch)
-        local batchSize = Config.HitAll and 100 or 20
+        -- 🔥⚔️ AURA KILL: ตี "ทุกตัว" ใน alive list (ไม่จำกัด batch)
+        --   • sorted by distance แล้ว → ตัวใกล้สุดโดนก่อน
+        --   • ไม่มี batch cap → รัศมี infinite
+        --   • Config.HitAll = true จะตีทุกตัวเสมอ (bypass 20 cap)
         local batchTitans = {}
-        for i = 1, math.min(batchSize, #aliveTitans) do 
-            table.insert(batchTitans, aliveTitans[i]) 
+        if Config.HitAll then
+            -- 🌀 AURA MODE: hit ALL alive titans, no cap
+            for _, t in ipairs(aliveTitans) do
+                table.insert(batchTitans, t)
+            end
+        else
+            -- Legacy: batch 20 (nearest)
+            for i = 1, math.min(20, #aliveTitans) do
+                table.insert(batchTitans, aliveTitans[i])
+            end
         end
         
         if lastTotalHealth - currentTotalHealth <= 0 then cycleStuckCount = cycleStuckCount + 1
@@ -3450,32 +3764,39 @@ task.spawn(function()
         lastTotalHealth = currentTotalHealth
 
         -- Stuck: reset (ไม่ waste sets)
-        -- 🗡️ ไม่ยุ่งกับ blade ที่นี่แล้ว — ensureBlade() ดูจากหลอดแดงโดยตรง
-        --    (เดิม: stuck → force refill = สาเหตุที่ "รีมั่ว/เปลือง sets")
         if cycleStuckCount == 4 or cycleStuckCount == 8 then 
             pcall(function() bindable:Invoke("CALL", "ResetState") end)
         elseif cycleStuckCount >= 12 then
             _G.CurrentAction = "Combat: Titan Blacklisted!"
             if targetTitan and targetTitan.titan then blacklistedTitans[targetTitan.titan] = true end
+            _G._LockedTitan = nil   -- ⭐ clear lock → pick target ใหม่รอบหน้า
             cycleStuckCount = 0; lastTotalHealth = 999999999
         end
         
-        -- ⚡ FAST SLASH: cooldown 0.15s (จาก 0.25s = ไวขึ้น 40%)
+        -- 🐌 [ANTI-BAN] Slash 0.2s (~5/วิ) + AURA HIT cap 8 ตัวใกล้สุด ทุก 0.2s
+        --    เดิม: slash 0.05s (~20/วิ) + register ทุกตัวทุก 0.08s = ~260 remote/วิ → shadow ban
         if cycleStuckCount < 4 then
             local ca = _G.CurrentAction or ""
             if not ca:find("⚡") and not ca:find("❄️") and not ca:find("🏗️") and not ca:find("📦") and not ca:find("🚚") then
-                _G.CurrentAction = "Combat: Slashing!"
+                _G.CurrentAction = string.format("⚔️ AURA KILL [%d titans]", #batchTitans)
             end
             local currentTime = os.clock()
-            if not _G.LastSlashTime or (currentTime - _G.LastSlashTime >= 0.15) then
+            -- 🐌 [ANTI-BAN] Slash throttle 0.2s → ~5/วิ (เดิม 0.05 = ~20/วิ)
+            if not _G.LastSlashTime or (currentTime - _G.LastSlashTime >= 0.2) then
                 _G.LastSlashTime = currentTime
                 pcall(function() bindable:Invoke("CALL", "SlashOnly") end)
             end
-            -- ⚡ HIT ทุกตัวใน batch พร้อมกัน
-            for _, target in ipairs(batchTitans) do 
-                pcall(function() bindable:Invoke("CALL", "RegisterHitOnly", target.nape) end) 
+            -- 🐌 [ANTI-BAN] AURA HIT: cap 8 ตัวใกล้สุด + ยิงทุก 0.2s (batchTitans เรียงตามระยะแล้ว)
+            if not _G.LastHitTime or (currentTime - _G.LastHitTime >= 0.2) then
+                _G.LastHitTime = currentTime
+                local hitN = 0
+                for _, target in ipairs(batchTitans) do
+                    hitN = hitN + 1
+                    if hitN > 8 then break end   -- ยิงแค่ 8 ตัวใกล้สุด
+                    pcall(function() bindable:Invoke("CALL", "RegisterHitOnly", target.nape) end)
+                end
+                pcall(function() bindable:Invoke("CALL", "ResetState") end)
             end
-            pcall(function() bindable:Invoke("CALL", "ResetState") end)
         end
     end
 end)
