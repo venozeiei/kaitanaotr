@@ -1464,6 +1464,9 @@ task.spawn(function()
                         if slot.Progression then
                             if slot.Progression.Level    then _G.LastLevel    = slot.Progression.Level;    dirty = true end
                             if slot.Progression.Prestige then _G.LastPrestige = slot.Progression.Prestige; dirty = true end
+                            -- 🐛 [FIX] เดิมไม่อ่าน XP → _G.LastXP ไม่อัปเดตใน lobby → isTanState=false ตลอด → AutoPrestige ไม่ทำงาน (เกมนี้ไม่มี attribute XP)
+                            if slot.Progression.XP     ~= nil then _G.LastXP    = slot.Progression.XP;     dirty = true end
+                            if slot.Progression.Max_XP ~= nil then _G.LastMaxXP = slot.Progression.Max_XP; dirty = true end
                         end
                     end
                 end
