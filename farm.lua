@@ -1,3 +1,10 @@
+-- [FIX] กัน connection ซ้อนตอน re-inject (RAM leak / handler ยกตัวซ้ำ)
+if _G.VenozConns then
+    for _, c in ipairs(_G.VenozConns) do pcall(function() c:Disconnect() end) end
+end
+_G.VenozConns = {}
+local function _vtrack(conn) table.insert(_G.VenozConns, conn); return conn end
+
 -- ═══════════════════════════════════════════════════════════
 -- 🚁 INSTANT CHARACTER LIFT — บรรทัดแรกสุด (ก่อนทุก setup)
 -- ═══════════════════════════════════════════════════════════
@@ -34,7 +41,7 @@ task.spawn(function()
     end
 
     if plr.Character then lift(plr.Character) end
-    plr.CharacterAdded:Connect(lift)
+    _vtrack(plr.CharacterAdded:Connect(lift))
     print("[INSTANT-LIFT] ✅ Hook active — ยกเฉพาะ Mission map (ไม่ยก Lobby/Title)")
 end)
 
@@ -151,7 +158,7 @@ task.spawn(function()
     end
 
     -- 2) ยกทุกครั้งที่ character spawn ใหม่ (respawn, teleport, mission)
-    plr.CharacterAdded:Connect(liftUp)
+    _vtrack(plr.CharacterAdded:Connect(liftUp))
 end)
 
 -- ⚡ INSTANT RUN — ไม่รอ character แล้ว!
@@ -3357,7 +3364,7 @@ if TS_MAP == "Utgard" then
     for _, t in ipairs(TitansFolder:GetChildren()) do
         if isIceBurst(t) then iceBurstTracker[t] = true end
     end
-    TitansFolder.ChildAdded:Connect(function(t)
+    _vtrack(TitansFolder.ChildAdded:Connect(function(t)
         task.spawn(function()
             for _ = 1, 20 do
                 if not t.Parent then return end
@@ -3368,14 +3375,14 @@ if TS_MAP == "Utgard" then
                 task.wait(0.1)
             end
         end)
-    end)
-    TitansFolder.ChildRemoved:Connect(function(t)
+    end))
+    _vtrack(TitansFolder.ChildRemoved:Connect(function(t)
         if iceBurstTracker[t] then
             iceBurstTracker[t] = nil
             TS_ICE_KILLS = TS_ICE_KILLS + 1
             print(string.format("[TS] ❄️ Ice Burst %d/3", TS_ICE_KILLS))
         end
-    end)
+    end))
 end
 
 -- ============================================================
