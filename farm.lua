@@ -2005,15 +2005,19 @@ if placeId == 14916516914 then
                     --   ⚡ ใช้ array format = 1 call ต่อ prefix (เดิม 8 call)
                     --   ไม่เช็คทองแล้ว — attribute sync ช้า ทำให้ break ก่อนเวลา
                     --   3 รอบ = ครอบคลุมกรณีทั่วไป + ไม่ค้าง Lobby นาน
-                    for i = 1, 3 do
-                        for _, prefix in ipairs({ "Equipment", "S_Equipment" }) do
-                            pcall(function() GET:InvokeServer(prefix, "Upgrade_All") end); task.wait(0.1)   -- [ANTI-BAN] กระจาย
-                            pcall(function() GET:InvokeServer(prefix, "Grade_Up") end); task.wait(0.1)
-                            pcall(function() GET:InvokeServer(prefix, "Tier_Up") end); task.wait(0.1)
-                            pcall(function() GET:InvokeServer(prefix, "Upgrade", bladeUpgrades) end); task.wait(0.1)
-                        end
-                        task.wait(0.3)
+                    -- ⚡ [FIX-verified live] อัพจน "ตัน หรือ เงินหมด" — loop จน server return nil
+                    --    ยืนยันจากเกมจริง: ("S_Equipment","Upgrade",list) = อัพทุก stat +1 ต่อ call;
+                    --    nil = อัพต่อไม่ได้ (ตัน/เงินหมด). UI เกมจริงใช้แค่ "Upgrade" → Grade_Up/Tier_Up/Upgrade_All ตัดออก
+                    --    (เดิม 3 รอบตายตัว = อัพไม่หมด ทั้งที่ยังมีเงิน)
+                    local upCount = 0
+                    for _ = 1, 40 do   -- safety cap กัน loop ไม่จบ
+                        local res = nil
+                        pcall(function() res = GET:InvokeServer("S_Equipment", "Upgrade", bladeUpgrades) end)
+                        if res == nil then break end   -- อัพต่อไม่ได้ → หยุด
+                        upCount = upCount + 1
+                        task.wait(0.08)
                     end
+                    print(string.format("[Upgrade] ⚙️ อัพดาบ %d รอบ (จนตัน/เงินหมด)", upCount))
 
                     local goldAfterEq = readGold()
                     local spent = goldStart - goldAfterEq
