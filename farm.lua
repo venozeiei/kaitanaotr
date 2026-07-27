@@ -1,13 +1,29 @@
 -- ═══════════════════════════════════════════════════════════
+-- 🚁 [v9] LIFT GATE — ยกเฉพาะ "ด่านจริง" เท่านั้น
+-- ═══════════════════════════════════════════════════════════
+-- 🐛 เดิม: เช็คแค่ Town Central + Title → อยู่ Stohess/Docks (social hub อื่น)
+--    ก็โดนยกลอย เพราะ script ไม่รู้จักว่ามันเป็น lobby → ตัวลอยกลางเมือง
+-- ✅ แก้: รวม place ที่ "ไม่ใช่ด่าน" ทั้งหมด → ห้ามยกในนี้
+--    ปิด lift ทั้งหมด: getgenv().Venoz_Config.AutoLift = false
+getgenv()._VenozNoLiftPlaces = getgenv()._VenozNoLiftPlaces or {
+    [14916516914]     = true,  -- Town Central (Lobby)
+    [13379208636]     = true,  -- Title Screen
+    [17688739434]     = true,  -- Docks
+    [110415968652032] = true,  -- Docks (alt)
+    [15824912319]     = true,  -- Stohess
+    [139092911630535] = true,  -- Stohess (alt)
+}
+local function _shouldLift()
+    local cfg = getgenv().Venoz_Config or {}
+    if cfg.AutoLift == false then return false end          -- ปิดทั้งหมด
+    if getgenv()._VenozNoLiftPlaces[game.PlaceId] then return false end  -- ไม่ยกในเมือง/lobby
+    return true
+end
+
+-- ═══════════════════════════════════════════════════════════
 -- 🚁 INSTANT CHARACTER LIFT — บรรทัดแรกสุด (ก่อนทุก setup)
 -- ═══════════════════════════════════════════════════════════
--- ⚡ ทำงาน asynchronous ทันทีที่ script inject
---    ไม่รอ game.Loaded / setup / config / อะไรทั้งสิ้น
---    hook CharacterAdded → ยกทุกครั้งที่ char spawn → 500 studs
--- ⭐ เฉพาะ Mission map (ไม่ยกใน Lobby / Title)
 task.spawn(function()
-    local LOBBY_ID = 14916516914
-    local TITLE_ID = 13379208636
     local Players = game:GetService("Players")
     local plr = Players.LocalPlayer
     while not plr do
@@ -16,9 +32,8 @@ task.spawn(function()
     end
 
     local function lift(char)
-        -- ⭐ เช็คก่อน: อยู่ Mission map เท่านั้น (ไม่ใช่ Lobby / Title)
-        local pid = game.PlaceId
-        if pid == LOBBY_ID or pid == TITLE_ID then return end
+        -- ⭐ เช็คก่อน: อยู่ด่านจริงเท่านั้น (ไม่ยกใน Lobby/Town/Stohess/Docks/Title)
+        if not _shouldLift() then return end
 
         task.spawn(function()
             local hrp = char:WaitForChild("HumanoidRootPart", 30)
@@ -139,6 +154,7 @@ task.spawn(function()
     -- Function ที่ยกตัวขึ้นทันที
     local function liftUp(char)
         if not char then return end
+        if not _shouldLift() then return end   -- [v9] ไม่ยกใน Lobby/Town/Stohess/Docks/Title
         local hrp = char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart", 3)
         if not hrp then return end
         task.wait(0.2)   -- รอ physics settle
@@ -1822,6 +1838,29 @@ if placeId == 14916516914 then
             local targetLevelReq = 100 + (checkPrestige * 25)
             local checkXP = math.max(tonumber(_G.LastXP) or 0, tonumber(plr:GetAttribute("XP")) or 0)
             local checkMaxXP = math.max(tonumber(_G.LastMaxXP) or 0, tonumber(plr:GetAttribute("Max_XP")) or 0)
+
+            -- 🔥 [v9] จุติให้ติดทันที — กัน "ตันแล้วแต่ไม่จุติ"
+            -- 🐛 บั๊กเดิม: ถ้า _G.LastXP / attribute XP อ่านเป็น 0 ชั่วขณะ (ยังไม่ sync)
+            --    → checkMaxXP ถูกบังคับเป็น 999999999 → isTanState = false → ข้ามจุติ
+            --    → บอทวนอัปเกรด/ฟาร์มต่อทั้งที่ level+XP เต็มแล้ว
+            -- ✅ แก้: พอ level แตะ cap แล้วแต่ยังไม่เห็นว่า XP เต็ม → ดึง Progression สด
+            --    (จาก slot cache ≤4 วิ) มายืนยัน ก่อนตัดสิน tan
+            if checkLevel >= targetLevelReq and checkLevel > 0
+            and (checkMaxXP == 0 or checkXP < checkMaxXP) then
+                local slot = getMySlot()   -- cached (≤4 วิ) ไม่ spam remote
+                if slot and slot.Progression then
+                    local pgL = tonumber(slot.Progression.Level)
+                    local pgP = tonumber(slot.Progression.Prestige)
+                    local pgX = tonumber(slot.Progression.XP)
+                    local pgM = tonumber(slot.Progression.Max_XP)
+                    if pgL then _G.LastLevel = pgL; checkLevel = pgL end
+                    if pgP then _G.LastPrestige = pgP; checkPrestige = pgP; targetLevelReq = 100 + (pgP * 25) end
+                    if pgX then _G.LastXP = pgX; checkXP = math.max(checkXP, pgX) end
+                    if pgM and pgM > 0 then _G.LastMaxXP = pgM; checkMaxXP = pgM end
+                    if slot.Currency and slot.Currency.Gold then _G.LastGold = slot.Currency.Gold end
+                end
+            end
+
             if checkMaxXP == 0 then checkMaxXP = 999999999 end
 
             -- ===================================================
@@ -2261,6 +2300,7 @@ _G.CurrentAction = "Mission Started"
 
 -- 🚁 PHASE 3 EMERGENCY LIFT (ก่อน setup ทั้งหมด — ซ้ำกับ INSTANT-LIFT เพื่อ safety)
 task.spawn(function()
+    if not _shouldLift() then return end   -- [v9] ไม่ยกถ้าเผลอหลุดเข้า social hub (Stohess/Docks)
     local ch = plr.Character
     if not ch then
         -- รอ char spawn (max 15s) — ไม่ใช้ :Wait() ที่ hang forever
