@@ -1,10 +1,3 @@
--- [FIX] กัน connection ซ้อนตอน re-inject (RAM leak / handler ยกตัวซ้ำ)
-if _G.VenozConns then
-    for _, c in ipairs(_G.VenozConns) do pcall(function() c:Disconnect() end) end
-end
-_G.VenozConns = {}
-local function _vtrack(conn) table.insert(_G.VenozConns, conn); return conn end
-
 -- ═══════════════════════════════════════════════════════════
 -- 🚁 INSTANT CHARACTER LIFT — บรรทัดแรกสุด (ก่อนทุก setup)
 -- ═══════════════════════════════════════════════════════════
@@ -41,7 +34,7 @@ task.spawn(function()
     end
 
     if plr.Character then lift(plr.Character) end
-    _vtrack(plr.CharacterAdded:Connect(lift))
+    plr.CharacterAdded:Connect(lift)
     print("[INSTANT-LIFT] ✅ Hook active — ยกเฉพาะ Mission map (ไม่ยก Lobby/Title)")
 end)
 
@@ -71,10 +64,14 @@ local DEFAULT_CONFIG = {
     },
     AutoThunderSpearQuest = true, ThunderSpearAtPrestige = 2, AutoBoost = false, BoostTypes = {}, BoostExpUntilPrestige = 0,
     -- ⚡ [PERF] intervals ปรับให้เบาลง สำหรับรัน 40+ จอ
-    --    เดิม: Combat 0.05 / Tracker 2 / Boost 10 / Fetch 8
-    --    ใหม่: Combat 0.08 / Tracker 3 / Boost 15 / Fetch 12
-    --    ผล: CPU ลด ~30-40% แต่พฤติกรรมเหมือนเดิม (ไม่มีใครเห็น)
-    TrackerUpdateInterval = 3, BoostCheckInterval = 15, CombatLoopInterval = 0.12, DataFetchInterval = 12, MinGemsToBuyBoosts = 999999,
+    --    เดิม (v8): Combat 0.12 / Tracker 3 / Boost 15 / Fetch 12
+    --    ใหม่ (v9): Combat 0.15 / Tracker 4 / Boost 15 / Fetch 15  → hot loop เบาลงอีก
+    TrackerUpdateInterval = 4, BoostCheckInterval = 15, CombatLoopInterval = 0.15, DataFetchInterval = 15, MinGemsToBuyBoosts = 999999,
+    -- ⚡ [v9 ANTI-BAN] combat remote rate (Balanced) — ปรับได้เอง
+    --    SlashInterval สูง = ฟันช้าลง / HitInterval สูง = ลง hitbox ห่างขึ้น / HitCap = จำนวนตัวต่อครั้ง
+    --    อยากปลอดภัยกว่านี้: เพิ่ม interval เป็น 0.3 / ลด HitCap เป็น 4
+    CombatSlashInterval = 0.25, CombatHitInterval = 0.28, CombatHitCap = 6,
+    _SlotCacheTTL = 4,   -- [v9] TTL (วิ) ของ slot-data cache กลาง — สูง=remote น้อยลงแต่ข้อมูลสดช้าลง
     Disable3D = false, Modifiers = {"No Perks", "No Skills", "No Memories", "Nightmare", "Oddball", "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"}, HitAll = true
 }
 
@@ -158,7 +155,7 @@ task.spawn(function()
     end
 
     -- 2) ยกทุกครั้งที่ character spawn ใหม่ (respawn, teleport, mission)
-    _vtrack(plr.CharacterAdded:Connect(liftUp))
+    plr.CharacterAdded:Connect(liftUp)
 end)
 
 -- ⚡ INSTANT RUN — ไม่รอ character แล้ว!
@@ -197,6 +194,50 @@ local POST = safeWait(Remotes, "POST", 10)   -- RemoteEvent — ใช้เต�
 if not GET then warn("[VENOZ] ⛔ GET remote ไม่พบ — หยุด"); return end
 
 print(string.format("[VENOZ] ✅ Init เสร็จใน %ds → เริ่มทำงาน", os.time() - _G.VenozStartTime))
+
+-- ============================================================
+-- 🗃️ [v9 PERF/ANTI-BAN] UNIFIED SLOT-DATA CACHE
+-- ============================================================
+-- 🐛 ปัญหาเดิม: GET:InvokeServer("Functions","Settings","Blur","Off")
+--    ถูกยิงกระจายอยู่ ~6 จุด (tracker / Horst / Lobby brain /
+--    fetchServerInventory / fetchSpearsQuestsFromServer / readPerksFromGame)
+--    แต่ละจุดยิง remote สดของตัวเอง → ยิงข้อมูลก้อนเดียวกันซ้ำๆ
+--    รัน 40 จอ = remote พุ่ง = เสี่ยง shadow ban + เปลือง CPU
+--
+-- ✅ แก้: fetch ก้อนใหญ่ผ่าน cache กลางตัวเดียว (TTL 4 วิ)
+--    หลาย loop ที่อยากได้ slot data ภายในช่วงเวลาเดียวกัน → ใช้ค่าเดียวกัน
+--    ยิง remote จริงแค่ครั้งเดียวต่อ TTL → ลด remote ได้มหาศาล
+--    force=true = บังคับยิงสด (ใช้หลัง claim เควส ที่ต้องการข้อมูลล่าสุด)
+-- ============================================================
+local SLOT_CACHE_TTL = 4   -- วินาที (ปรับได้: getgenv().Venoz_Config._SlotCacheTTL)
+if getgenv().Venoz_Config and tonumber(getgenv().Venoz_Config._SlotCacheTTL) then
+    SLOT_CACHE_TTL = tonumber(getgenv().Venoz_Config._SlotCacheTTL)
+end
+
+local function getSlotDataRaw(force)
+    local now = os.clock()
+    if not force and _G._SlotRawData and _G._SlotRawTime
+       and (now - _G._SlotRawTime) < SLOT_CACHE_TTL then
+        return _G._SlotRawData   -- 🎯 hit cache → ไม่ยิง remote
+    end
+    local ok, res = pcall(function()
+        return GET:InvokeServer("Functions", "Settings", "Blur", "Off")
+    end)
+    if ok and type(res) == "table" and res.Slots then
+        _G._SlotRawData = res
+        _G._SlotRawTime = now
+        return res
+    end
+    -- ยิงพลาด → คืน cache เก่า (ถ้ามี) ดีกว่า nil
+    return _G._SlotRawData
+end
+
+-- ดึง slot ของตัวเองจาก cache (สะดวกสำหรับผู้เรียกส่วนใหญ่)
+local function getMySlot(force)
+    local raw = getSlotDataRaw(force)
+    if not raw or type(raw.Slots) ~= "table" then return nil end
+    return raw.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
+end
 
 -- ============================================================
 -- 🖥️ DISABLE 3D RENDERING (ZERO GPU MODE)
@@ -350,11 +391,11 @@ local function readPerksFromGame()
         return best_total, best_uuids
     end
 
-    -- 2️⃣ fallback: server remote
+    -- 2️⃣ fallback: server remote (ผ่าน cache กลาง — ลด remote)
     --    (Lobby / เพิ่งเข้าเกม / getgc ทั้งหมดว่าง)
     local fb_total, fb_uuids, fb_ok = 0, {}, false
     pcall(function()
-        local raw = GET:InvokeServer("Functions", "Settings", "Blur", "Off")
+        local raw = getSlotDataRaw()   -- [v9] เดิม GET:InvokeServer ตรงๆ
         if type(raw) == "table" and type(raw.Slots) == "table" then
             local slot = raw.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
             if slot and slot.Perks and type(slot.Perks.Storage) == "table" then
@@ -403,12 +444,10 @@ local function refreshPerks()
     return true
 end
 
-local function fetchServerInventory()
-    local ok, result = pcall(function()
-        return GET:InvokeServer("Functions", "Settings", "Blur", "Off")
-    end)
-    if not ok or type(result) ~= "table" or not result.Slots then return nil end
-    local slot = result.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
+-- [v9] ใช้ cache กลาง — เดิมทุกครั้งยิง remote สด (เรียกบ่อยมากในหลายจุด)
+--   force=true → บังคับยิงสด (ใช้หลัง claim เควส/หลังซื้อ ที่ต้องการข้อมูลล่าสุด)
+local function fetchServerInventory(force)
+    local slot = getMySlot(force)
     return slot and slot.Inventory
 end
 
@@ -453,12 +492,8 @@ end
 --   อ่านสถานะ Spears quest จาก server data โดยตรง
 --   ใช้เช็คว่าเควสไหน Rewarded=true (สำหรับ Escort mode decision)
 -- ============================================================
-local function fetchSpearsQuestsFromServer()
-    local ok, res = pcall(function()
-        return GET:InvokeServer("Functions", "Settings", "Blur", "Off")
-    end)
-    if not ok or type(res) ~= "table" or not res.Slots then return {} end
-    local slot = res.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
+local function fetchSpearsQuestsFromServer(force)
+    local slot = getMySlot(force)   -- [v9] ผ่าน cache กลาง
     if not slot or not slot.Quests or not slot.Quests.Spears then return {} end
     local result = {}
     for k, q in pairs(slot.Quests.Spears) do
@@ -668,23 +703,18 @@ local function claimAllSpearsQuests()
     if _G._LastSpearsClaim and (_nowClaim - _G._LastSpearsClaim) < 3 then return false end
     _G._LastSpearsClaim = _nowClaim
     local claimedAny = false
-    -- [OPT] อ่านสถานะเควสครั้งเดียว → ครบหมดแล้วไม่ต้องยิงอะไรเลย
-    local quests = getSpearsQuests()
-    if areAllSpearsComplete(quests) then return false end
     for _, tag in ipairs(ALL_SPEARS_TAGS) do
-        -- [OPT] ข้าม tag ที่รับรางวัลไปแล้ว (ไม่ยิงซ้ำของที่ claim แล้ว)
-        if not isSpearsQuestDone(tag, quests) then
-            for attempt = 1, 2 do
-                local ok, res = pcall(function()
-                    return GET:InvokeServer("Functions", "Quest", tag, "Spears")
-                end)
-                if ok and res then
-                    claimedAny = true
-                    print(string.format("[TS] 🎁 Claimed: %s (attempt %d)", tag, attempt))
-                    break
-                end
-                task.wait(0.1)
+        -- ยิง 3 ครั้งต่อ tag (เผื่อ server ไม่ตอบครั้งแรก)
+        for attempt = 1, 3 do
+            local ok, res = pcall(function()
+                return GET:InvokeServer("Functions", "Quest", tag, "Spears")
+            end)
+            if ok and res then
+                claimedAny = true
+                print(string.format("[TS] 🎁 Claimed: %s (attempt %d)", tag, attempt))
+                break
             end
+            task.wait(0.1)
         end
     end
     return claimedAny
@@ -804,13 +834,28 @@ local allQuestTags = {
     "Penny Pincher", "Novice Adventurer", "Thunder Spear 1", "Thunder Spear 2", "Thunder Spear 3", "Thunder Spear 4", "Thunder Spear 5"
 }
 
+-- [v9 ANTI-BAN] wait แบบมี jitter — กัน pattern คงที่ (fingerprint ของบอท)
+--   base + สุ่ม 0..0.09 วิ → server เห็นช่วงเวลาไม่เท่ากันทุกครั้ง
+local function abWait(base)
+    task.wait((base or 0.12) + math.random() * 0.09)
+end
+
+-- [v9 ANTI-BAN] หมวด "Spears" มีเควสจริงแค่ไม่กี่ tag
+--   เดิม: ยิง Spears ให้ทุก tag (~90 อัน) = ~85 remote สูญเปล่า + ดูเป็นบอทสาด
+--   แก้: ยิง Spears เฉพาะ tag ที่เป็น Thunder Spear จริงๆ เท่านั้น
+local SPEAR_QUEST_SET = {}
+do
+    for _, t in ipairs(ALL_SPEARS_TAGS) do SPEAR_QUEST_SET[t] = true end
+    for i = 1, 5 do SPEAR_QUEST_SET["Thunder Spear " .. i] = true end
+end
+
 local lastQuestCheck = 0
 local function executeAutoQuestLogic()
     if not Config.AutoQuest then return end
     local currentTime = os.time()
     if currentTime < lastQuestCheck then return end
     lastQuestCheck = currentTime + 300
-    
+
     task.spawn(function()
         _G.QuestCache = _G.QuestCache or {}
         local oldAction = _G.CurrentAction
@@ -820,26 +865,29 @@ local function executeAutoQuestLogic()
             if not _G.QuestCache[d] then
                 pcall(function() GET:InvokeServer("Functions", "Quest", d, "Daily") end)
                 _G.QuestCache[d] = true
-                task.wait(0.12)   -- [ANTI-BAN] เดิม 0.05
+                abWait(0.12)   -- [ANTI-BAN] + jitter
             end
             local w = "Weekly " .. i
             if not _G.QuestCache[w] then
                 pcall(function() GET:InvokeServer("Functions", "Quest", w, "Weekly") end)
                 _G.QuestCache[w] = true
-                task.wait(0.12)   -- [ANTI-BAN] เดิม 0.05
+                abWait(0.12)   -- [ANTI-BAN] + jitter
             end
         end
         _G.CurrentAction = "AutoQuest: Accepting Main & Side Quests..."
         for _, quest in ipairs(allQuestTags) do
             if not _G.QuestCache[quest] then
                 pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Main") end)
-                task.wait(0.12)   -- [ANTI-BAN] เดิม 0.01 (~100/วิ)
+                abWait(0.12)   -- [ANTI-BAN] + jitter
                 pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Side") end)
-                task.wait(0.12)   -- [ANTI-BAN] เดิม 0.01 (~100/วิ)
-                -- Spears category ด้วย
-                pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Spears") end)
+                abWait(0.12)   -- [ANTI-BAN] + jitter
+                -- [v9] Spears category — ยิงเฉพาะ tag ที่เป็น Thunder Spear จริง
+                --   (ตัด ~85 remote สูญเปล่าต่อรอบ + ลดพฤติกรรมบอทสาดทุก tag)
+                if SPEAR_QUEST_SET[quest] then
+                    pcall(function() GET:InvokeServer("Functions", "Quest", quest, "Spears") end)
+                    abWait(0.12)   -- [ANTI-BAN] + jitter
+                end
                 _G.QuestCache[quest] = true
-                task.wait(0.12)   -- [ANTI-BAN] เดิม 0.01 (~100/วิ)
             end
         end
         _G.CurrentAction = oldAction
@@ -1227,7 +1275,7 @@ task.spawn(function()
 
                         -- Lobby หรือ actor อ่านไม่ได้ → ใช้ server remote + สร้าง PerksUUIDs เอง
                         if not slotData then
-                            local raw = GET:InvokeServer("Functions", "Settings", "Blur", "Off")
+                            local raw = getSlotDataRaw()   -- [v9] ผ่าน cache กลาง
                             if type(raw) == "table" and raw.Slots then
                                 local s = raw.Slots[p:GetAttribute("Slot") or _G.TargetSlot or "A"]
                                 if s then
@@ -1447,9 +1495,8 @@ task.spawn(function()
             _G._HorstFetch = _G._HorstFetch or 0
             if os.time() - _G._HorstFetch >= 30 or os.time() < _G._HorstFetch then
                 _G._HorstFetch = os.time()
-                local ok, sd = pcall(function()
-                    return GET:InvokeServer("Functions", "Settings", "Blur", "Off")
-                end)
+                local sd = getSlotDataRaw()   -- [v9] ผ่าน cache กลาง
+                local ok = (type(sd) == "table")
                 if ok and type(sd) == "table" and sd.Slots then
                     local slot = sd.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
                     if slot then
@@ -1464,9 +1511,6 @@ task.spawn(function()
                         if slot.Progression then
                             if slot.Progression.Level    then _G.LastLevel    = slot.Progression.Level;    dirty = true end
                             if slot.Progression.Prestige then _G.LastPrestige = slot.Progression.Prestige; dirty = true end
-                            -- 🐛 [FIX] เดิมไม่อ่าน XP → _G.LastXP ไม่อัปเดตใน lobby → isTanState=false ตลอด → AutoPrestige ไม่ทำงาน (เกมนี้ไม่มี attribute XP)
-                            if slot.Progression.XP     ~= nil then _G.LastXP    = slot.Progression.XP;     dirty = true end
-                            if slot.Progression.Max_XP ~= nil then _G.LastMaxXP = slot.Progression.Max_XP; dirty = true end
                         end
                     end
                 end
@@ -1656,14 +1700,9 @@ if placeId == 14916516914 then
                     --    ✅ แก้: ถ้า safeInvokeServer พลาด → fallback direct InvokeServer (ไม่มี timeout)
                     local serverData = nil
                     do
-                        local raw = safeInvokeServer(GET, 5, "Functions", "Settings", "Blur", "Off")
-                        -- fallback: server ช้า → ยิงตรง (Roblox default timeout ~30s)
-                        if not raw then
-                            print("[Perk] ⚠️ safeInvokeServer timeout → ลอง direct call...")
-                            pcall(function()
-                                raw = GET:InvokeServer("Functions", "Settings", "Blur", "Off")
-                            end)
-                        end
+                        -- [v9] ใช้ cache กลาง (มี pcall + คืน cache เก่าเมื่อยิงพลาดในตัว)
+                        --   เดิม: safeInvokeServer + direct fallback = อาจยิง 2 remote/รอบ
+                        local raw = getSlotDataRaw()
                         if raw and type(raw) == "table" and raw.Slots then
                             local slotData = raw.Slots[plr:GetAttribute("Slot") or _G.TargetSlot or "A"]
                             if slotData then
@@ -1834,7 +1873,7 @@ if placeId == 14916516914 then
                 task.wait(0.3)
 
                 -- อ่าน inventory สดอีกครั้ง (เผื่อ claim ให้ item แล้ว)
-                local invAfterClaim = fetchServerInventory() or inventory
+                local invAfterClaim = fetchServerInventory(true) or inventory   -- [v9] force สด หลัง claim
                 if hasAllThunderSpears(invAfterClaim) then
                     print("[TS] ⚡ Thunder Spear ครบทั้ง 3 ชิ้น! (จาก inventory)")
                     print(string.format("[TS]   Handle=%s Thruster=%s Base=%s",
@@ -1944,18 +1983,13 @@ if placeId == 14916516914 then
                             "Mendmaster", "Tactician", "Omnirange"
                         }
                         pcall(function() GET:InvokeServer("S_Equipment", "Talents") end)
-                        -- ⚡ [FIX-verified] prestige จริงยิงครั้งเดียว (ดู UI Equipment.Prestige:
-                        --    Invoke("S_Equipment","Prestige", {Boosts=..,Talents=..}) ครั้งเดียว)
-                        --    เดิม loop ยิง 33 ครั้ง (32 ครั้งหลัง fail เปล่า). ใหม่: หยุดทันทีที่สำเร็จ = ปกติ 1 ครั้ง
                         for _, tagName in ipairs(MyTalentList) do
-                            local pres = nil
                             pcall(function()
-                                pres = GET:InvokeServer("S_Equipment", "Prestige", {
+                                GET:InvokeServer("S_Equipment", "Prestige", {
                                     Boosts = pSettings.TargetBoost or "Gold Boost",
                                     Talents = tagName
                                 })
                             end)
-                            if pres ~= nil then break end   -- สำเร็จ = หยุด (ไม่ยิงเปล่าอีก 32 ครั้ง)
                             task.wait(0.3)
                         end
                         if tracker then tracker.Enabled = true end
@@ -2013,19 +2047,15 @@ if placeId == 14916516914 then
                     --   ⚡ ใช้ array format = 1 call ต่อ prefix (เดิม 8 call)
                     --   ไม่เช็คทองแล้ว — attribute sync ช้า ทำให้ break ก่อนเวลา
                     --   3 รอบ = ครอบคลุมกรณีทั่วไป + ไม่ค้าง Lobby นาน
-                    -- ⚡ [FIX-verified live] อัพจน "ตัน หรือ เงินหมด" — loop จน server return nil
-                    --    ยืนยันจากเกมจริง: ("S_Equipment","Upgrade",list) = อัพทุก stat +1 ต่อ call;
-                    --    nil = อัพต่อไม่ได้ (ตัน/เงินหมด). UI เกมจริงใช้แค่ "Upgrade" → Grade_Up/Tier_Up/Upgrade_All ตัดออก
-                    --    (เดิม 3 รอบตายตัว = อัพไม่หมด ทั้งที่ยังมีเงิน)
-                    local upCount = 0
-                    for _ = 1, 40 do   -- safety cap กัน loop ไม่จบ
-                        local res = nil
-                        pcall(function() res = GET:InvokeServer("S_Equipment", "Upgrade", bladeUpgrades) end)
-                        if res == nil then break end   -- อัพต่อไม่ได้ → หยุด
-                        upCount = upCount + 1
-                        task.wait(0.08)
+                    for i = 1, 3 do
+                        for _, prefix in ipairs({ "Equipment", "S_Equipment" }) do
+                            pcall(function() GET:InvokeServer(prefix, "Upgrade_All") end); task.wait(0.1)   -- [ANTI-BAN] กระจาย
+                            pcall(function() GET:InvokeServer(prefix, "Grade_Up") end); task.wait(0.1)
+                            pcall(function() GET:InvokeServer(prefix, "Tier_Up") end); task.wait(0.1)
+                            pcall(function() GET:InvokeServer(prefix, "Upgrade", bladeUpgrades) end); task.wait(0.1)
+                        end
+                        task.wait(0.3)
                     end
-                    print(string.format("[Upgrade] ⚙️ อัพดาบ %d รอบ (จนตัน/เงินหมด)", upCount))
 
                     local goldAfterEq = readGold()
                     local spent = goldStart - goldAfterEq
@@ -2300,7 +2330,7 @@ if TS_MAP and Config.AutoThunderSpearQuest then
         task.wait(2)  -- รอ actor พร้อม
         claimAllSpearsQuests()
         task.wait(0.5)
-        local inv = fetchServerInventory() or _G.LastInventory or {}
+        local inv = fetchServerInventory(true) or _G.LastInventory or {}   -- [v9] force สด หลัง claim
         if not hasThunderSpearPart(TS_PART, inv) then
             TS_ACTIVE = true
             _G.ThunderSpearMode = true
@@ -2391,7 +2421,7 @@ if not TS_MAP and Config.AutoThunderSpearQuest then
             -- ผ่านทุกเงื่อนไขแล้วค่อยยิง remote
             claimAllSpearsQuests()
             task.wait(0.3)
-            local inv = fetchServerInventory() or _G.LastInventory or {}
+            local inv = fetchServerInventory(true) or _G.LastInventory or {}   -- [v9] force สด หลัง claim
             local hHandle = hasThunderSpearPart("Handle", inv)
             local hThruster = hasThunderSpearPart("Thruster", inv)
             local hBase = hasThunderSpearPart("Base", inv)
@@ -2600,7 +2630,7 @@ task.spawn(function()
                     end
 
                     pcall(function()
-                        local inv = fetchServerInventory() or _G.LastInventory or {}
+                        local inv = fetchServerInventory(true) or _G.LastInventory or {}   -- [v9] force สด หลัง claim
                         print(string.format("[TS] 🚪 LEAVE | Handle=%s Thruster=%s Base=%s",
                             hasThunderSpearPart("Handle", inv)   and "✅" or "❌",
                             hasThunderSpearPart("Thruster", inv) and "✅" or "❌",
@@ -2771,7 +2801,7 @@ local script_actor = [[
     end)
     
     -- 🛡️ [ANTI-BAN] actor-level rate limit: กัน Send spam ทะลุเพดาน (safety net)
-    --    เพดาน 70 send/วิ (ปกติ Balanced ใช้ ~45) — เกินนี้ = drop กันหลุด
+    --    [v9] เพดาน 70 → 50 send/วิ (Balanced ใหม่ใช้ ~24) — เกินนี้ = drop กันหลุด
     local _sendTimes = {}
     local function rlSend(...)
         local now = os.clock()
@@ -2779,7 +2809,7 @@ local script_actor = [[
         while i <= #_sendTimes do
             if now - _sendTimes[i] > 1 then table.remove(_sendTimes, i) else i = i + 1 end
         end
-        if #_sendTimes >= 70 then return end
+        if #_sendTimes >= 50 then return end
         _sendTimes[#_sendTimes + 1] = now
         return CoreTable:Send(...)
     end
@@ -2935,13 +2965,6 @@ local function ensureAntiFall(hrp)
         bg.D         = 500
         bg.CFrame    = CFrame.new(hrp.Position, hrp.Position + Vector3.new(0, 0, -1))
         bg.Parent    = hrp
-    end
-
-    -- 🔒 [FIX] กันตัวหมุนตอนบิน: ปิด Humanoid.AutoRotate + ตรึง gyro ตั้งตรงทุกครั้ง
-    local hum = hrp.Parent and hrp.Parent:FindFirstChildWhichIsA("Humanoid")
-    if hum and hum.AutoRotate then hum.AutoRotate = false end
-    if bg and bg.Parent then
-        bg.CFrame = CFrame.new(hrp.Position, hrp.Position + Vector3.new(0, 0, -1))
     end
 
     return bp, bg
@@ -3376,7 +3399,7 @@ if TS_MAP == "Utgard" then
     for _, t in ipairs(TitansFolder:GetChildren()) do
         if isIceBurst(t) then iceBurstTracker[t] = true end
     end
-    _vtrack(TitansFolder.ChildAdded:Connect(function(t)
+    TitansFolder.ChildAdded:Connect(function(t)
         task.spawn(function()
             for _ = 1, 20 do
                 if not t.Parent then return end
@@ -3387,14 +3410,14 @@ if TS_MAP == "Utgard" then
                 task.wait(0.1)
             end
         end)
-    end))
-    _vtrack(TitansFolder.ChildRemoved:Connect(function(t)
+    end)
+    TitansFolder.ChildRemoved:Connect(function(t)
         if iceBurstTracker[t] then
             iceBurstTracker[t] = nil
             TS_ICE_KILLS = TS_ICE_KILLS + 1
             print(string.format("[TS] ❄️ Ice Burst %d/3", TS_ICE_KILLS))
         end
-    end))
+    end)
 end
 
 -- ============================================================
@@ -3406,8 +3429,25 @@ task.spawn(function()
     local cycleStuckCount = 0
     local blacklistedTitans = {}
     local cachedRefillPart = nil
-    
-    while currentID == _G.VenozScriptID and task.wait(Config.CombatLoopInterval) do 
+
+    -- [v9 ANTI-BAN] ปรับ combat remote rate ได้จาก config (default = Balanced เบา)
+    --   เดิม: slash 0.2s(~5/วิ) + hit 8ตัว/0.2s(~40/วิ) = ~45 remote/วิ ต่อเนื่อง
+    --   ใหม่: slash ~0.25s(~3.5/วิ) + hit 6ตัว/0.28s(~21/วิ) = ~24 remote/วิ (ลด ~47%)
+    local COMBAT_SLASH_INT = tonumber(Config.CombatSlashInterval) or 0.25
+    local COMBAT_HIT_INT   = tonumber(Config.CombatHitInterval)   or 0.28
+    local COMBAT_HIT_CAP   = tonumber(Config.CombatHitCap)        or 6
+
+    -- [v9 PERF] cache findCarts ระยะสั้น (escort เรียกหลายครั้ง/เฟรม → workspace scan ซ้ำ)
+    local _cartCache, _cartCacheTime = nil, 0
+    local function findCartsCached()
+        local now = os.clock()
+        if _cartCache and (now - _cartCacheTime) < 0.5 then return _cartCache end
+        _cartCache = findCarts()
+        _cartCacheTime = now
+        return _cartCache
+    end
+
+    while currentID == _G.VenozScriptID and task.wait(Config.CombatLoopInterval) do
         if not _G.AutoFarm then continue end
         local pGui = plr:FindFirstChild("PlayerGui")
         local currentInterface = interface or (pGui and pGui:FindFirstChild("Interface"))
@@ -3480,7 +3520,7 @@ task.spawn(function()
                         continue
                     end
                 elseif TS_STATE == "KILL_ALL" then
-                    local carts = findCarts()
+                    local carts = findCartsCached()
                     local phase = "GUARD"
                     pcall(function()
                         local e = ReplicatedStorage:FindFirstChild("Objectives")
@@ -3594,7 +3634,7 @@ task.spawn(function()
                 end
             end)
 
-            escortCarts = findCarts()
+            escortCarts = findCartsCached()
 
             if escortPhase == "CLEANUP" then
                 -- 🎯 CLEANUP: ไล่ล่าทุกไททัน — ไม่ filter
@@ -3691,7 +3731,7 @@ task.spawn(function()
                 _G.CurrentAction = string.format("⏳ รอ titan spawn (Ice Burst %d/3)", TS_ICE_KILLS)
             elseif TS_ACTIVE and TS_MAP == "Outskirts" then
                 -- 🐎 ไม่มีไททันใกล้รถ → เกาะรถแน่น (คันหลัก)
-                local carts = findCarts()
+                local carts = findCartsCached()
                 if carts[1] then
                     safePos = carts[1].Position + Vector3.new(0, 6, 0)   -- เกาะแนบ
                     _G.CurrentAction = string.format("🐎 เกาะรถ %d คัน", #carts)
@@ -3804,26 +3844,32 @@ task.spawn(function()
             cycleStuckCount = 0; lastTotalHealth = 999999999
         end
         
-        -- 🐌 [ANTI-BAN] Slash 0.2s (~5/วิ) + AURA HIT cap 8 ตัวใกล้สุด ทุก 0.2s
-        --    เดิม: slash 0.05s (~20/วิ) + register ทุกตัวทุก 0.08s = ~260 remote/วิ → shadow ban
+        -- 🐌 [v9 ANTI-BAN] Slash ~0.25s + AURA HIT cap 6 ตัวใกล้สุด ทุก ~0.28s (+ jitter)
+        --    เดิม: slash 0.2s(~5/วิ) + hit 8/0.2s(~40/วิ) = ~45 remote/วิ ต่อเนื่อง
+        --    ใหม่: slash ~3.5/วิ + hit 6/~0.28s(~21/วิ) = ~24 remote/วิ + จังหวะไม่คงที่
         if cycleStuckCount < 4 then
             local ca = _G.CurrentAction or ""
             if not ca:find("⚡") and not ca:find("❄️") and not ca:find("🏗️") and not ca:find("📦") and not ca:find("🚚") then
-                _G.CurrentAction = string.format("⚔️ AURA KILL [%d titans]", #batchTitans)
+                -- [v9 PERF] format string เฉพาะเมื่อจำนวนเปลี่ยน (กัน alloc ทุกเฟรม × 40 จอ)
+                local n = #batchTitans
+                if _G._LastAuraN ~= n or not ca:find("AURA KILL") then
+                    _G._LastAuraN = n
+                    _G.CurrentAction = string.format("⚔️ AURA KILL [%d titans]", n)
+                end
             end
             local currentTime = os.clock()
-            -- 🐌 [ANTI-BAN] Slash throttle 0.2s → ~5/วิ (เดิม 0.05 = ~20/วิ)
-            if not _G.LastSlashTime or (currentTime - _G.LastSlashTime >= 0.2) then
-                _G.LastSlashTime = currentTime
+            -- [v9 ANTI-BAN] Slash throttle + jitter
+            if not _G._NextSlash or currentTime >= _G._NextSlash then
+                _G._NextSlash = currentTime + COMBAT_SLASH_INT + math.random() * 0.06
                 pcall(function() bindable:Invoke("CALL", "SlashOnly") end)
             end
-            -- 🐌 [ANTI-BAN] AURA HIT: cap 8 ตัวใกล้สุด + ยิงทุก 0.2s (batchTitans เรียงตามระยะแล้ว)
-            if not _G.LastHitTime or (currentTime - _G.LastHitTime >= 0.2) then
-                _G.LastHitTime = currentTime
+            -- [v9 ANTI-BAN] AURA HIT: cap COMBAT_HIT_CAP ตัวใกล้สุด + interval + jitter
+            if not _G._NextHit or currentTime >= _G._NextHit then
+                _G._NextHit = currentTime + COMBAT_HIT_INT + math.random() * 0.06
                 local hitN = 0
                 for _, target in ipairs(batchTitans) do
                     hitN = hitN + 1
-                    if hitN > 8 then break end   -- ยิงแค่ 8 ตัวใกล้สุด
+                    if hitN > COMBAT_HIT_CAP then break end
                     pcall(function() bindable:Invoke("CALL", "RegisterHitOnly", target.nape) end)
                 end
                 pcall(function() bindable:Invoke("CALL", "ResetState") end)
