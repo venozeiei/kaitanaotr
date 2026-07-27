@@ -71,6 +71,7 @@ local DEFAULT_CONFIG = {
     --    SlashInterval สูง = ฟันช้าลง / HitInterval สูง = ลง hitbox ห่างขึ้น / HitCap = จำนวนตัวต่อครั้ง
     --    อยากปลอดภัยกว่านี้: เพิ่ม interval เป็น 0.3 / ลด HitCap เป็น 4
     CombatSlashInterval = 0.25, CombatHitInterval = 0.28, CombatHitCap = 6,
+    CombatTeleportDeadzone = 120,   -- [v9] teleport mode: เป้าขยับเกินค่านี้ถึงย้ายตาม (สูง=สมูท)
     _SlotCacheTTL = 4,   -- [v9] TTL (วิ) ของ slot-data cache กลาง — สูง=remote น้อยลงแต่ข้อมูลสดช้าลง
     Disable3D = false, Modifiers = {"No Perks", "No Skills", "No Memories", "Nightmare", "Oddball", "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"}, HitAll = true
 }
@@ -2996,6 +2997,21 @@ local function moveTo(hrp, targetPos)
     end
 end
 
+-- ⚡ [v9] TELEPORT MODE — ไป "โผล่" ที่เป้าทันที (ไม่ bininterpolate = ไม่กระชากภาพ)
+-- 🐛 ปัญหาเดิม: moveTo ใช้ BodyPosition บินไปหาไททันไกลๆ → เร่งพุ่ง = ภาพกระชาก
+--    + server เห็นความเร็วผิดปกติ = เสี่ยง shadow ban
+-- ✅ แก้: teleport ตรง (set CFrame) แล้วให้ BodyPosition ล็อคค้างที่จุดนั้น
+--    → ไม่มี fly animation, ไม่ตกระหว่างฟัน, ตำแหน่งนิ่งสนิท
+local function teleportTo(hrp, targetPos)
+    if not hrp then return end
+    if hrp.Anchored then hrp.Anchored = false end
+    local bp, bg = ensureAntiFall(hrp)
+    hrp.CFrame = CFrame.new(targetPos)          -- 🚀 โผล่ทันที
+    if bp then bp.Position = targetPos end        -- 🔒 ล็อคค้างไว้ ไม่ให้ตก
+    if bg then bg.CFrame = CFrame.new(targetPos, targetPos + Vector3.new(0, 0, -1)) end
+    _G._VenozLastTarget = targetPos
+end
+
 -- Ice Burst filter
 local function isIceBurst(titan)
     if not titan or not titan.Parent then return false end
@@ -3436,6 +3452,10 @@ task.spawn(function()
     local COMBAT_SLASH_INT = tonumber(Config.CombatSlashInterval) or 0.25
     local COMBAT_HIT_INT   = tonumber(Config.CombatHitInterval)   or 0.28
     local COMBAT_HIT_CAP   = tonumber(Config.CombatHitCap)        or 6
+    -- [v9] TELEPORT deadzone: เป้าขยับเกินกี่ studs ถึง teleport ตาม
+    --   สูง = teleport น้อยครั้ง = สมูทสุด แต่ถ้าไททันวิ่งหนีอาจตีไม่ถึงชั่วขณะ
+    --   (hitbox รัศมี 400 → 120 ปลอดภัยหายห่วง)
+    local COMBAT_TP_DEADZONE = tonumber(Config.CombatTeleportDeadzone) or 120
 
     -- [v9 PERF] cache findCarts ระยะสั้น (escort เรียกหลายครั้ง/เฟรม → workspace scan ซ้ำ)
     local _cartCache, _cartCacheTime = nil, 0
@@ -3797,8 +3817,6 @@ task.spawn(function()
                 targetPos = convoyPos + Vector3.new(0, 6, 0)
             end
 
-            -- 🛡️ STABLE HOVER: BodyPosition ล็อคตำแหน่ง (ไม่กระตุก)
-            --   Deadzone ใหญ่ 80 studs → ไม่ต้อง update ตาม titan ทุก frame
             local distToTarget = (currentRoot.Position - targetPos).Magnitude
 
             if currentRoot.Anchored then
@@ -3806,10 +3824,21 @@ task.spawn(function()
             end
             ensureAntiFall(currentRoot)
 
-            -- 🐎 escort = deadzone 2 (ตามรถแน่น) / combat ปกติ 80 (นิ่ง)
-            local deadzone = isEscortGuard and 2 or 80
-            if distToTarget > deadzone then
-                moveTo(currentRoot, targetPos)
+            if isEscortGuard then
+                -- 🐎 ESCORT: เกาะรถที่กำลังวิ่ง → ใช้ physics ตามแบบเดิม (teleport ไม่เหมาะกับรถเคลื่อนที่)
+                if distToTarget > 2 then
+                    moveTo(currentRoot, targetPos)
+                end
+            else
+                -- ⚡ [v9] TELEPORT MODE: ไปโผล่บนหัวไททันเป้าหมาย +250 ทันที
+                --   • teleport เฉพาะตอน "เปลี่ยนเป้า" หรือ "เป้าหนีไกลเกิน deadzone"
+                --     → ล็อคตัวเดียวฆ่าจนตาย แล้วค่อยโผล่ไปตัวถัดไป = สมูท ไม่กระชาก
+                --   • ระหว่างฟัน BodyPosition ล็อคนิ่ง (hitbox register รัศมี 400 ตีถึงอยู่แล้ว)
+                local switchedTarget = (_G._LockedTitan ~= _G._TPLastTitan)
+                if switchedTarget or distToTarget > COMBAT_TP_DEADZONE then
+                    teleportTo(currentRoot, targetPos)
+                    _G._TPLastTitan = _G._LockedTitan
+                end
             end
         end
         
