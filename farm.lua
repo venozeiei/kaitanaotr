@@ -299,9 +299,10 @@ function VZC.Escalate()
             VZC.VelBoost, (VZC.KillVelMin or 99999) * VZC.VelBoost, (VZC.KillVelMax or 99999) * VZC.VelBoost))
     end
 end
+-- ⏱️ Time_Difference — ต้องส่ง 0 เป๊ะเหมือน UI2
+--   ถ้าส่งค่าอื่น server จะคำนวณความเร็วใหม่จาก td แล้วหั่นดาเมจ (ได้ 359/1032 แทนที่จะตัดคอ)
 function VZC.TD()
-    if not VZC.Enabled then return 0 end
-    return math.random() * 0.05
+    return tonumber(VZC.HitTD) or 0
 end
 function VZC.Gap(base)
     base = base or VZC.AttackInterval
@@ -8711,7 +8712,7 @@ local function GetTargets(limit)
     local sorted = {}
     -- [CHICKEN] ⭐ ยิงเฉพาะไททันที่ "บินถึงจริง" แล้วเท่านั้น
     --   เดิมยิงทุกตัวไม่สนระยะ → ถ้ายังบินไม่ถึง ดาเมจบัคตีไม่เข้า + เปลือง remote ฟรี
-    local maxSq = (VZC.HitRange or 200) ^ 2
+    local maxSq = VZC.Enabled and ((VZC.HitRange or 200) ^ 2) or math.huge   -- [CHICKEN] ปิดเมื่อ Enabled=false
     for i = 1, #ActiveTitans do
         local entry = ActiveTitans[i]
         local nape = entry.nape
@@ -8745,17 +8746,17 @@ local function AttackAllTitans()
     local safe = elapsed >= (G.SafetyTime or 60)
     local killHits = VZC.Cap(G.KillHits or 1)   -- [CHICKEN]
 
-    -- [CHICKEN] ยังบินไม่ถึงไททันตัวไหนเลย → ยังไม่ฟัน (รอให้ถึงก่อน)
-    if #GetTargets(killHits) == 0 then return end
+    -- [CHICKEN] ยังบินไม่ถึงไททันตัวไหนเลย → ยังไม่ฟัน (เฉพาะโหมดไก่)
+    if VZC.Enabled and #GetTargets(killHits) == 0 then return end
     -- [CHICKEN] กำลังเติม/สลับดาบอยู่ → หยุดฟัน (ฟันตอนดาบพัง = ดาเมจไม่เข้า + เปลือง remote)
     if getgenv().VenozBladeBusy then return end
-    -- [CHICKEN] ⭐ ยังบินไม่ถึงหัวไททัน / ยังไม่นิ่งครบเวลา → ยังไม่ฟัน
-    if not getgenv().VenozReady then return end
+    -- [CHICKEN] ⭐ ต้องบินถึง+นิ่งก่อนฟัน (เฉพาะโหมดไก่ — ปิดเมื่อ Enabled=false)
+    if VZC.Enabled and not getgenv().VenozReady then return end
 
     -- [CHICKEN] 💨 DIVE IMPULSE — ให้ตัวละคร "มีความเร็วจริง" พุ่งเข้าหาคอก่อนฟัน
     --   วาร์ปแล้วล็อกนิ่ง = AssemblyLinearVelocity 0 → ถ้าเกมคิดดาเมจจากความเร็วจริงด้วย
     --   จะได้แค่ดาเมจน้อย (เช่น 359) แทนที่จะตัดคอตาย
-    if VZC.DiveImpulse ~= false then
+    if VZC.Enabled and VZC.DiveImpulse ~= false then
         pcall(function()
             local ch = Player.Character
             local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
@@ -8943,6 +8944,7 @@ local function FarmUpdate()
         --   ก่อนถึงจะเริ่มฟัน — กันเคส "ยังบินไม่ถึงแล้วตี" ที่ดาเมจไม่เข้า
         do
             local gg = getgenv()
+            if not VZC.Enabled then gg.VenozReady = true end   -- [CHICKEN] ไม่ใช่โหมดไก่ = ฟันได้เลย
             local arriveR = VZC.ArriveRadius or 30
             local settleT = VZC.SettleTime or 1.5
             local dist = (hrp.Position - tp).Magnitude
