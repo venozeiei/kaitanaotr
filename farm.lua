@@ -105,10 +105,104 @@ player.Idled:Connect(function()
 end)
 ----------------------------------------------------------------------
 
-local repo="https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/"
-local Library=loadstring(game:HttpGet(repo.."Library.lua"))()
-local ThemeManager=loadstring(game:HttpGet(repo.."addons/ThemeManager.lua"))()
-local SaveManager=loadstring(game:HttpGet(repo.."addons/SaveManager.lua"))()
+-- ═══════════════════════════════════════════════════════════════
+-- 🚫 HEADLESS UI SHIM — ไม่มีหน้าต่าง ไม่โหลด library จากเน็ต
+-- ═══════════════════════════════════════════════════════════════
+--   แทน LinoriaLib ด้วยของปลอมที่เก็บค่า + เรียก Callback เหมือนกันเป๊ะ
+--   → logic ทุกอย่างของสคริปเดิมทำงานครบ แต่ไม่สร้าง GUI ให้เปลืองแรม/ไม่มีปุ่มให้กด
+--   → auto-pilot สั่ง SetValue() = เหมือนคนกดปุ่มจริง
+-- ═══════════════════════════════════════════════════════════════
+local Library, ThemeManager, SaveManager
+do
+    local noop = function() end
+    local anyMethod = { __index = function() return noop end }
+
+    getgenv().Toggles = {}
+    getgenv().Options = {}
+    local Toggles, Options = getgenv().Toggles, getgenv().Options
+
+    local function fire(cb, v)
+        if type(cb) == "function" then
+            local ok, err = pcall(cb, v)
+            if not ok then warn("[UI-SHIM] callback error: " .. tostring(err)) end
+        end
+    end
+
+    local function makeElement(name, opts, store)
+        local e = setmetatable({}, anyMethod)
+        opts = opts or {}
+        e.Value   = opts.Default
+        e.Values  = opts.Values
+        e.Text    = opts.Text
+        e.Type    = opts.Type
+        e.Visible = true
+        function e:SetValue(v)
+            self.Value = v
+            fire(opts.Callback, v)
+            return self
+        end
+        function e:SetValues(list) self.Values = list return self end
+        function e:SetText(t) self.Text = t return self end
+        function e:OnChanged(f) opts.Callback = f return self end
+        function e:AddKeyPicker() return setmetatable({}, anyMethod) end
+        if name and store then store[name] = e end
+        return e
+    end
+
+    local Groupbox = {}
+    Groupbox.__index = function(t, k)
+        return rawget(Groupbox, k) or noop
+    end
+    function Groupbox.new()
+        return setmetatable({}, Groupbox)
+    end
+    function Groupbox:AddToggle(n, o)   o = o or {}; o.Type = "Toggle";   return makeElement(n, o, getgenv().Toggles) end
+    function Groupbox:AddSlider(n, o)   o = o or {}; o.Type = "Slider";   return makeElement(n, o, getgenv().Options) end
+    function Groupbox:AddDropdown(n, o) o = o or {}; o.Type = "Dropdown"; return makeElement(n, o, getgenv().Options) end
+    function Groupbox:AddInput(n, o)    o = o or {}; o.Type = "Input";    return makeElement(n, o, getgenv().Options) end
+    function Groupbox:AddButton(a, b)
+        local e = setmetatable({}, anyMethod)
+        e.Func = (type(a) == "function") and a or b
+        function e:DoClick() fire(self.Func) end
+        return e
+    end
+    function Groupbox:AddLabel(txt) local e = setmetatable({}, anyMethod); e.Text = txt
+        function e:SetText(t) self.Text = t return self end
+        return e end
+    function Groupbox:AddDivider() return setmetatable({}, anyMethod) end
+
+    local Tabbox = {}
+    Tabbox.__index = Tabbox
+    function Tabbox:AddTab() return Groupbox.new() end
+
+    local Tab = {}
+    Tab.__index = Tab
+    function Tab:AddLeftGroupbox()  return Groupbox.new() end
+    function Tab:AddRightGroupbox() return Groupbox.new() end
+    function Tab:AddLeftTabbox()    return setmetatable({}, Tabbox) end
+    function Tab:AddRightTabbox()   return setmetatable({}, Tabbox) end
+
+    Library = setmetatable({
+        Toggled = true,
+        ToggleKeybind = nil,
+        -- Holder.Visible = true เสมอ (โค้ดเขามีลูปรอค่านี้ ถ้า false จะค้าง)
+        Holder = { Visible = true, Enabled = true },
+    }, anyMethod)
+    function Library:CreateWindow()
+        local w = setmetatable({ Holder = self.Holder }, anyMethod)
+        function w:AddTab() return setmetatable({}, Tab) end
+        return w
+    end
+    function Library:Notify(msg)
+        local c = getgenv().VenozChicken
+        if not (c and c.SilentNotify) then print("[UI2] " .. tostring(msg)) end
+    end
+    function Library:Toggle() end
+    function Library:Unload() end
+
+    ThemeManager = setmetatable({}, anyMethod)
+    SaveManager  = setmetatable({}, anyMethod)
+end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -6916,9 +7010,34 @@ task.spawn(function()
     dflt("BoostAmount", 1)       dflt("BoostDelay", 1)
     dflt("FailedSafe", false)    dflt("FailedSafeDelay", 1200)
     dflt("FailedSafeActions", {"Teleport to Lobby"})
-    dflt("HideUI", false)
+    dflt("SilentNotify", false)
 
-    task.wait(8)   -- รอ UI + ข้อมูลโหลดครบ
+    -- ═══ 🚪 MAIN MENU: เลือกสลอต + เข้า Lobby ด้วย remote ทันที ═══
+    --     (วิธีเดิมของเรา — ไม่ต้องกดปุ่ม ไม่ต้องรอ UI)
+    if IsMainmenuLobby() and VZ.AutoSelectSlot then
+        task.spawn(function()
+            local GETr
+            pcall(function()
+                GETr = game:GetService("ReplicatedStorage")
+                    :WaitForChild("Assets", 15):WaitForChild("Remotes", 15):WaitForChild("GET", 15)
+            end)
+            if not GETr then warn("[AUTO] ⛔ ไม่พบ GET remote — เลือกสลอตไม่ได้") return end
+            task.wait(2)
+            local tries = 0
+            while game.PlaceId == MAIN_MENU_ID and tries < 30 do
+                tries = tries + 1
+                pcall(function() GETr:InvokeServer("Functions", "Select", VZ.Slot) end)
+                task.wait(1)
+                pcall(function() GETr:InvokeServer("Functions", "Teleport", "Lobby") end)
+                print(string.format("[AUTO] 🚪 Select %s + Teleport Lobby (ครั้งที่ %d)",
+                    tostring(VZ.Slot), tries))
+                task.wait(10)
+            end
+            if game.PlaceId ~= MAIN_MENU_ID then print("[AUTO] ✅ เข้า Lobby แล้ว") end
+        end)
+    end
+
+    task.wait(8)   -- รอ UI + ข้อมูลโหลดครบ (สำหรับงานที่เหลือ)
 
     -- ⚠️ LinoriaLib: Toggle อยู่ใน `Toggles` ส่วน Slider/Dropdown อยู่ใน `Options`
     --    (เดิมหาแต่ใน Options → เปิด toggle ไม่ติดเลยซักตัว)
@@ -6951,7 +7070,6 @@ task.spawn(function()
     -- ═══ ตั้งค่าที่ใช้ร่วมทุกที่ ═══
     setv("FPSLimitSlider", VZ.FPS)
     if VZ.LowGraphic then setv("RenderModeDropdown", { ["Low Graphic"] = true }) end
-    if VZ.HideUI then setv("HideUIToggle", true) end
 
     -- ══════════════════ 🎬 MAIN MENU ══════════════════
     if IsMainmenuLobby() then
@@ -6962,56 +7080,9 @@ task.spawn(function()
             if #VZ.CodeList > 0 then setv("CodeListDropdown", tset(VZ.CodeList)) end
             setv("AutoRedeemToggle", true)
         end
-        if VZ.AutoSelectSlot then
-            setv("SlotSelectionDropdown", VZ.Slot)
-            setv("SelectDelaySlider", VZ.SelectDelay)
-            local okTgl = setv("AutoClickSelectToggle", true)
-            print("[AUTO] " .. (okTgl and "✅ เปิด Auto Slot [SELECT] แล้ว" or "⚠️ toggle ไม่ติด — ใช้ตัวสำรอง"))
-
-            -- 🛡️ ตัวสำรอง: กดปุ่ม SELECT เอง + ยิง remote (วิธีเดิมที่ใช้ได้ชัวร์)
-            task.spawn(function()
-                local GS  = game:GetService("GuiService")
-                local VIM = game:GetService("VirtualInputManager")
-                local RS  = game:GetService("ReplicatedStorage")
-                local GETr
-                pcall(function()
-                    GETr = RS:WaitForChild("Assets", 10):WaitForChild("Remotes", 10):WaitForChild("GET", 10)
-                end)
-                local tries = 0
-                while game.PlaceId == MAIN_MENU_ID and tries < 40 do
-                    tries = tries + 1
-                    -- 1) กดปุ่ม SELECT ของสลอตที่เลือก
-                    pcall(function()
-                        local ts = Player.PlayerGui:FindFirstChild("Interface")
-                        ts = ts and ts:FindFirstChild("Title_Screen")
-                        local slots = ts and ts:FindFirstChild("Slots")
-                        local slot = slots and slots:FindFirstChild(VZ.Slot)
-                        local btn = slot and slot:FindFirstChild("Select_" .. VZ.Slot)
-                        if btn and btn.Visible then
-                            GS.SelectedObject = btn
-                            task.wait(0.05)
-                            VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-                            task.wait(0.05)
-                            VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-                            task.wait(0.05)
-                            GS.SelectedObject = nil
-                        end
-                    end)
-                    task.wait(2)
-                    if game.PlaceId ~= MAIN_MENU_ID then break end
-                    -- 2) remote (วิธีเดิมของเรา: Select แล้ว Teleport เข้า Lobby)
-                    if GETr then
-                        pcall(function() GETr:InvokeServer("Functions", "Select", VZ.Slot) end)
-                        task.wait(1)
-                        pcall(function() GETr:InvokeServer("Functions", "Teleport", "Lobby") end)
-                    end
-                    task.wait(8)
-                end
-                if game.PlaceId ~= MAIN_MENU_ID then
-                    print("[AUTO] ✅ เข้า Lobby แล้ว")
-                end
-            end)
-        end
+        -- (การเลือกสลอตยิง remote ไปแล้วด้านบน — ตรงนี้แค่ตั้งค่า UI ให้ตรงกัน)
+        setv("SlotSelectionDropdown", VZ.Slot)
+        setv("SelectDelaySlider", VZ.SelectDelay)
 
     -- ══════════════════ 🏠 LOBBY ══════════════════
     elseif IsLobbyLobby() then
@@ -7101,7 +7172,7 @@ task.spawn(function()
             setv("WavesDelaySlider", VZ.WavesDelay)
             setv("AutoWavesToggle", true)
 
-        elseif VZ.AutoMission and has("AutoStartMissionToggle") then
+        elseif VZ.AutoMission and not (VZ.Brain ~= false) and has("AutoStartMissionToggle") then
             print(string.format("[AUTO] 🗺️ สร้างด่าน %s / %s / %s",
                 tostring(VZ.Mission), tostring(VZ.Objective), tostring(VZ.Difficulty)))
             setv("MissionDropdown", VZ.Mission)
@@ -7152,6 +7223,377 @@ task.spawn(function()
 
         print(string.format("[AUTO] ✅ ฟาร์มแล้ว | โหมดไก่=%s | ตี %d ตัว ทุก ~%.1f วิ",
             tostring(VZ.Enabled), VZ.HitCap, VZ.AttackInterval))
+    end
+end)
+
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🧠 VENOZ BRAIN — ยก logic บอท "ไก่ตัน" ตัวเก่ามาทั้งชุด
+-- ═══════════════════════════════════════════════════════════════
+--   1) หลุดเข้า Docks/Stohess/Trade → วาร์ปกลับ Lobby
+--   2) Lobby: ขาย perk → จุติ (อ่าน talent ที่ server offer = 2-3 call) → สร้างด่าน Chapel เอง
+--   3) Mission: กันตกแมพ + ตอนจบเลือก LEAVE (perk เต็ม/พร้อมจุติ) หรือ RETRY
+--   4) เฝ้าสถานะ Shadow Ban + ป้ายสถานะกลางจอ
+--   ปิด: getgenv().VenozChicken.Brain = false
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    local VZ = getgenv().VenozChicken or {}
+    if VZ.Brain == false then return end
+    if VZ.ForceChapel == nil then VZ.ForceChapel = true end
+    if VZ.ShowStatus  == nil then VZ.ShowStatus  = true end
+    VZ.PerkSellTarget = tonumber(VZ.PerkSellTarget) or 200
+    VZ.PrestigeTarget = tonumber(VZ.PrestigeTarget) or 5
+    VZ.GoldReq = VZ.GoldReq or {0, 0, 0, 0, 0}
+
+    local RSb  = game:GetService("ReplicatedStorage")
+    local plrB = game:GetService("Players").LocalPlayer
+    local GETb
+    pcall(function()
+        GETb = RSb:WaitForChild("Assets", 20):WaitForChild("Remotes", 20):WaitForChild("GET", 20)
+    end)
+    if not GETb then warn("[BRAIN] ⛔ ไม่พบ GET remote") return end
+
+    local SOCIAL_HUB = {
+        [17688739434] = true, [110415968652032] = true,   -- Docks
+        [15824912319] = true, [139092911630535] = true,   -- Stohess
+        [14932214603] = true,                             -- Trade Lobby
+    }
+
+    -- ── slot data (cache 8 วิ) ──
+    local cache, cacheT = nil, 0
+    local function getSlot(force)
+        local now = os.clock()
+        if not force and cache and (now - cacheT) < 8 then return cache end
+        local ok, d = pcall(function() return GETb:InvokeServer("Data", "Copy") end)
+        if ok and type(d) == "table" and type(d.Slots) == "table" then
+            local key = d.Current_Slot or plrB:GetAttribute("Slot") or VZ.Slot or "A"
+            local sd = d.Slots[key]
+            if sd then cache, cacheT = sd, now end
+        end
+        return cache
+    end
+    local function perkInfo()
+        local sd = getSlot()
+        local uuids, total = {}, 0
+        if sd and sd.Perks and type(sd.Perks.Storage) == "table" then
+            for k, v in pairs(sd.Perks.Storage) do
+                total = total + 1
+                if type(v) == "table" and v.Name and not v.Equipped then table.insert(uuids, k) end
+            end
+        end
+        return #uuids, total, uuids
+    end
+    local function progress()
+        local sd = getSlot()
+        local pg = sd and sd.Progression
+        if not pg then return 0, 0, 0, 0, 0 end
+        local gold = (sd.Currency and tonumber(sd.Currency.Gold)) or 0
+        return tonumber(pg.Level) or 0, tonumber(pg.Prestige) or 0,
+               tonumber(pg.XP) or 0, tonumber(pg.Max_XP) or 0, gold
+    end
+    local function isTan()
+        local lv, pr, xp, mx = progress()
+        return (lv >= (100 + pr * 25) and mx > 0 and xp >= mx), pr
+    end
+    local function clickBtn(btn)
+        if not btn then return false end
+        local GS, VIM = game:GetService("GuiService"), game:GetService("VirtualInputManager")
+        return pcall(function()
+            GS.SelectedObject = btn
+            task.wait(0.05)
+            VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+            task.wait(0.05)
+            VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+            task.wait(0.05)
+            GS.SelectedObject = nil
+        end)
+    end
+
+    -- ── 🛡️ SB WATCHER (ไม่ยิง remote) ──
+    task.spawn(function()
+        while true do
+            pcall(function()
+                local bl, trd = plrB:GetAttribute("Blacklisted"), plrB:GetAttribute("Trades")
+                if bl ~= nil or trd ~= nil then
+                    local ok = not (bl == true or trd == 0)
+                    if getgenv().VenozSB ~= ok then
+                        getgenv().VenozSB = ok
+                        if ok then print("[SB] ✅ ปกติ")
+                        else warn("[SB] 🚨 โดน Shadow Ban!") end
+                    end
+                end
+            end)
+            task.wait(10)
+        end
+    end)
+
+    -- ── 📊 ป้ายสถานะกลางจอ ──
+    local statusLbl
+    if VZ.ShowStatus then
+        pcall(function()
+            local parent = (typeof(gethui) == "function" and gethui()) or game:GetService("CoreGui")
+            local old = parent:FindFirstChild("VenozChickenStatus")
+            if old then old:Destroy() end
+            local sg = Instance.new("ScreenGui")
+            sg.Name = "VenozChickenStatus"; sg.ResetOnSpawn = false
+            sg.IgnoreGuiInset = true; sg.DisplayOrder = 9999; sg.Parent = parent
+            statusLbl = Instance.new("TextLabel")
+            statusLbl.AnchorPoint = Vector2.new(0.5, 0)
+            statusLbl.Position = UDim2.new(0.5, 0, 0, 8)
+            statusLbl.Size = UDim2.new(0, 620, 0, 96)
+            statusLbl.BackgroundTransparency = 1
+            statusLbl.RichText = true
+            statusLbl.Font = Enum.Font.GothamBold
+            statusLbl.TextSize = 15
+            statusLbl.TextColor3 = Color3.fromRGB(240, 240, 240)
+            statusLbl.TextStrokeTransparency = 0
+            statusLbl.Text = "🐔 VENOZ"
+            statusLbl.Parent = sg
+        end)
+    end
+    local function setStatus(txt)
+        getgenv().VenozAction = txt
+        if not statusLbl then return end
+        pcall(function()
+            local lv, pr, xp, mx, gold = progress()
+            local sellable = perkInfo()
+            local sb = (getgenv().VenozSB == false) and "<font color='#ff3333'>❌ โดนแบน</font>"
+                    or (getgenv().VenozSB == true) and "<font color='#33ff99'>✅ ปกติ</font>"
+                    or "<font color='#aaaaaa'>⏳</font>"
+            statusLbl.Text = string.format(
+                "🐔 <b><font color='#b46bff'>VENOZ CHICKEN</font></b>   🛡️ %s\n" ..
+                "🎖️ Lv <b>%d/%d</b>  👑 <b>P.%d</b>  📊 XP %d/%d\n" ..
+                "💰 %d   ⚔️ Perk %d/%d\n" ..
+                "<font color='#00e5ff'>%s</font>",
+                sb, lv, 100 + pr * 25, pr, xp, mx, gold,
+                sellable, VZ.PerkSellTarget, tostring(txt))
+        end)
+    end
+
+    -- ── 👑 จุติแบบบอทเก่า: อ่าน talent ที่ server offer → ยิงตัวเดียว ──
+    local function doPrestige(pr)
+        setStatus("👑 กำลังจุติ...")
+        pcall(function() if Toggles and Toggles.PrestigeToggle then Toggles.PrestigeToggle:SetValue(false) end end)
+
+        local keyToTag = {}
+        pcall(function()
+            for _, d in ipairs(RSb:GetDescendants()) do
+                if d:IsA("ModuleScript") and d.Name == "Memories" then
+                    local okM, M = pcall(require, d)
+                    if okM and type(M) == "table" and type(M.Talents) == "table" then
+                        for _, cat in pairs(M.Talents) do
+                            if type(cat) == "table" then
+                                for k, v in pairs(cat) do
+                                    if type(v) == "table" and v.Tag then keyToTag[tostring(k)] = v.Tag end
+                                end
+                            end
+                        end
+                    end
+                    break
+                end
+            end
+        end)
+
+        pcall(function() GETb:InvokeServer("S_Equipment", "Talents") end)
+        task.wait(0.3)
+        local sd = getSlot(true)
+        local order, seen = {}, {}
+        local function push(k)
+            local tag = keyToTag[tostring(k)]
+            if not tag and type(k) == "string" and #k > 2 then tag = k end
+            if tag and not seen[tag] then seen[tag] = true; order[#order + 1] = tag end
+        end
+        if sd and type(sd.Next_Talents) == "table" then
+            for _, k in pairs(sd.Next_Talents) do
+                if type(k) == "table" then for _, k2 in pairs(k) do push(k2) end else push(k) end
+            end
+        end
+        if #order == 0 then
+            for _, t in pairs(keyToTag) do if not seen[t] then seen[t] = true; order[#order + 1] = t end end
+        end
+
+        print(string.format("[BRAIN] 👑 จุติ P%d → P%d (offer %d ตัว)", pr, pr + 1, #order))
+        local before = pr
+        for i, tag in ipairs(order) do
+            pcall(function()
+                GETb:InvokeServer("S_Equipment", "Prestige",
+                    { Boosts = VZ.PrestigeBoost or "Gold Boost", Talents = tag })
+            end)
+            task.wait(0.3 + math.random() * 0.2)
+            local _, nowP = progress()
+            if nowP > before then
+                print(string.format("[BRAIN] ✅ จุติสำเร็จที่ call %d (talent %s)", i, tostring(tag)))
+                return true
+            end
+            getSlot(true)
+            if i >= 12 then break end
+        end
+        warn("[BRAIN] ⚠️ จุติไม่ติด — รอรอบหน้า")
+        return false
+    end
+
+    -- ── 🗺️ สร้างด่าน Chapel เอง (มี fallback ความยากแบบบอทเก่า) ──
+    local function createMission()
+        setStatus("🗺️ กำลังสร้างด่าน Chapel...")
+        pcall(function()
+            local ch = plrB.Character
+            local root = ch and ch:FindFirstChild("HumanoidRootPart")
+            if root then
+                for _, prt in ipairs(ch:GetDescendants()) do
+                    if prt:IsA("BasePart") then prt.CanCollide = false end
+                end
+                root.CFrame = CFrame.new(233.395, 8.865, 37.525)
+                root.Anchored = true; task.wait(1); root.Anchored = false
+            end
+        end)
+        pcall(function() GETb:InvokeServer("S_Missions", "Leave") end)
+        task.wait(1)
+
+        local mapData = {
+            Name = "Chapel", Type = "Missions",
+            Objective = VZ.Objective or "Skirmish",
+            Difficulty = VZ.Difficulty or "Aberrant++",
+            Modifiers = VZ.Modifiers or {},
+        }
+        local res
+        pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
+        if res == nil then
+            local fallbacks = { "Severe", "Aberrant", "Hard", "Normal", "Easy" }
+            for _, diff in ipairs(fallbacks) do
+                mapData.Difficulty = diff
+                pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
+                if res ~= nil then break end
+                task.wait(0.5)
+            end
+        end
+        if res ~= nil then
+            pcall(function() GETb:InvokeServer("S_Missions", "Modify", mapData.Difficulty) end)
+            pcall(function() GETb:InvokeServer("S_Missions", "Start") end)
+            print("[BRAIN] ✅ สร้างด่าน Chapel (" .. tostring(mapData.Difficulty) .. ") → เริ่ม")
+            setStatus("🚀 เข้าด่าน...")
+            return true
+        end
+        warn("[BRAIN] ⚠️ สร้างด่านไม่ได้ — รอรอบหน้า")
+        return false
+    end
+
+    -- ── 🛡️ กันตกแมพ (เฉพาะในด่าน) ──
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            if not IsLobbyLobby() and not IsMainmenuLobby() then
+                pcall(function()
+                    local ch = plrB.Character
+                    local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+                    local hum = ch and ch:FindFirstChildWhichIsA("Humanoid")
+                    if hrp and hum and hum.Health > 0 and hrp.Position.Y < -50 then
+                        hrp.CFrame = CFrame.new(hrp.Position.X, 150, hrp.Position.Z)
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                    end
+                end)
+            end
+        end
+    end)
+
+    -- ═══════════ MAIN LOOP ═══════════
+    local lastSell, lastMission = 0, 0
+    print("[BRAIN] 🧠 เริ่มทำงาน (Chapel-only | ขาย perk ที่ " .. tostring(VZ.PerkSellTarget) .. ")")
+
+    while true do
+        task.wait(8)
+        pcall(function()
+            -- 1) หลุดเข้า social hub → กลับ Lobby
+            if SOCIAL_HUB[game.PlaceId] then
+                setStatus("🚪 อยู่ hub → กลับ Lobby")
+                pcall(function() GETb:InvokeServer("Functions", "Teleport", "Lobby") end)
+                task.wait(10)
+                return
+            end
+
+            if IsLobbyLobby() then
+                local lv, pr, xp, mx, gold = progress()
+                local sellable, total, uuids = perkInfo()
+                local tan = (lv >= (100 + pr * 25) and mx > 0 and xp >= mx)
+
+                -- 2) ล็อคด่าน Chapel
+                if VZ.ForceChapel and Options and Options.MissionDropdown
+                   and Options.MissionDropdown.Value ~= "Chapel" then
+                    Options.MissionDropdown:SetValue("Chapel")
+                end
+
+                -- 3) ขาย perk ก่อนเสมอ
+                if sellable >= VZ.PerkSellTarget and (os.clock() - lastSell) > 20 then
+                    lastSell = os.clock()
+                    setStatus(string.format("🗑️ ขาย perk %d ชิ้น", sellable))
+                    print(string.format("[BRAIN] 🗑️ ขาย perk %d (ทั้งหมด %d | เป้า %d)",
+                        sellable, total, VZ.PerkSellTarget))
+                    pcall(function() GETb:InvokeServer("S_Equipment", "Delete", "Perk", uuids) end)
+                    task.wait(1.5)
+                    getSlot(true)
+                    if perkInfo() >= VZ.PerkSellTarget then
+                        for _, id in ipairs(uuids) do
+                            pcall(function() GETb:InvokeServer("S_Equipment", "Delete", "Perk", { id }) end)
+                            task.wait(0.2)
+                        end
+                        getSlot(true)
+                    end
+                    print("[BRAIN] ✅ ขาย perk เสร็จ")
+                    return
+                end
+
+                -- 4) จุติ (ตัน + ยังไม่ถึงเป้า + ทองถึงเกณฑ์)
+                if tan and pr < VZ.PrestigeTarget then
+                    local reqM = tonumber(VZ.GoldReq[pr + 1]) or 0
+                    if gold >= reqM * 1000000 then
+                        doPrestige(pr)
+                        getSlot(true)
+                        task.wait(3)
+                        return
+                    else
+                        setStatus(string.format("💰 รอทองจุติ %d/%dM", math.floor(gold / 1000000), reqM))
+                        return
+                    end
+                end
+
+                -- 5) สร้างด่าน Chapel (บอทเราคุมเอง ไม่พึ่ง AutoStartMission)
+                if (os.clock() - lastMission) > 20 then
+                    lastMission = os.clock()
+                    createMission()
+                else
+                    setStatus(string.format("🏠 Lobby | Lv%d P%d | Perk %d/%d",
+                        lv, pr, sellable, VZ.PerkSellTarget))
+                end
+
+            elseif not IsMainmenuLobby() then
+                -- 6) ในด่าน: ตอนจบเลือก LEAVE / RETRY
+                local iface = plrB.PlayerGui:FindFirstChild("Interface")
+                local rewards = iface and iface:FindFirstChild("Rewards")
+                if rewards and rewards.Visible then
+                    local sellable = perkInfo()
+                    local tan, pr = isTan()
+                    local wantLeave = (sellable >= VZ.PerkSellTarget) or (tan and pr < VZ.PrestigeTarget)
+                    if wantLeave then
+                        getgenv().StartRejoin = false
+                        local b = rewards:FindFirstChild("Main")
+                        b = b and b:FindFirstChild("Info"); b = b and b:FindFirstChild("Main")
+                        b = b and b:FindFirstChild("Buttons")
+                        local leave = b and (b:FindFirstChild("Leave_2") or b:FindFirstChild("Leave"))
+                        if leave then
+                            print(string.format("[BRAIN] 🚪 LEAVE — perk=%d/%d ตัน=%s P%d",
+                                sellable, VZ.PerkSellTarget, tostring(tan), pr))
+                            setStatus("🚪 ออกจากด่าน (ไปขาย perk / จุติ)")
+                            clickBtn(leave)
+                            task.wait(5)
+                        end
+                    else
+                        getgenv().StartRejoin = true
+                        setStatus("🔁 RETRY ด่านเดิม")
+                    end
+                else
+                    setStatus(getgenv().VenozAction or "⚔️ ฟาร์ม")
+                end
+            end
+        end)
     end
 end)
 
