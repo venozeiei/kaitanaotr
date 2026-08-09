@@ -6920,10 +6920,21 @@ task.spawn(function()
 
     task.wait(8)   -- รอ UI + ข้อมูลโหลดครบ
 
-    local function has(n) return Options ~= nil and Options[n] ~= nil end
+    -- ⚠️ LinoriaLib: Toggle อยู่ใน `Toggles` ส่วน Slider/Dropdown อยู่ใน `Options`
+    --    (เดิมหาแต่ใน Options → เปิด toggle ไม่ติดเลยซักตัว)
+    local function opt(n)
+        local ok, o = pcall(function()
+            if Toggles ~= nil and Toggles[n] ~= nil then return Toggles[n] end
+            if Options ~= nil and Options[n] ~= nil then return Options[n] end
+            return nil
+        end)
+        return ok and o or nil
+    end
+    local function has(n) return opt(n) ~= nil end
     local function setv(n, v)
-        if not has(n) then return false end
-        local ok = pcall(function() Options[n]:SetValue(v) end)
+        local o = opt(n)
+        if not o then return false end
+        local ok = pcall(function() o:SetValue(v) end)
         task.wait(0.2)
         return ok
     end
@@ -6951,13 +6962,55 @@ task.spawn(function()
             if #VZ.CodeList > 0 then setv("CodeListDropdown", tset(VZ.CodeList)) end
             setv("AutoRedeemToggle", true)
         end
-        if VZ.AutoSelectSlot and has("AutoClickSelectToggle") then
+        if VZ.AutoSelectSlot then
             setv("SlotSelectionDropdown", VZ.Slot)
             setv("SelectDelaySlider", VZ.SelectDelay)
-            setv("AutoClickSelectToggle", true)
-            print("[AUTO] ✅ เปิด Auto Slot [SELECT] — รอเข้า Lobby")
-        else
-            warn("[AUTO] ⚠️ ไม่พบ Auto Slot [SELECT]")
+            local okTgl = setv("AutoClickSelectToggle", true)
+            print("[AUTO] " .. (okTgl and "✅ เปิด Auto Slot [SELECT] แล้ว" or "⚠️ toggle ไม่ติด — ใช้ตัวสำรอง"))
+
+            -- 🛡️ ตัวสำรอง: กดปุ่ม SELECT เอง + ยิง remote (วิธีเดิมที่ใช้ได้ชัวร์)
+            task.spawn(function()
+                local GS  = game:GetService("GuiService")
+                local VIM = game:GetService("VirtualInputManager")
+                local RS  = game:GetService("ReplicatedStorage")
+                local GETr
+                pcall(function()
+                    GETr = RS:WaitForChild("Assets", 10):WaitForChild("Remotes", 10):WaitForChild("GET", 10)
+                end)
+                local tries = 0
+                while game.PlaceId == MAIN_MENU_ID and tries < 40 do
+                    tries = tries + 1
+                    -- 1) กดปุ่ม SELECT ของสลอตที่เลือก
+                    pcall(function()
+                        local ts = Player.PlayerGui:FindFirstChild("Interface")
+                        ts = ts and ts:FindFirstChild("Title_Screen")
+                        local slots = ts and ts:FindFirstChild("Slots")
+                        local slot = slots and slots:FindFirstChild(VZ.Slot)
+                        local btn = slot and slot:FindFirstChild("Select_" .. VZ.Slot)
+                        if btn and btn.Visible then
+                            GS.SelectedObject = btn
+                            task.wait(0.05)
+                            VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+                            task.wait(0.05)
+                            VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+                            task.wait(0.05)
+                            GS.SelectedObject = nil
+                        end
+                    end)
+                    task.wait(2)
+                    if game.PlaceId ~= MAIN_MENU_ID then break end
+                    -- 2) remote (วิธีเดิมของเรา: Select แล้ว Teleport เข้า Lobby)
+                    if GETr then
+                        pcall(function() GETr:InvokeServer("Functions", "Select", VZ.Slot) end)
+                        task.wait(1)
+                        pcall(function() GETr:InvokeServer("Functions", "Teleport", "Lobby") end)
+                    end
+                    task.wait(8)
+                end
+                if game.PlaceId ~= MAIN_MENU_ID then
+                    print("[AUTO] ✅ เข้า Lobby แล้ว")
+                end
+            end)
         end
 
     -- ══════════════════ 🏠 LOBBY ══════════════════
