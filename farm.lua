@@ -268,6 +268,7 @@ if VZC.Enabled == nil then VZC.Enabled = true end
 VZC.AttackInterval = tonumber(VZC.AttackInterval) or 2
 VZC.HitCap         = tonumber(VZC.HitCap)         or 3
 VZC.SpearInterval  = tonumber(VZC.SpearInterval)  or 2
+VZC.HitRange       = tonumber(VZC.HitRange)       or 200   -- ต้องบินถึงก่อนถึงจะฟัน (studs)
 
 function VZC.Vel()
     if not VZC.Enabled then return 99999 end
@@ -7242,7 +7243,28 @@ task.spawn(function()
     if VZ.ForceChapel == nil then VZ.ForceChapel = true end
     if VZ.ShowStatus  == nil then VZ.ShowStatus  = true end
     VZ.PerkSellTarget = tonumber(VZ.PerkSellTarget) or 200
+    VZ.PerkSellLow    = tonumber(VZ.PerkSellLow) or 30
     VZ.PrestigeTarget = tonumber(VZ.PrestigeTarget) or 5
+
+    -- 🎯 เป้าขาย perk ตามความยากด่านจริง (logic เดิมของบอทเก่า)
+    --    easy1 normal2 hard3 | severe4 aberrant5 aberrant+6 aberrant++7
+    --    rank 0 (ยังไม่รู้) / <=3 (Hard ลงมา) → PerkSellLow (30) ขายไวไม่ค้าง
+    --    rank >=4 (Severe ขึ้นไป) → PerkSellTarget (ฟาร์มยาว)
+    local DIFF_RANK = {
+        easy = 1, normal = 2, hard = 3, severe = 4,
+        aberrant = 5, ["aberrant+"] = 6, ["aberrant++"] = 7,
+    }
+    local function latchDiff(d)
+        if not d then return end
+        local r = DIFF_RANK[string.lower(tostring(d))]
+        if r then getgenv().VenozDiffRank = r end
+    end
+    local function perkTarget()
+        pcall(function() latchDiff(workspace:GetAttribute("Difficulty")) end)
+        local rank = tonumber(getgenv().VenozDiffRank) or 0
+        if rank >= 4 then return VZ.PerkSellTarget end
+        return VZ.PerkSellLow
+    end
     VZ.GoldReq = VZ.GoldReq or {0, 0, 0, 0, 0}
 
     local RSb  = game:GetService("ReplicatedStorage")
@@ -7366,7 +7388,7 @@ task.spawn(function()
                 "💰 %d   ⚔️ Perk %d/%d\n" ..
                 "<font color='#00e5ff'>%s</font>",
                 sb, lv, 100 + pr * 25, pr, xp, mx, gold,
-                sellable, VZ.PerkSellTarget, tostring(txt))
+                sellable, perkTarget(), tostring(txt))
         end)
     end
 
@@ -7467,6 +7489,7 @@ task.spawn(function()
             end
         end
         if res ~= nil then
+            latchDiff(mapData.Difficulty)
             pcall(function() GETb:InvokeServer("S_Missions", "Modify", mapData.Difficulty) end)
             pcall(function() GETb:InvokeServer("S_Missions", "Start") end)
             print("[BRAIN] ✅ สร้างด่าน Chapel (" .. tostring(mapData.Difficulty) .. ") → เริ่ม")
@@ -7497,7 +7520,7 @@ task.spawn(function()
 
     -- ═══════════ MAIN LOOP ═══════════
     local lastSell, lastMission = 0, 0
-    print("[BRAIN] 🧠 เริ่มทำงาน (Chapel-only | ขาย perk ที่ " .. tostring(VZ.PerkSellTarget) .. ")")
+    print(string.format("[BRAIN] 🧠 เริ่มทำงาน | ขาย perk: Hard ลงมา=%d, Severe+=%d", VZ.PerkSellLow, VZ.PerkSellTarget))
 
     while true do
         task.wait(8)
@@ -7522,15 +7545,16 @@ task.spawn(function()
                 end
 
                 -- 3) ขาย perk ก่อนเสมอ
-                if sellable >= VZ.PerkSellTarget and (os.clock() - lastSell) > 20 then
+                local pTarget = perkTarget()
+                if sellable >= pTarget and (os.clock() - lastSell) > 20 then
                     lastSell = os.clock()
                     setStatus(string.format("🗑️ ขาย perk %d ชิ้น", sellable))
                     print(string.format("[BRAIN] 🗑️ ขาย perk %d (ทั้งหมด %d | เป้า %d)",
-                        sellable, total, VZ.PerkSellTarget))
+                        sellable, total, pTarget))
                     pcall(function() GETb:InvokeServer("S_Equipment", "Delete", "Perk", uuids) end)
                     task.wait(1.5)
                     getSlot(true)
-                    if perkInfo() >= VZ.PerkSellTarget then
+                    if perkInfo() >= pTarget then
                         for _, id in ipairs(uuids) do
                             pcall(function() GETb:InvokeServer("S_Equipment", "Delete", "Perk", { id }) end)
                             task.wait(0.2)
@@ -7561,7 +7585,7 @@ task.spawn(function()
                     createMission()
                 else
                     setStatus(string.format("🏠 Lobby | Lv%d P%d | Perk %d/%d",
-                        lv, pr, sellable, VZ.PerkSellTarget))
+                        lv, pr, sellable, pTarget))
                 end
 
             elseif not IsMainmenuLobby() then
@@ -7571,7 +7595,8 @@ task.spawn(function()
                 if rewards and rewards.Visible then
                     local sellable = perkInfo()
                     local tan, pr = isTan()
-                    local wantLeave = (sellable >= VZ.PerkSellTarget) or (tan and pr < VZ.PrestigeTarget)
+                    local pT = perkTarget()
+                    local wantLeave = (sellable >= pT) or (tan and pr < VZ.PrestigeTarget)
                     if wantLeave then
                         getgenv().StartRejoin = false
                         local b = rewards:FindFirstChild("Main")
@@ -7580,7 +7605,7 @@ task.spawn(function()
                         local leave = b and (b:FindFirstChild("Leave_2") or b:FindFirstChild("Leave"))
                         if leave then
                             print(string.format("[BRAIN] 🚪 LEAVE — perk=%d/%d ตัน=%s P%d",
-                                sellable, VZ.PerkSellTarget, tostring(tan), pr))
+                                sellable, pT, tostring(tan), pr))
                             setStatus("🚪 ออกจากด่าน (ไปขาย perk / จุติ)")
                             clickBtn(leave)
                             task.wait(5)
@@ -8232,14 +8257,20 @@ local function GetTargets(limit)
     local pos = hrp.Position
     
     local sorted = {}
+    -- [CHICKEN] ⭐ ยิงเฉพาะไททันที่ "บินถึงจริง" แล้วเท่านั้น
+    --   เดิมยิงทุกตัวไม่สนระยะ → ถ้ายังบินไม่ถึง ดาเมจบัคตีไม่เข้า + เปลือง remote ฟรี
+    local maxSq = (VZC.HitRange or 200) ^ 2
     for i = 1, #ActiveTitans do
         local entry = ActiveTitans[i]
         local nape = entry.nape
         if nape then
             local dx = nape.Position.X - pos.X
+            local dy = nape.Position.Y - pos.Y
             local dz = nape.Position.Z - pos.Z
-            local distSq = dx*dx + dz*dz
-            sorted[#sorted + 1] = {entry = entry, dist = distSq}
+            local distSq = dx*dx + dy*dy + dz*dz    -- ระยะ 3 มิติ (รวมความสูงที่ลอย)
+            if distSq <= maxSq then
+                sorted[#sorted + 1] = {entry = entry, dist = distSq}
+            end
         end
     end
     table.sort(sorted, function(a,b) return a.dist < b.dist end)
@@ -8261,6 +8292,9 @@ local function AttackAllTitans()
     local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
     local safe = elapsed >= (G.SafetyTime or 60)
     local killHits = VZC.Cap(G.KillHits or 1)   -- [CHICKEN]
+
+    -- [CHICKEN] ยังบินไม่ถึงไททันตัวไหนเลย → ยังไม่ฟัน (รอให้ถึงก่อน)
+    if #GetTargets(killHits) == 0 then return end
 
     if safe then
         SafeFire(POST, "Attacks", "Slash", true)
