@@ -7020,11 +7020,11 @@ task.spawn(function()
     dflt("AutoRaid", false)      dflt("RaidBoss", nil)        dflt("RaidDifficulty", nil)
     dflt("RaidModifiers", {})    dflt("RaidDelay", 0)
     dflt("AutoWaves", false)     dflt("WavesDelay", 0)
+    dflt("AutoBoost", false)     dflt("BoostTypes", {"XP", "Gold"})
+    dflt("MinGemsToBuyBoosts", 4500)  dflt("BoostCheckInterval", 15)
     dflt("AutoSpin", false)      dflt("SpinFamilies", {})     dflt("SpinDelay", 1)
     dflt("StopAtSpinLimit", true)
-    dflt("AutoBoostBuy", false)  dflt("AutoBoostUse", false)  dflt("BoostList", {})
-    dflt("BoostAmount", 1)       dflt("BoostDelay", 1)
-    dflt("FailedSafe", false)    dflt("FailedSafeDelay", 1200)
+        dflt("FailedSafe", false)    dflt("FailedSafeDelay", 1200)
     dflt("FailedSafeActions", {"Teleport to Lobby"})
     dflt("SilentNotify", false)
 
@@ -7130,14 +7130,7 @@ task.spawn(function()
             setv("AutoSpinToggle", true)
         end
 
-        if (VZ.AutoBoostBuy or VZ.AutoBoostUse) and has("Boost_ListDropdown") then
-            print("[AUTO] 🧪 Boost")
-            if #VZ.BoostList > 0 then setv("Boost_ListDropdown", tset(VZ.BoostList)) end
-            setv("Boost_AmountSlider", VZ.BoostAmount)
-            setv("Boost_DelaySlider", VZ.BoostDelay)
-            if VZ.AutoBoostBuy then setv("Boost_PurchaseToggle", true) end
-            if VZ.AutoBoostUse then setv("Boost_AutoUseToggle", true) end
-        end
+        -- [CHICKEN] boost ใช้ VENOZ BOOST SYSTEM (logic บอทเก่า) — ไม่ใช้ของ UI2
 
         if VZ.AutoUpgrade and has("AutoUpgradeBladeToggle") then
             print("[AUTO] ⚙️ อัพเกรดดาบ...")
@@ -7804,6 +7797,143 @@ task.spawn(function()
         task.wait(1)
         if not IsLobbyLobby() and not IsMainmenuLobby() then
             pcall(ensureBlade)
+        end
+    end
+end)
+
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🧪 VENOZ BOOST SYSTEM — logic เดิมของบอทตัวเก่า (ใช้กับโค้ดใหม่)
+-- ═══════════════════════════════════════════════════════════════
+--   ลำดับ: เช็คว่า boost ติดอยู่ยัง → ไม่ติด: กินจากกระเป๋าก่อน → ไม่มีค่อยซื้อ
+--   เลือกชนิดตาม prestige/level แบบเดิม:
+--     • P3-P4      → ไม่เอา XP (ตันเร็ว ไม่คุ้ม)
+--     • P5+        → ไม่เอา Gold | เอา XP เฉพาะ level <= 130
+--     • ไม่ตั้งเอง → P<=3 เอา XP | P<=4 เอา Gold | P5+ & lv<=130 เอา XP
+--   ซื้อไล่จากก้อนใหญ่ก่อน: 2h (13999) → 1h (7999) → 30m (4499)
+--   ปิด: getgenv().VenozChicken.AutoBoost = false
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    local VZo = getgenv().VenozChicken or {}
+    if VZo.AutoBoost ~= true then return end
+    VZo.MinGemsToBuyBoosts = tonumber(VZo.MinGemsToBuyBoosts) or 4500
+    VZo.BoostCheckInterval = tonumber(VZo.BoostCheckInterval) or 15
+
+    local mePl = game:GetService("Players").LocalPlayer
+    local GETo
+    pcall(function()
+        GETo = game:GetService("ReplicatedStorage")
+            :WaitForChild("Assets", 20):WaitForChild("Remotes", 20):WaitForChild("GET", 20)
+    end)
+    if not GETo then warn("[BOOST] ⛔ ไม่พบ GET remote") return end
+
+    local bc, bcT = nil, 0
+    local function slotB(force)
+        local now = os.clock()
+        if not force and bc and (now - bcT) < 10 then return bc end
+        local ok, d = pcall(function() return GETo:InvokeServer("Data", "Copy") end)
+        if ok and type(d) == "table" and type(d.Slots) == "table" then
+            local sd = d.Slots[d.Current_Slot or mePl:GetAttribute("Slot") or VZo.Slot or "A"]
+            if sd then bc, bcT = sd, now end
+        end
+        return bc
+    end
+
+    local function boostActive(kind)
+        local on = false
+        pcall(function()
+            local bf = mePl:FindFirstChild("Boosts")
+            if bf then
+                local nm = (kind == "XP") and "Experience" or kind
+                local bv = bf:FindFirstChild(nm) or bf:FindFirstChild(kind)
+                if bv and tonumber(bv.Value) and tonumber(bv.Value) > 0 then on = true end
+            end
+        end)
+        return on
+    end
+
+    local nextCheck = 0
+    print("[BOOST] 🧪 ระบบ boost ตัวเก่าเริ่มทำงาน")
+
+    while true do
+        task.wait(5)
+        if IsLobbyLobby() and os.time() >= nextCheck then
+            local acted = false
+            pcall(function()
+                local sd = slotB()
+                if not sd then return end
+                local pg = sd.Progression or {}
+                local prestige = tonumber(pg.Prestige) or 0
+                local level    = tonumber(pg.Level) or 0
+                local gems     = (sd.Currencies and tonumber(sd.Currencies.Gems)) or 0
+                local items    = (sd.Inventory and sd.Inventory.Items) or {}
+
+                -- ── เลือกชนิด boost ที่ต้องการ (สูตรเดิม) ──
+                local need = {}
+                if type(VZo.BoostTypes) == "table" and #VZo.BoostTypes > 0 then
+                    for _, b in ipairs(VZo.BoostTypes) do
+                        if (prestige == 3 or prestige == 4) and b == "XP" then
+                        elseif prestige >= 5 and b == "Gold" then
+                        elseif prestige >= 5 and b == "XP" and level > 130 then
+                        else table.insert(need, b) end
+                    end
+                else
+                    if prestige <= 3 then table.insert(need, "XP")
+                    elseif prestige >= 5 and level <= 130 then table.insert(need, "XP") end
+                    if prestige <= 4 then table.insert(need, "Gold") end
+                end
+
+                for _, kind in ipairs(need) do
+                    if acted then break end
+                    if not boostActive(kind) then
+                        -- 1️⃣ กินของในกระเป๋าก่อน (หาแบบไม่สนตัวพิมพ์)
+                        local used = false
+                        local low = string.lower(kind)
+                        for name, qty in pairs(items) do
+                            if not used and tonumber(qty) and tonumber(qty) > 0 then
+                                local nl = string.lower(tostring(name))
+                                if string.find(nl, low, 1, true) and string.find(nl, "boost", 1, true) then
+                                    print(string.format("[BOOST] 🍷 กิน %s (x%s)", tostring(name), tostring(qty)))
+                                    local ok = pcall(function()
+                                        GETo:InvokeServer("S_Inventory", "Item", name)
+                                    end)
+                                    if ok then used = true; acted = true end
+                                    task.wait(0.5)
+                                end
+                            end
+                        end
+                        if used then break end
+
+                        -- 2️⃣ ไม่มีในกระเป๋า → ซื้อ (เพชรต้องถึงเกณฑ์)
+                        if gems >= VZo.MinGemsToBuyBoosts then
+                            local order = (kind == "Gold")
+                                and { {9, "2x Gold Boost [2h]", 13999}, {8, "2x Gold Boost [1h]", 7999}, {7, "2x Gold Boost [30m]", 4499} }
+                                or  { {3, "2x XP Boost [2h]", 13999},   {2, "2x XP Boost [1h]", 7999},   {1, "2x XP Boost [30m]", 4499} }
+                            for _, t in ipairs(order) do
+                                local idx, nm, price = t[1], t[2], t[3]
+                                if gems >= price then
+                                    print(string.format("[BOOST] 💎 ซื้อ %s (%d เพชร)", nm, price))
+                                    local res
+                                    pcall(function()
+                                        res = GETo:InvokeServer("S_Market", "Buy", "1_Boosts", idx, 1)
+                                    end)
+                                    if res ~= nil and type(res) ~= "string" then
+                                        task.wait(0.8)
+                                        pcall(function() GETo:InvokeServer("S_Inventory", "Item", nm) end)
+                                        print("[BOOST] ✅ ซื้อ + ใช้สำเร็จ")
+                                        acted = true
+                                        slotB(true)
+                                        break
+                                    end
+                                    task.wait(0.5)
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+            -- ทำอะไรไป → เช็คถี่ | ไม่ได้ทำ → พัก 5 นาที (เหมือนบอทเก่า)
+            nextCheck = os.time() + (acted and VZo.BoostCheckInterval or 300)
         end
     end
 end)
