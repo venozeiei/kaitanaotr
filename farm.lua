@@ -271,28 +271,30 @@ VZC.SpearInterval  = tonumber(VZC.SpearInterval)  or 2
 VZC.HitRange       = tonumber(VZC.HitRange)       or 200   -- ระยะสูงสุดที่ยอมให้ register (studs)
 VZC.ArriveRadius   = tonumber(VZC.ArriveRadius)   or 30    -- ⭐ ต้องเข้าใกล้จุดเหนือหัวไททันไม่เกินนี้ = "ถึงแล้ว"
 VZC.SettleTime     = tonumber(VZC.SettleTime)     or 1.5   -- ⭐ ถึงแล้วต้องนิ่งกี่วิก่อนเริ่มฟัน
--- 💥 ONE-SHOT: เลข velocity ที่ส่ง = ตัวคูณดาเมจ (ต่ำ = ฟันโดนเฉยๆ / สูง = ตัดคอตายทีเดียว)
---    ส่งเป็น "ช่วงสุ่ม" ไม่ใช่ค่าคงที่ 99999 → ตัดคอได้เหมือนเดิม แต่ไม่มีค่าซ้ำให้จับ
-if VZC.OneShot == nil then VZC.OneShot = true end
-VZC.KillVelMin     = tonumber(VZC.KillVelMin)     or 900
-VZC.KillVelMax     = tonumber(VZC.KillVelMax)     or 1600
+-- 💥 ONE-SHOT บังคับเสมอ — ห้ามฟันติดธรรมดาเด็ดขาด
+--    เลข velocity ที่ส่ง = ตัวคูณดาเมจ → ต้องสูงพอตัดคอตายทีเดียวทุกครั้ง
+--    ส่งเป็น "ช่วงสุ่ม" ไม่ใช่ค่าคงที่ 99999 → ผลเหมือนกันแต่ไม่มีเลขซ้ำให้จับ pattern
+--    + ถ้าเจอตัวที่ไม่ตายในทีเดียว จะเพิ่มแรงให้อัตโนมัติจนตัดคอได้
+VZC.KillVelMin     = tonumber(VZC.KillVelMin)     or 3000
+VZC.KillVelMax     = tonumber(VZC.KillVelMax)     or 6000
+VZC.VelBoost       = tonumber(VZC.VelBoost)       or 1
 
+-- 💥 ตัดคอทีเดียวตายเท่านั้น (ไม่มีโหมดฟันธรรมดาแล้ว)
 function VZC.Vel()
     if not VZC.Enabled then return 99999 end
-    if VZC.OneShot ~= false then
-        -- 💥 ตัดคอทีเดียวตาย — สุ่มในช่วงสูง (ไม่ใช่ค่าคงที่ ไม่ใช่ 99999 ที่เป็นไปไม่ได้)
-        local lo, hi = VZC.KillVelMin or 900, VZC.KillVelMax or 1600
-        return lo + math.random() * (hi - lo)
+    local boost = math.clamp(tonumber(VZC.VelBoost) or 1, 1, 40)
+    local lo = (VZC.KillVelMin or 3000) * boost
+    local hi = (VZC.KillVelMax or 6000) * boost
+    return lo + math.random() * (hi - lo)
+end
+-- เจอตัวที่ฟันแล้วไม่ตาย → เพิ่มแรงอัตโนมัติจนกว่าจะตัดคอได้ทีเดียว
+function VZC.Escalate()
+    local old = tonumber(VZC.VelBoost) or 1
+    VZC.VelBoost = math.min(old * 1.8, 40)
+    if VZC.VelBoost > old then
+        warn(string.format("[CHICKEN] ⚠️ ฟันแล้วไม่ตาย → เพิ่มแรงเป็น x%.1f (%.0f-%.0f)",
+            VZC.VelBoost, (VZC.KillVelMin or 3000) * VZC.VelBoost, (VZC.KillVelMax or 6000) * VZC.VelBoost))
     end
-    -- โหมดสมจริงสุด (ฟันโดนแต่ไม่ตัดคอ — ต้องฟันหลายที)
-    local v = 0
-    pcall(function()
-        local c = game:GetService("Players").LocalPlayer.Character
-        local h = c and c:FindFirstChild("HumanoidRootPart")
-        if h then v = h.AssemblyLinearVelocity.Magnitude end
-    end)
-    if v < 20 then v = 140 + math.random() * 180 end
-    return v * (0.9 + math.random() * 0.2)
 end
 function VZC.TD()
     if not VZC.Enabled then return 0 end
@@ -8687,6 +8689,22 @@ local function FarmUpdate()
         if now - LastAttackTime >= FARM_ATTACK_INTERVAL then
             LastAttackTime = now
             FARM_ATTACK_INTERVAL = VZC.Gap()   -- [CHICKEN] สุ่มช่องว่างรอบถัดไป
+
+            -- [CHICKEN] 💥 บังคับ one-shot: ถ้าฟันเป้าเดิมซ้ำ = แปลว่ารอบก่อนไม่ตาย → เพิ่มแรง
+            local gg2 = getgenv()
+            if gg2.VenozReady and CurrentEntry then
+                if gg2._VZHitTitan == CurrentEntry.titan then
+                    gg2._VZHitN = (gg2._VZHitN or 1) + 1
+                    if gg2._VZHitN >= 2 then
+                        VZC.Escalate()
+                        gg2._VZHitN = 1
+                    end
+                else
+                    gg2._VZHitTitan = CurrentEntry.titan
+                    gg2._VZHitN = 1
+                end
+            end
+
             AttackAllTitans()
         end
     end)
