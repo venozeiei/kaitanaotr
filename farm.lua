@@ -6871,127 +6871,232 @@ end
 
 
 -- ═══════════════════════════════════════════════════════════════
--- 🤖 VENOZ AUTO-PILOT — ทำงานครบขั้นตอนอัตโนมัติ (ไม่ต้องกดปุ่มเอง)
+-- 🤖 VENOZ AUTO-PILOT — เปิดฟังก์ชันของสคริปนี้ให้ครบอัตโนมัติ
 -- ═══════════════════════════════════════════════════════════════
---   LOBBY  : เคลมเควส → achievement → อัพดาบ → ปลดสกิล → จุติ → สร้างด่าน
---   MISSION: เปิดฟาร์ม + auto reload + auto retry + skip cutscene
---   ปิด: getgenv().VenozChicken.AutoPilot = false
+--   MAIN MENU : กดเลือกสลอต + ปิด popup + redeem code
+--   LOBBY     : เควส → achievement → spin → boost → อัพดาบ/หอก → สกิล
+--               → จุติ → raid/waves/สร้างด่าน
+--   MISSION   : skip cutscene → reload → retry → ฟาร์ม (ดาบ/หอก) → spear quest → failed safe
+--   ปิดทั้งหมด: getgenv().VenozChicken.AutoPilot = false
 -- ═══════════════════════════════════════════════════════════════
 task.spawn(function()
     local VZ = getgenv().VenozChicken
     if VZ.AutoPilot == false then return end
 
-    VZ.Mission      = VZ.Mission      or "Chapel"
-    VZ.Objective    = VZ.Objective    or "Skirmish"
-    VZ.Difficulty   = VZ.Difficulty   or "Aberrant++"
-    VZ.Modifiers    = VZ.Modifiers    or {"No Perks","No Skills","No Memories","Nightmare",
-                                          "Oddball","Injury Prone","Chronic Injuries","Fog",
-                                          "Glass Cannon","Time Trial","Boring","Simple"}
-    VZ.FarmMode     = VZ.FarmMode     or "Tween"
-    VZ.HoverHeight  = tonumber(VZ.HoverHeight)  or 120
-    VZ.HoverSpeed   = tonumber(VZ.HoverSpeed)   or 120
-    VZ.SafetyTime   = tonumber(VZ.SafetyTime)   or 60
-    VZ.StopAtTitans = tonumber(VZ.StopAtTitans) or 10
-    VZ.FPS          = tonumber(VZ.FPS)          or 60
-    VZ.UpgradeDelay = tonumber(VZ.UpgradeDelay) or 1.5
-    VZ.ClaimDelay   = tonumber(VZ.ClaimDelay)   or 0.2
-    VZ.OffenseSide  = VZ.OffenseSide or "Right"
-    VZ.DefenseSide  = VZ.DefenseSide or "Right"
-    VZ.SupportSide  = VZ.SupportSide or "None"
-    VZ.PrestigeBoost = VZ.PrestigeBoost or "Gold Boost"
-    if VZ.AutoFarm     == nil then VZ.AutoFarm     = true end
-    if VZ.AutoReload   == nil then VZ.AutoReload   = true end
-    if VZ.AutoRetry    == nil then VZ.AutoRetry    = true end
-    if VZ.SkipCutscene == nil then VZ.SkipCutscene = true end
-    if VZ.LowGraphic   == nil then VZ.LowGraphic   = true end
-    if VZ.AutoMission  == nil then VZ.AutoMission  = true end
-    if VZ.AutoQuest    == nil then VZ.AutoQuest    = true end
-    if VZ.AutoAchieve  == nil then VZ.AutoAchieve  = true end
-    if VZ.AutoPrestige == nil then VZ.AutoPrestige = true end
-    if VZ.AutoUpgrade  == nil then VZ.AutoUpgrade  = true end
-    if VZ.AutoSkills   == nil then VZ.AutoSkills   = true end
+    -- ── ค่าเริ่มต้น ──
+    local function dflt(k, v) if VZ[k] == nil then VZ[k] = v end end
+    dflt("Slot", "A")            dflt("SelectDelay", 1)       dflt("AutoSelectSlot", true)
+    dflt("AutoDialogClick", true) dflt("AutoNotNowClick", true)
+    dflt("AutoRedeem", false)    dflt("CodeList", {})
+    dflt("Mission", "Chapel")    dflt("Objective", "Skirmish") dflt("Difficulty", "Aberrant++")
+    dflt("Modifiers", {"No Perks","No Skills","No Memories","Nightmare","Oddball",
+                       "Injury Prone","Chronic Injuries","Fog","Glass Cannon",
+                       "Time Trial","Boring","Simple"})
+    dflt("MissionDelay", 0)
+    dflt("FarmMode", "Tween")    dflt("HoverHeight", 120)     dflt("HoverSpeed", 120)
+    dflt("SafetyTime", 60)       dflt("StopAtTitans", 10)     dflt("FPS", 60)
+    dflt("UpgradeDelay", 1.5)    dflt("ClaimDelay", 0.2)      dflt("UnlockDelay", 0.15)
+    dflt("OffenseSide", "Right") dflt("DefenseSide", "Right") dflt("SupportSide", "None")
+    dflt("PrestigeBoost", "Gold Boost") dflt("PrestigeCooldown", 0.3)
+    dflt("ForceGold", false)     dflt("GoldReq", {0, 0, 0, 0, 0})
+    dflt("AutoFarm", true)       dflt("AutoReload", true)     dflt("AutoRetry", true)
+    dflt("SkipCutscene", true)   dflt("SkipForce", false)     dflt("LowGraphic", true)
+    dflt("AutoMission", true)    dflt("AutoQuest", true)      dflt("AutoAchieve", true)
+    dflt("AutoPrestige", true)   dflt("AutoUpgrade", true)    dflt("AutoSkills", true)
+    dflt("AutoUpgradeSpear", false) dflt("SpearUpgradeDelay", 1.5)
+    dflt("AutoThunderSpear", false) dflt("SpearFarmMode", "Tween")
+    dflt("SpearHoverHeight", 120)   dflt("SpearHoverSpeed", 120)
+    dflt("AutoSpearQuest", false)
+    dflt("AutoRaid", false)      dflt("RaidBoss", nil)        dflt("RaidDifficulty", nil)
+    dflt("RaidModifiers", {})    dflt("RaidDelay", 0)
+    dflt("AutoWaves", false)     dflt("WavesDelay", 0)
+    dflt("AutoSpin", false)      dflt("SpinFamilies", {})     dflt("SpinDelay", 1)
+    dflt("StopAtSpinLimit", true)
+    dflt("AutoBoostBuy", false)  dflt("AutoBoostUse", false)  dflt("BoostList", {})
+    dflt("BoostAmount", 1)       dflt("BoostDelay", 1)
+    dflt("FailedSafe", false)    dflt("FailedSafeDelay", 1200)
+    dflt("FailedSafeActions", {"Teleport to Lobby"})
+    dflt("HideUI", false)
 
-    task.wait(8)
+    task.wait(8)   -- รอ UI + ข้อมูลโหลดครบ
 
-    local function has(name) return Options ~= nil and Options[name] ~= nil end
-    local function setv(name, val)
-        if not has(name) then return false end
-        local ok = pcall(function() Options[name]:SetValue(val) end)
+    local function has(n) return Options ~= nil and Options[n] ~= nil end
+    local function setv(n, v)
+        if not has(n) then return false end
+        local ok = pcall(function() Options[n]:SetValue(v) end)
         task.wait(0.2)
         return ok
     end
-    local function waitFlag(flagName, maxSec)
-        local t0 = tick()
-        while getgenv()[flagName] and (tick() - t0) < (maxSec or 90) do task.wait(1) end
+    local function tset(list)   -- แปลง array → table สำหรับ multi-dropdown
+        local t = {}
+        if type(list) == "table" then for _, v in ipairs(list) do t[v] = true end end
+        return t
     end
-    local inLobby = has("ClaimQuestToggle") or has("AutoStartMissionToggle")
+    local function waitFlag(flag, maxSec)
+        local t0 = tick()
+        while getgenv()[flag] and (tick() - t0) < (maxSec or 90) do task.wait(1) end
+    end
 
+    -- ═══ ตั้งค่าที่ใช้ร่วมทุกที่ ═══
     setv("FPSLimitSlider", VZ.FPS)
     if VZ.LowGraphic then setv("RenderModeDropdown", { ["Low Graphic"] = true }) end
-    setv("ClaimDelaySlider", VZ.ClaimDelay)
-    setv("BladeUpgradeDelaySlider", VZ.UpgradeDelay)
-    setv("KillHitsSlider", VZ.HitCap)
-    setv("HoverHeightSlider", VZ.HoverHeight)
-    setv("HoverSpeedSlider", VZ.HoverSpeed)
-    setv("SafetyTimeSlider", VZ.SafetyTime)
-    setv("StopAtTitansLeftSlider", VZ.StopAtTitans)
-    setv("FarmModeDropdown", VZ.FarmMode)
+    if VZ.HideUI then setv("HideUIToggle", true) end
 
-    if inLobby then
+    -- ══════════════════ 🎬 MAIN MENU ══════════════════
+    if IsMainmenuLobby() then
+        print("[AUTO] 🎬 Main Menu — เลือกสลอต " .. tostring(VZ.Slot))
+        if VZ.AutoDialogClick then setv("AutoDialogClickerToggle", true) end
+        if VZ.AutoNotNowClick then setv("AutoNotNowClickerToggle", true) end
+        if VZ.AutoRedeem and has("AutoRedeemToggle") then
+            if #VZ.CodeList > 0 then setv("CodeListDropdown", tset(VZ.CodeList)) end
+            setv("AutoRedeemToggle", true)
+        end
+        if VZ.AutoSelectSlot and has("AutoClickSelectToggle") then
+            setv("SlotSelectionDropdown", VZ.Slot)
+            setv("SelectDelaySlider", VZ.SelectDelay)
+            setv("AutoClickSelectToggle", true)
+            print("[AUTO] ✅ เปิด Auto Slot [SELECT] — รอเข้า Lobby")
+        else
+            warn("[AUTO] ⚠️ ไม่พบ Auto Slot [SELECT]")
+        end
+
+    -- ══════════════════ 🏠 LOBBY ══════════════════
+    elseif IsLobbyLobby() then
         print("[AUTO] 🏠 Lobby — เริ่มลำดับงาน")
+        setv("ClaimDelaySlider", VZ.ClaimDelay)
+
         if VZ.AutoQuest and has("ClaimQuestToggle") then
             print("[AUTO] 📜 เคลมเควส...")
             setv("ClaimQuestToggle", true)
-            task.wait(3); waitFlag("ClaimQuestRunning", 120)
+            task.wait(3); waitFlag("ClaimQuestRunning", 150)
         end
+
         if VZ.AutoAchieve and has("ClaimAchievementToggle") then
             print("[AUTO] 🏆 เคลม achievement...")
             setv("ClaimAchievementToggle", true)
-            task.wait(3); waitFlag("ClaimAchievementRunning", 120)
+            task.wait(3); waitFlag("ClaimAchievementRunning", 150)
         end
+
+        if VZ.AutoRedeem and has("AutoRedeemToggle") then
+            if #VZ.CodeList > 0 then setv("CodeListDropdown", tset(VZ.CodeList)) end
+            setv("AutoRedeemToggle", true)
+        end
+
+        if VZ.AutoSpin and has("AutoSpinToggle") then
+            print("[AUTO] 🎰 Family spin")
+            if #VZ.SpinFamilies > 0 then setv("AutoSpinFamilies", tset(VZ.SpinFamilies)) end
+            setv("AutoSpinDelaySlider", VZ.SpinDelay)
+            if VZ.StopAtSpinLimit then setv("StopAtSpinLimitToggle", true) end
+            setv("AutoSpinToggle", true)
+        end
+
+        if (VZ.AutoBoostBuy or VZ.AutoBoostUse) and has("Boost_ListDropdown") then
+            print("[AUTO] 🧪 Boost")
+            if #VZ.BoostList > 0 then setv("Boost_ListDropdown", tset(VZ.BoostList)) end
+            setv("Boost_AmountSlider", VZ.BoostAmount)
+            setv("Boost_DelaySlider", VZ.BoostDelay)
+            if VZ.AutoBoostBuy then setv("Boost_PurchaseToggle", true) end
+            if VZ.AutoBoostUse then setv("Boost_AutoUseToggle", true) end
+        end
+
         if VZ.AutoUpgrade and has("AutoUpgradeBladeToggle") then
             print("[AUTO] ⚙️ อัพเกรดดาบ...")
+            setv("BladeUpgradeDelaySlider", VZ.UpgradeDelay)
             setv("AutoUpgradeBladeToggle", true)
-            task.wait(3); waitFlag("UpgradeRunning", 90)
+            task.wait(3); waitFlag("UpgradeRunning", 120)
         end
+
+        if VZ.AutoUpgradeSpear and has("AutoUpgradeSpearToggle") then
+            print("[AUTO] ⚙️ อัพเกรดหอก...")
+            setv("SpearUpgradeDelaySlider", VZ.SpearUpgradeDelay)
+            setv("AutoUpgradeSpearToggle", true)
+            task.wait(3); waitFlag("SpearUpgradeRunning", 120)
+        end
+
         if VZ.AutoSkills and has("UnlockSkillsToggle") then
-            print("[AUTO] 🌳 ปลดสกิล (Offense/Defense — ข้าม Support)")
+            print("[AUTO] 🌳 ปลดสกิล (ข้าม Support)")
+            setv("UnlockDelaySlider", VZ.UnlockDelay)
             setv("OffenseSideDropdown", VZ.OffenseSide)
             setv("DefenseSideDropdown", VZ.DefenseSide)
             setv("SupportSideDropdown", VZ.SupportSide)
             setv("UnlockSkillsToggle", true)
             task.wait(20)
         end
+
         if VZ.AutoPrestige and has("PrestigeToggle") then
             print("[AUTO] 👑 เปิดจุติอัตโนมัติ")
             setv("BoostDropdown", VZ.PrestigeBoost)
+            setv("PrestigeCooldownSlider", VZ.PrestigeCooldown)
+            local gk = {"GoldReq_0to1","GoldReq_1to2","GoldReq_2to3","GoldReq_3to4","GoldReq_4to5"}
+            for i, name in ipairs(gk) do
+                if VZ.GoldReq[i] then setv(name, VZ.GoldReq[i]) end
+            end
+            if VZ.ForceGold then setv("ForceGoldToggle", true) end
             setv("PrestigeToggle", true)
-            task.wait(2)
         end
-        if VZ.AutoMission and has("AutoStartMissionToggle") then
+
+        if VZ.AutoRaid and has("AutoRaidToggle") then
+            print("[AUTO] 🐉 Auto Raid")
+            if VZ.RaidBoss then setv("RaidBossDropdown", VZ.RaidBoss) end
+            if VZ.RaidDifficulty then setv("RaidDifficultyDropdown", VZ.RaidDifficulty) end
+            if #VZ.RaidModifiers > 0 then setv("RaidModifiersDropdown", tset(VZ.RaidModifiers)) end
+            setv("RaidDelaySlider", VZ.RaidDelay)
+            setv("AutoRaidToggle", true)
+
+        elseif VZ.AutoWaves and has("AutoWavesToggle") then
+            print("[AUTO] 🌊 Auto Waves")
+            setv("WavesDelaySlider", VZ.WavesDelay)
+            setv("AutoWavesToggle", true)
+
+        elseif VZ.AutoMission and has("AutoStartMissionToggle") then
             print(string.format("[AUTO] 🗺️ สร้างด่าน %s / %s / %s",
                 tostring(VZ.Mission), tostring(VZ.Objective), tostring(VZ.Difficulty)))
             setv("MissionDropdown", VZ.Mission)
             task.wait(1)
             setv("MissionObjectiveDropdown", VZ.Objective)
             setv("MissionDifficultyDropdown", VZ.Difficulty)
-            local mods = {}
-            for _, m in ipairs(VZ.Modifiers) do mods[m] = true end
-            setv("MissionModifiersDropdown", mods)
+            setv("MissionModifiersDropdown", tset(VZ.Modifiers))
+            setv("MissionDelaySlider", VZ.MissionDelay)
             task.wait(1)
             setv("AutoStartMissionToggle", true)
         end
         print("[AUTO] ✅ ลำดับงาน Lobby เสร็จ")
+
+    -- ══════════════════ ⚔️ MISSION ══════════════════
     else
         print("[AUTO] ⚔️ Mission — เปิดระบบฟาร์ม")
+        setv("KillHitsSlider", VZ.HitCap)
+        setv("SafetyTimeSlider", VZ.SafetyTime)
+        setv("StopAtTitansLeftSlider", VZ.StopAtTitans)
+
         if VZ.SkipCutscene then setv("SkipCutSceneToggle", true) end
+        if VZ.SkipForce    then setv("SkipForceToggle", true) end
         if VZ.AutoReload   then setv("AutoReloadBlade", true) end
         if VZ.AutoRetry    then setv("StartRejoin", true) end
-        if VZ.AutoFarm then
+        if VZ.AutoSpearQuest and has("AutoSpearQuestToggle") then
+            setv("AutoSpearQuestToggle", true)
+        end
+
+        if VZ.AutoThunderSpear and has("AutoThunderSpearToggle") then
+            print("[AUTO] ⚡ ฟาร์มด้วย Thunder Spear")
+            setv("ThunderSpear_FarmMode", VZ.SpearFarmMode)
+            setv("ThunderSpear_HoverHeight", VZ.SpearHoverHeight)
+            setv("ThunderSpear_HoverSpeed", VZ.SpearHoverSpeed)
+            setv("AutoThunderSpearToggle", true)
+        elseif VZ.AutoFarm then
+            setv("HoverHeightSlider", VZ.HoverHeight)
+            setv("HoverSpeedSlider", VZ.HoverSpeed)
             setv("FarmModeDropdown", VZ.FarmMode)
             task.wait(0.5)
             setv("AutoFarmBlade", true)
         end
+
+        if VZ.FailedSafe and has("CombinedActionToggle") then
+            setv("CombinedActionDelaySlider", VZ.FailedSafeDelay)
+            setv("CombinedActionsDropdown", tset(VZ.FailedSafeActions))
+            setv("CombinedActionToggle", true)
+        end
+
         print(string.format("[AUTO] ✅ ฟาร์มแล้ว | โหมดไก่=%s | ตี %d ตัว ทุก ~%.1f วิ",
             tostring(VZ.Enabled), VZ.HitCap, VZ.AttackInterval))
     end
