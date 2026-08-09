@@ -7196,7 +7196,7 @@ task.spawn(function()
 
         if VZ.SkipCutscene then setv("SkipCutSceneToggle", true) end
         if VZ.SkipForce    then setv("SkipForceToggle", true) end
-        if VZ.AutoReload   then setv("AutoReloadBlade", true) end
+        setv("AutoReloadBlade", false)   -- [CHICKEN] ปิดของ UI2 (path ถังแก๊สพัง) → ใช้ VENOZ BLADE SYSTEM แทน
         if VZ.AutoRetry    then setv("StartRejoin", true) end
         if VZ.AutoSpearQuest and has("AutoSpearQuestToggle") then
             setv("AutoSpearQuestToggle", true)
@@ -7619,6 +7619,177 @@ task.spawn(function()
                 end
             end
         end)
+    end
+end)
+
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🗡️ VENOZ BLADE SYSTEM — ยกระบบดาบของบอทตัวเก่ามาแทนของ UI2
+-- ═══════════════════════════════════════════════════════════════
+--   🐛 ของ UI2 พัง: hardcode path ถังแก๊ส (Props.HQ:GetChildren()[224].Refill)
+--      → แมพ Chapel ไม่มี index นั้น = หาไม่เจอ = ไม่เติมเลย ดาบพังค้าง
+--   ✅ ของเรา: หา Refill แบบสแกนจริง + เช็ค Sets/Refills + กด R ก่อนแล้วค่อยยิง remote
+--   ปิด: getgenv().VenozChicken.AutoReload = false
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    local VZb = getgenv().VenozChicken or {}
+    if VZb.AutoReload == false then return end
+    local Plrs = game:GetService("Players")
+    local me = Plrs.LocalPlayer
+    local RSb2 = game:GetService("ReplicatedStorage")
+    local GETv, POSTv
+    pcall(function()
+        local rem = RSb2:WaitForChild("Assets", 20):WaitForChild("Remotes", 20)
+        GETv, POSTv = rem:WaitForChild("GET", 10), rem:WaitForChild("POST", 10)
+    end)
+    if not (GETv and POSTv) then warn("[BLADE] ⛔ ไม่พบ remote") return end
+
+    local BLADE = { busy = false, gui = nil, tank = nil }
+
+    -- 🔎 cache กล่อง Blades บน HUD (ใช้อ่านจำนวนชุดดาบ)
+    task.spawn(function()
+        while true do
+            if not (BLADE.gui and BLADE.gui.Parent) then
+                pcall(function()
+                    local iface = me.PlayerGui:FindFirstChild("Interface")
+                    local hud = iface and iface:FindFirstChild("HUD")
+                    local main = hud and hud:FindFirstChild("Main")
+                    local top = main and main:FindFirstChild("Top")
+                    if top then
+                        for _, v in ipairs(top:GetDescendants()) do
+                            if v.Name == "Blades" and v:FindFirstChild("Sets") then
+                                BLADE.gui = v
+                                break
+                            end
+                        end
+                    end
+                end)
+            end
+            task.wait(3)
+        end
+    end)
+
+    local function readSets()
+        local g = BLADE.gui
+        if not (g and g.Parent) then return nil end
+        local sv = g:FindFirstChild("Sets")
+        if sv and sv:IsA("TextLabel") then return tonumber(string.match(sv.Text, "%d+")) end
+        return nil
+    end
+
+    -- ⭐ ดาบพังไหม (เช็ค 2 path — ทั้งใน Character และ workspace.Characters)
+    local function isBroken()
+        local found = false
+        pcall(function()
+            local rigs = {}
+            local ch = me.Character
+            if ch then table.insert(rigs, ch:FindFirstChild("Rig_" .. me.Name)) end
+            local wc = workspace:FindFirstChild("Characters")
+            local wch = wc and wc:FindFirstChild(me.Name)
+            if wch then table.insert(rigs, wch:FindFirstChild("Rig_" .. me.Name)) end
+            for _, rig in ipairs(rigs) do
+                if rig then
+                    for _, hand in ipairs(rig:GetChildren()) do
+                        if hand.Name == "RightHand" or hand.Name == "LeftHand" then
+                            local b = hand:FindFirstChild("Blade_1")
+                            if b then
+                                local attr = b:GetAttribute("Broken")
+                                if attr == true or (b:IsA("BasePart") and b.Transparency ~= 0) then
+                                    found = true
+                                    return
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        return found
+    end
+
+    -- ⭐ หาถังแก๊ส: Unclimbable.Reloads.<สถานี>.Refill → สำรอง: สแกนทั้ง workspace
+    local function findTank()
+        if BLADE.tank and BLADE.tank.Parent then return BLADE.tank end
+        BLADE.tank = nil
+        pcall(function()
+            local unc = workspace:FindFirstChild("Unclimbable")
+            local reloads = unc and unc:FindFirstChild("Reloads")
+            if reloads then
+                for _, st in ipairs(reloads:GetChildren()) do
+                    local r = st:FindFirstChild("Refill")
+                    if r then BLADE.tank = r return end
+                end
+            end
+        end)
+        if not BLADE.tank then
+            pcall(function()
+                local r = workspace:FindFirstChild("Refill", true)
+                if r then BLADE.tank = r end
+            end)
+        end
+        if BLADE.tank then print("[BLADE] 📍 GasTank: " .. BLADE.tank:GetFullName()) end
+        return BLADE.tank
+    end
+
+    local function ensureBlade()
+        if BLADE.busy then return end
+        if not isBroken() then return end
+        BLADE.busy = true
+        getgenv().VenozBladeBusy = true
+
+        -- ═══ 1) Sets = 0 + ดาบพัง → เติมที่ถังแก๊ส ═══
+        local guard = 0
+        while isBroken() and (readSets() or 0) == 0 and guard < 8 do
+            guard = guard + 1
+            local refills = me:GetAttribute("Refills") or 0
+            if refills <= 0 then
+                if not getgenv()._BladeNoRefill then
+                    getgenv()._BladeNoRefill = true
+                    warn("[BLADE] 🚫 Refills หมด — เติมไม่ได้จนจบด่าน")
+                end
+                break
+            end
+            local tank = findTank()
+            if not tank then warn("[BLADE] ❌ ไม่พบถังแก๊สในแมพนี้") break end
+            print(string.format("[BLADE] 📦 Refill #%d (เหลือ %d) — รอ 4 วิ", guard, refills))
+            getgenv().VenozAction = string.format("📦 เติมดาบ (%d)", refills)
+            pcall(function() POSTv:FireServer("Attacks", "Reload", tank) end)
+            task.wait(4)
+        end
+
+        -- ═══ 2) ดาบพัง + มี Sets → สลับชุด (กด R ก่อน = 0 remote) ═══
+        guard = 0
+        while isBroken() and (readSets() or 0) > 0 and guard < 6 do
+            guard = guard + 1
+            local sets = readSets() or 0
+            print(string.format("[BLADE] 🔄 สลับชุด #%d (Sets %d/3)", guard, sets))
+            getgenv().VenozAction = string.format("🔄 สลับดาบ (%d/3)", sets)
+            pcall(function()
+                local vim = game:GetService("VirtualInputManager")
+                vim:SendKeyEvent(true, Enum.KeyCode.R, false, game)
+                task.wait(0.03)
+                vim:SendKeyEvent(false, Enum.KeyCode.R, false, game)
+            end)
+            task.wait(1.2)
+            if not isBroken() then break end
+            pcall(function() GETv:InvokeServer("Blades", "Reload") end)
+            task.wait(2)
+        end
+
+        if not isBroken() then
+            print(string.format("[BLADE] ✅ ดาบพร้อม (Sets %s/3)", tostring(readSets() or "?")))
+            getgenv()._BladeNoRefill = nil
+        end
+        BLADE.busy = false
+        getgenv().VenozBladeBusy = false
+    end
+
+    print("[BLADE] 🗡️ ระบบดาบตัวเก่าเริ่มทำงาน")
+    while true do
+        task.wait(1)
+        if not IsLobbyLobby() and not IsMainmenuLobby() then
+            pcall(ensureBlade)
+        end
     end
 end)
 
@@ -8295,6 +8466,8 @@ local function AttackAllTitans()
 
     -- [CHICKEN] ยังบินไม่ถึงไททันตัวไหนเลย → ยังไม่ฟัน (รอให้ถึงก่อน)
     if #GetTargets(killHits) == 0 then return end
+    -- [CHICKEN] กำลังเติม/สลับดาบอยู่ → หยุดฟัน (ฟันตอนดาบพัง = ดาเมจไม่เข้า + เปลือง remote)
+    if getgenv().VenozBladeBusy then return end
 
     if safe then
         SafeFire(POST, "Attacks", "Slash", true)
