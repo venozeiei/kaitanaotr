@@ -271,9 +271,20 @@ VZC.SpearInterval  = tonumber(VZC.SpearInterval)  or 2
 VZC.HitRange       = tonumber(VZC.HitRange)       or 200   -- ระยะสูงสุดที่ยอมให้ register (studs)
 VZC.ArriveRadius   = tonumber(VZC.ArriveRadius)   or 30    -- ⭐ ต้องเข้าใกล้จุดเหนือหัวไททันไม่เกินนี้ = "ถึงแล้ว"
 VZC.SettleTime     = tonumber(VZC.SettleTime)     or 1.5   -- ⭐ ถึงแล้วต้องนิ่งกี่วิก่อนเริ่มฟัน
+-- 💥 ONE-SHOT: เลข velocity ที่ส่ง = ตัวคูณดาเมจ (ต่ำ = ฟันโดนเฉยๆ / สูง = ตัดคอตายทีเดียว)
+--    ส่งเป็น "ช่วงสุ่ม" ไม่ใช่ค่าคงที่ 99999 → ตัดคอได้เหมือนเดิม แต่ไม่มีค่าซ้ำให้จับ
+if VZC.OneShot == nil then VZC.OneShot = true end
+VZC.KillVelMin     = tonumber(VZC.KillVelMin)     or 900
+VZC.KillVelMax     = tonumber(VZC.KillVelMax)     or 1600
 
 function VZC.Vel()
     if not VZC.Enabled then return 99999 end
+    if VZC.OneShot ~= false then
+        -- 💥 ตัดคอทีเดียวตาย — สุ่มในช่วงสูง (ไม่ใช่ค่าคงที่ ไม่ใช่ 99999 ที่เป็นไปไม่ได้)
+        local lo, hi = VZC.KillVelMin or 900, VZC.KillVelMax or 1600
+        return lo + math.random() * (hi - lo)
+    end
+    -- โหมดสมจริงสุด (ฟันโดนแต่ไม่ตัดคอ — ต้องฟันหลายที)
     local v = 0
     pcall(function()
         local c = game:GetService("Players").LocalPlayer.Character
