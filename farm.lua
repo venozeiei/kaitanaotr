@@ -265,12 +265,12 @@ getgenv().SafeFire = SafeFire
 getgenv().VenozChicken = getgenv().VenozChicken or {}
 local VZC = getgenv().VenozChicken
 if VZC.Enabled == nil then VZC.Enabled = true end
-VZC.AttackInterval = tonumber(VZC.AttackInterval) or 2
+VZC.AttackInterval = tonumber(VZC.AttackInterval) or 1
 VZC.HitCap         = tonumber(VZC.HitCap)         or 3
 VZC.SpearInterval  = tonumber(VZC.SpearInterval)  or 2
 VZC.HitRange       = tonumber(VZC.HitRange)       or 200   -- ระยะสูงสุดที่ยอมให้ register (studs)
-VZC.ArriveRadius   = tonumber(VZC.ArriveRadius)   or 30    -- ⭐ ต้องเข้าใกล้จุดเหนือหัวไททันไม่เกินนี้ = "ถึงแล้ว"
-VZC.SettleTime     = tonumber(VZC.SettleTime)     or 1.5   -- ⭐ ถึงแล้วต้องนิ่งกี่วิก่อนเริ่มฟัน
+VZC.ArriveRadius   = tonumber(VZC.ArriveRadius)   or 45    -- ⭐ เข้าใกล้จุดเหนือหัวไททันไม่เกินนี้ = "ถึงแล้ว"
+VZC.SettleTime     = tonumber(VZC.SettleTime)     or 1     -- ⭐ ถึงแล้วต้องนิ่งกี่วิก่อนเริ่มฟัน
 -- 💥 ONE-SHOT บังคับเสมอ — ห้ามฟันติดธรรมดาเด็ดขาด
 --    เลข velocity ที่ส่ง = ตัวคูณดาเมจ → ต้องสูงพอตัดคอตายทีเดียวทุกครั้ง
 --    ส่งเป็น "ช่วงสุ่ม" ไม่ใช่ค่าคงที่ 99999 → ผลเหมือนกันแต่ไม่มีเลขซ้ำให้จับ pattern
@@ -7003,7 +7003,7 @@ task.spawn(function()
                        "Injury Prone","Chronic Injuries","Fog","Glass Cannon",
                        "Time Trial","Boring","Simple"})
     dflt("MissionDelay", 0)
-    dflt("FarmMode", "Tween")    dflt("HoverHeight", 120)     dflt("HoverSpeed", 120)
+    dflt("FarmMode", "Teleport")    dflt("HoverHeight", 120)     dflt("HoverSpeed", 120)
     dflt("SafetyTime", 0)        dflt("StopAtTitans", 0)      dflt("FPS", 60)
     dflt("UpgradeDelay", 1.5)    dflt("ClaimDelay", 0.2)      dflt("UnlockDelay", 0.15)
     dflt("OffenseSide", "Right") dflt("DefenseSide", "Right") dflt("SupportSide", "None")
@@ -7103,6 +7103,7 @@ task.spawn(function()
     -- ══════════════════ 🏠 LOBBY ══════════════════
     elseif IsLobbyLobby() then
         print("[AUTO] 🏠 Lobby — เริ่มลำดับงาน")
+        getgenv().VenozChoresDone = false     -- brain ต้องรอจนกว่าจะเสร็จ
         setv("ClaimDelaySlider", VZ.ClaimDelay)
 
         if VZ.AutoQuest and has("ClaimQuestToggle") then
@@ -7193,7 +7194,8 @@ task.spawn(function()
             task.wait(1)
             setv("AutoStartMissionToggle", true)
         end
-        print("[AUTO] ✅ ลำดับงาน Lobby เสร็จ")
+        getgenv().VenozChoresDone = true      -- ✅ brain สร้างด่านได้แล้ว
+        print("[AUTO] ✅ ลำดับงาน Lobby เสร็จ → brain ทำต่อ")
 
     -- ══════════════════ ⚔️ MISSION ══════════════════
     else
@@ -7532,7 +7534,7 @@ task.spawn(function()
     end)
 
     -- ═══════════ MAIN LOOP ═══════════
-    local lastSell, lastMission = 0, 0
+    local lastSell, lastMission = 0, os.clock()
     print(string.format("[BRAIN] 🧠 เริ่มทำงาน | ขาย perk: Hard ลงมา=%d, Severe+=%d", VZ.PerkSellLow, VZ.PerkSellTarget))
 
     while true do
@@ -7548,6 +7550,22 @@ task.spawn(function()
 
             if IsLobbyLobby() then
                 local lv, pr, xp, mx, gold = progress()
+
+                -- ⏳ [FIX] ข้อมูลยังไม่โหลด (โชว์ 0 ทุกอย่าง) → ห้ามตัดสินใจอะไรทั้งนั้น
+                --    เดิม: เห็น perk=0 → ไม่ขาย, เห็น lv=0 → ไม่จุติ, แล้วสร้างด่านเลย
+                if lv <= 0 and gold <= 0 and mx <= 0 then
+                    setStatus("⏳ รอข้อมูลผู้เล่นโหลด...")
+                    getSlot(true)
+                    return
+                end
+
+                -- ⏳ [FIX] รอ auto-pilot เก็บงาน lobby ให้เสร็จก่อน (เควส/achievement/อัพดาบ/สกิล)
+                --    เดิม: brain สร้างด่านตั้งแต่วิที่ 8 → ลากออกจาก lobby กลางคัน
+                if not getgenv().VenozChoresDone then
+                    setStatus("⏳ กำลังเก็บงาน lobby (เควส/อัพเกรด/สกิล)...")
+                    return
+                end
+
                 local sellable, total, uuids = perkInfo()
                 local tan = (lv >= (100 + pr * 25) and mx > 0 and xp >= mx)
 
