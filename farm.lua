@@ -7298,13 +7298,29 @@ task.spawn(function()
 
     -- ── slot data (cache 8 วิ) ──
     local cache, cacheT = nil, 0
+    -- 🔁 [FIX] อ่าน slot data 2 ทางแบบบอทเก่า — Data/Copy บางทีไม่คืนค่าตอนอยู่ lobby
+    local function fetchRaw()
+        local ok, d = pcall(function() return GETb:InvokeServer("Data", "Copy") end)
+        if ok and type(d) == "table" and type(d.Slots) == "table" then return d end
+        -- endpoint สำรอง (ตัวที่บอทเก่าใช้มาตลอด — คืน slot data เหมือนกัน)
+        ok, d = pcall(function() return GETb:InvokeServer("Functions", "Settings", "Blur", "Off") end)
+        if ok and type(d) == "table" and type(d.Slots) == "table" then return d end
+        return nil
+    end
     local function getSlot(force)
         local now = os.clock()
-        if not force and cache and (now - cacheT) < 8 then return cache end
-        local ok, d = pcall(function() return GETb:InvokeServer("Data", "Copy") end)
-        if ok and type(d) == "table" and type(d.Slots) == "table" then
+        -- ยังไม่เคยอ่านได้ → ลองใหม่ถี่ๆ (2 วิ) | อ่านได้แล้ว → cache 8 วิ
+        local ttl = cache and 8 or 2
+        if not force and cache and (now - cacheT) < ttl then return cache end
+        local d = fetchRaw()
+        if d then
             local key = d.Current_Slot or plrB:GetAttribute("Slot") or VZ.Slot or "A"
             local sd = d.Slots[key]
+            if not sd then   -- key ไม่ตรง → เอา slot แรกที่มี Progression
+                for _, v in pairs(d.Slots) do
+                    if type(v) == "table" and v.Progression then sd = v break end
+                end
+            end
             if sd then cache, cacheT = sd, now end
         end
         return cache
@@ -7320,13 +7336,24 @@ task.spawn(function()
         end
         return #uuids, total, uuids
     end
+    -- 📊 [FIX] อ่านสถานะจากหลายแหล่ง (slot data → attribute → GUI) แบบบอทเก่า
     local function progress()
         local sd = getSlot()
         local pg = sd and sd.Progression
-        if not pg then return 0, 0, 0, 0, 0 end
-        local gold = (sd.Currency and tonumber(sd.Currency.Gold)) or 0
-        return tonumber(pg.Level) or 0, tonumber(pg.Prestige) or 0,
-               tonumber(pg.XP) or 0, tonumber(pg.Max_XP) or 0, gold
+        local lv = tonumber(pg and pg.Level)    or tonumber(plrB:GetAttribute("Level"))    or 0
+        local pr = tonumber(pg and pg.Prestige) or tonumber(plrB:GetAttribute("Prestige")) or 0
+        local xp = tonumber(pg and pg.XP)       or tonumber(plrB:GetAttribute("XP"))       or 0
+        local mx = tonumber(pg and pg.Max_XP)   or tonumber(plrB:GetAttribute("Max_XP"))   or 0
+        local gold = (sd and sd.Currency and tonumber(sd.Currency.Gold))
+                  or tonumber(plrB:GetAttribute("Gold")) or 0
+        if gold <= 0 then   -- สำรองสุดท้าย: อ่านจากแถบเงินบนจอ
+            pcall(function()
+                local cur = plrB.PlayerGui.Interface.Topbar.Main.Currencies
+                local g = tonumber((cur.Gold.Amount.Text:gsub("[^%d]", "")))
+                if g and g > 0 then gold = g end
+            end)
+        end
+        return lv, pr, xp, mx, gold
     end
     local function isTan()
         local lv, pr, xp, mx = progress()
@@ -7558,6 +7585,12 @@ task.spawn(function()
                     getSlot(true)
                     return
                 end
+                -- อ่าน slot data ไม่ได้ = นับ perk ไม่ได้ → อย่าเพิ่งสร้างด่าน (ไม่งั้นข้ามการขาย)
+                if not getSlot() then
+                    setStatus("⏳ รอข้อมูล perk/inventory...")
+                    getSlot(true)
+                    return
+                end
 
                 -- ⏳ [FIX] รอ auto-pilot เก็บงาน lobby ให้เสร็จก่อน (เควส/achievement/อัพดาบ/สกิล)
                 --    เดิม: brain สร้างด่านตั้งแต่วิที่ 8 → ลากออกจาก lobby กลางคัน
@@ -7568,6 +7601,12 @@ task.spawn(function()
 
                 local sellable, total, uuids = perkInfo()
                 local tan = (lv >= (100 + pr * 25) and mx > 0 and xp >= mx)
+
+                if not getgenv()._VZDataLogged then
+                    getgenv()._VZDataLogged = true
+                    print(string.format("[BRAIN] ✅ อ่านข้อมูลได้ — Lv %d/%d | P%d | XP %d/%d | ทอง %d | Perk ขายได้ %d (ทั้งหมด %d)",
+                        lv, 100 + pr * 25, pr, xp, mx, gold, sellable, total))
+                end
 
                 -- 2) ล็อคด่าน Chapel
                 if VZ.ForceChapel and Options and Options.MissionDropdown
@@ -7854,9 +7893,20 @@ task.spawn(function()
     local function slotB(force)
         local now = os.clock()
         if not force and bc and (now - bcT) < 10 then return bc end
-        local ok, d = pcall(function() return GETo:InvokeServer("Data", "Copy") end)
-        if ok and type(d) == "table" and type(d.Slots) == "table" then
+        local d
+        local ok, r = pcall(function() return GETo:InvokeServer("Data", "Copy") end)
+        if ok and type(r) == "table" and type(r.Slots) == "table" then d = r end
+        if not d then   -- endpoint สำรองแบบบอทเก่า
+            ok, r = pcall(function() return GETo:InvokeServer("Functions", "Settings", "Blur", "Off") end)
+            if ok and type(r) == "table" and type(r.Slots) == "table" then d = r end
+        end
+        if d then
             local sd = d.Slots[d.Current_Slot or mePl:GetAttribute("Slot") or VZo.Slot or "A"]
+            if not sd then
+                for _, v in pairs(d.Slots) do
+                    if type(v) == "table" and v.Progression then sd = v break end
+                end
+            end
             if sd then bc, bcT = sd, now end
         end
         return bc
