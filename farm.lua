@@ -186,7 +186,8 @@ do
         Toggled = true,
         ToggleKeybind = nil,
         -- Holder.Visible = true เสมอ (โค้ดเขามีลูปรอค่านี้ ถ้า false จะค้าง)
-        Holder = { Visible = true, Enabled = true },
+        Holder = { Visible = true, Enabled = true,
+                   Position = UDim2.new(0, 0, 0, 0), Size = UDim2.new(0, 400, 0, 500) },
     }, anyMethod)
     function Library:CreateWindow()
         local w = setmetatable({ Holder = self.Holder }, anyMethod)
@@ -271,20 +272,22 @@ VZC.SpearInterval  = tonumber(VZC.SpearInterval)  or 2
 VZC.HitRange       = tonumber(VZC.HitRange)       or 200   -- ระยะสูงสุดที่ยอมให้ register (studs)
 VZC.ArriveRadius   = tonumber(VZC.ArriveRadius)   or 45    -- ⭐ เข้าใกล้จุดเหนือหัวไททันไม่เกินนี้ = "ถึงแล้ว"
 VZC.SettleTime     = tonumber(VZC.SettleTime)     or 1     -- ⭐ ถึงแล้วต้องนิ่งกี่วิก่อนเริ่มฟัน
+if VZC.DiveImpulse == nil then VZC.DiveImpulse = true end   -- 💨 พุ่งเข้าหาคอก่อนฟัน (ให้มีความเร็วจริง)
+VZC.DiveSpeed      = tonumber(VZC.DiveSpeed)      or 320
 -- 💥 ONE-SHOT บังคับเสมอ — ห้ามฟันติดธรรมดาเด็ดขาด
 --    เลข velocity ที่ส่ง = ตัวคูณดาเมจ → ต้องสูงพอตัดคอตายทีเดียวทุกครั้ง
 --    ส่งเป็น "ช่วงสุ่ม" ไม่ใช่ค่าคงที่ 99999 → ผลเหมือนกันแต่ไม่มีเลขซ้ำให้จับ pattern
 --    + ถ้าเจอตัวที่ไม่ตายในทีเดียว จะเพิ่มแรงให้อัตโนมัติจนตัดคอได้
-VZC.KillVelMin     = tonumber(VZC.KillVelMin)     or 3000
-VZC.KillVelMax     = tonumber(VZC.KillVelMax)     or 6000
+VZC.KillVelMin     = tonumber(VZC.KillVelMin)     or 99999
+VZC.KillVelMax     = tonumber(VZC.KillVelMax)     or 99999
 VZC.VelBoost       = tonumber(VZC.VelBoost)       or 1
 
 -- 💥 ตัดคอทีเดียวตายเท่านั้น (ไม่มีโหมดฟันธรรมดาแล้ว)
 function VZC.Vel()
     if not VZC.Enabled then return 99999 end
     local boost = math.clamp(tonumber(VZC.VelBoost) or 1, 1, 40)
-    local lo = (VZC.KillVelMin or 3000) * boost
-    local hi = (VZC.KillVelMax or 6000) * boost
+    local lo = (VZC.KillVelMin or 99999) * boost
+    local hi = (VZC.KillVelMax or 99999) * boost
     return lo + math.random() * (hi - lo)
 end
 -- เจอตัวที่ฟันแล้วไม่ตาย → เพิ่มแรงอัตโนมัติจนกว่าจะตัดคอได้ทีเดียว
@@ -293,7 +296,7 @@ function VZC.Escalate()
     VZC.VelBoost = math.min(old * 1.8, 40)
     if VZC.VelBoost > old then
         warn(string.format("[CHICKEN] ⚠️ ฟันแล้วไม่ตาย → เพิ่มแรงเป็น x%.1f (%.0f-%.0f)",
-            VZC.VelBoost, (VZC.KillVelMin or 3000) * VZC.VelBoost, (VZC.KillVelMax or 6000) * VZC.VelBoost))
+            VZC.VelBoost, (VZC.KillVelMin or 99999) * VZC.VelBoost, (VZC.KillVelMax or 99999) * VZC.VelBoost))
     end
 end
 function VZC.TD()
@@ -7065,6 +7068,30 @@ task.spawn(function()
         end)
         return ok and o or nil
     end
+    -- 💾 [SPEED] จำว่าวันนี้เคลมเควส/achievement ไปแล้ว (เหมือนบอทเก่า)
+    --    เดิม: เข้า lobby ทีไรเคลมใหม่ทุกครั้ง = เสียเวลา 1-2 นาทีต่อรอบ + remote เพียบ
+    local DayFile = "VenozChicken_Day_" .. tostring(game:GetService("Players").LocalPlayer.UserId) .. ".json"
+    local function dayCache()
+        local today = os.date("%Y-%m-%d")
+        if getgenv()._VZDay and getgenv()._VZDay.day == today then return getgenv()._VZDay end
+        local loaded
+        pcall(function()
+            if isfile and readfile and isfile(DayFile) then
+                local d = game:GetService("HttpService"):JSONDecode(readfile(DayFile))
+                if type(d) == "table" and d.day == today then loaded = d end
+            end
+        end)
+        getgenv()._VZDay = loaded or { day = today }
+        return getgenv()._VZDay
+    end
+    local function daySave()
+        pcall(function()
+            if writefile and getgenv()._VZDay then
+                writefile(DayFile, game:GetService("HttpService"):JSONEncode(getgenv()._VZDay))
+            end
+        end)
+    end
+
     local function has(n) return opt(n) ~= nil end
     local function setv(n, v)
         local o = opt(n)
@@ -7106,16 +7133,23 @@ task.spawn(function()
         getgenv().VenozChoresDone = false     -- brain ต้องรอจนกว่าจะเสร็จ
         setv("ClaimDelaySlider", VZ.ClaimDelay)
 
-        if VZ.AutoQuest and has("ClaimQuestToggle") then
-            print("[AUTO] 📜 เคลมเควส...")
+        local dc = dayCache()
+        if VZ.AutoQuest and has("ClaimQuestToggle") and not dc.quest then
+            print("[AUTO] 📜 เคลมเควส (ครั้งเดียวของวันนี้)...")
             setv("ClaimQuestToggle", true)
             task.wait(3); waitFlag("ClaimQuestRunning", 150)
+            dc.quest = true; daySave()
+        elseif dc.quest then
+            print("[AUTO] 📜 เคลมเควสไปแล้ววันนี้ → ข้าม")
         end
 
-        if VZ.AutoAchieve and has("ClaimAchievementToggle") then
-            print("[AUTO] 🏆 เคลม achievement...")
+        if VZ.AutoAchieve and has("ClaimAchievementToggle") and not dc.ach then
+            print("[AUTO] 🏆 เคลม achievement (ครั้งเดียวของวันนี้)...")
             setv("ClaimAchievementToggle", true)
             task.wait(3); waitFlag("ClaimAchievementRunning", 150)
+            dc.ach = true; daySave()
+        elseif dc.ach then
+            print("[AUTO] 🏆 เคลม achievement ไปแล้ววันนี้ → ข้าม")
         end
 
         if VZ.AutoRedeem and has("AutoRedeemToggle") then
@@ -7147,7 +7181,9 @@ task.spawn(function()
             task.wait(3); waitFlag("SpearUpgradeRunning", 120)
         end
 
-        if VZ.AutoSkills and has("UnlockSkillsToggle") then
+        local curLv = tonumber(game:GetService("Players").LocalPlayer:GetAttribute("Level")) or 0
+        if VZ.AutoSkills and has("UnlockSkillsToggle") and dc.skillLv ~= curLv then
+            dc.skillLv = curLv; daySave()
             print("[AUTO] 🌳 ปลดสกิล (ข้าม Support)")
             setv("UnlockDelaySlider", VZ.UnlockDelay)
             setv("OffenseSideDropdown", VZ.OffenseSide)
@@ -7155,6 +7191,8 @@ task.spawn(function()
             setv("SupportSideDropdown", VZ.SupportSide)
             setv("UnlockSkillsToggle", true)
             task.wait(20)
+        elseif dc.skillLv == curLv then
+            print("[AUTO] 🌳 ปลดสกิลแล้วที่ Lv นี้ → ข้าม")
         end
 
         if VZ.AutoPrestige and has("PrestigeToggle") then
@@ -8713,6 +8751,23 @@ local function AttackAllTitans()
     if getgenv().VenozBladeBusy then return end
     -- [CHICKEN] ⭐ ยังบินไม่ถึงหัวไททัน / ยังไม่นิ่งครบเวลา → ยังไม่ฟัน
     if not getgenv().VenozReady then return end
+
+    -- [CHICKEN] 💨 DIVE IMPULSE — ให้ตัวละคร "มีความเร็วจริง" พุ่งเข้าหาคอก่อนฟัน
+    --   วาร์ปแล้วล็อกนิ่ง = AssemblyLinearVelocity 0 → ถ้าเกมคิดดาเมจจากความเร็วจริงด้วย
+    --   จะได้แค่ดาเมจน้อย (เช่น 359) แทนที่จะตัดคอตาย
+    if VZC.DiveImpulse ~= false then
+        pcall(function()
+            local ch = Player.Character
+            local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+            local first = GetTargets(1)[1]
+            if hrp and first and first.nape then
+                local dir = first.nape.Position - hrp.Position
+                if dir.Magnitude > 1 then
+                    hrp.AssemblyLinearVelocity = dir.Unit * (VZC.DiveSpeed or 320)
+                end
+            end
+        end)
+    end
 
     if safe then
         SafeFire(POST, "Attacks", "Slash", true)
