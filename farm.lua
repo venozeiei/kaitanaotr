@@ -22,15 +22,19 @@ task.spawn(function()
     
     if not remote then
 
+        -- [FIX] บั๊กของ UI2: เรียก checkAnyVisible() ก่อนที่ฟังก์ชันจะถูกประกาศ → error
+        --   ครอบ pcall + เช็คว่ามีจริงก่อนเรียก
         local TeleportService = game:GetService("TeleportService")
-        if not checkAnyVisible() then
-            task.wait(10)
-            if not checkAnyVisible() then
-                pcall(function()
-                    TeleportService:Teleport(13379208636, player)
-                end)
+        pcall(function()
+            local fn = rawget(getfenv(), "checkAnyVisible")
+            if type(fn) ~= "function" then return end
+            if not fn() then
+                task.wait(10)
+                if not fn() then
+                    pcall(function() TeleportService:Teleport(13379208636, player) end)
+                end
             end
-        end
+        end)
         return
     end
 
@@ -7381,7 +7385,7 @@ task.spawn(function()
         local pg = sd and sd.Progression
         local lv = tonumber(pg and pg.Level)    or tonumber(plrB:GetAttribute("Level"))    or 0
         local pr = tonumber(pg and pg.Prestige) or tonumber(plrB:GetAttribute("Prestige")) or 0
-        local xp = tonumber(pg and pg.XP)       or tonumber(plrB:GetAttribute("XP"))       or 0
+        local xp = math.max(tonumber(pg and pg.XP) or tonumber(plrB:GetAttribute("XP")) or 0, 0)
         local mx = tonumber(pg and pg.Max_XP)   or tonumber(plrB:GetAttribute("Max_XP"))   or 0
         local gold = (sd and sd.Currency and tonumber(sd.Currency.Gold))
                   or tonumber(plrB:GetAttribute("Gold")) or 0
@@ -7656,13 +7660,6 @@ task.spawn(function()
                     warn("[BRAIN] ⚠️ อ่าน perk ไม่ได้เกิน 1 นาที → ข้ามการขาย ไปสร้างด่านต่อ")
                 end
 
-                -- ⏳ [FIX] รอ auto-pilot เก็บงาน lobby ให้เสร็จก่อน (เควส/achievement/อัพดาบ/สกิล)
-                --    เดิม: brain สร้างด่านตั้งแต่วิที่ 8 → ลากออกจาก lobby กลางคัน
-                if not getgenv().VenozChoresDone then
-                    setStatus("⏳ กำลังเก็บงาน lobby (เควส/อัพเกรด/สกิล)...")
-                    return
-                end
-
                 local sellable, total, uuids = perkInfo()
                 local tan = (lv >= (100 + pr * 25) and mx > 0 and xp >= mx)
 
@@ -7697,6 +7694,18 @@ task.spawn(function()
                     end
                     print("[BRAIN] ✅ ขาย perk เสร็จ")
                     return
+                end
+
+                -- 3.5) รอ auto-pilot เก็บงาน lobby ให้เสร็จก่อนค่อยจุติ/สร้างด่าน
+                --      (ขาย perk ทำไปแล้วข้างบน — ไม่ต้องรอ เพราะสำคัญและเร็ว)
+                if not getgenv().VenozChoresDone then
+                    getgenv()._VZChoreWait = (getgenv()._VZChoreWait or 0) + 1
+                    if getgenv()._VZChoreWait <= 12 then       -- รอสูงสุด ~96 วิ
+                        setStatus("⏳ กำลังเก็บงาน lobby (เควส/อัพเกรด/สกิล)...")
+                        return
+                    end
+                    warn("[BRAIN] ⚠️ งาน lobby ไม่จบใน 96 วิ → ไปต่อเลย")
+                    getgenv().VenozChoresDone = true
                 end
 
                 -- 4) จุติ (ตัน + ยังไม่ถึงเป้า + ทองถึงเกณฑ์)
