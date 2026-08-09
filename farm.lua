@@ -7346,18 +7346,33 @@ task.spawn(function()
         local mx = tonumber(pg and pg.Max_XP)   or tonumber(plrB:GetAttribute("Max_XP"))   or 0
         local gold = (sd and sd.Currency and tonumber(sd.Currency.Gold))
                   or tonumber(plrB:GetAttribute("Gold")) or 0
-        if gold <= 0 then   -- สำรองสุดท้าย: อ่านจากแถบเงินบนจอ
+        -- 🖥️ สำรองสุดท้าย: อ่านจาก GUI (path เดียวกับที่ UI2 ใช้แล้วได้ผลจริง)
+        if gold <= 0 then
             pcall(function()
                 local cur = plrB.PlayerGui.Interface.Topbar.Main.Currencies
                 local g = tonumber((cur.Gold.Amount.Text:gsub("[^%d]", "")))
                 if g and g > 0 then gold = g end
             end)
         end
-        return lv, pr, xp, mx, gold
+        local xpPct = 0
+        if lv <= 0 then
+            pcall(function()
+                local t = plrB.PlayerGui.Interface.Gear_Up.HUD.Level.Title
+                local n = tonumber(tostring(t.Text):match("%d+"))
+                if n and n > 0 then lv = n end
+            end)
+        end
+        pcall(function()
+            local t = plrB.PlayerGui.Interface.Gear_Up.XP.Percentage
+            local n = tonumber(tostring(t.Text):match("(%d+)%%"))
+            if n then xpPct = n end
+        end)
+        return lv, pr, xp, mx, gold, xpPct
     end
     local function isTan()
-        local lv, pr, xp, mx = progress()
-        return (lv >= (100 + pr * 25) and mx > 0 and xp >= mx), pr
+        local lv, pr, xp, mx, _, pct = progress()
+        local full = (mx > 0 and xp >= mx) or ((pct or 0) >= 100)
+        return (lv > 0 and lv >= (100 + pr * 25) and full), pr
     end
     local function clickBtn(btn)
         if not btn then return false end
@@ -7583,13 +7598,23 @@ task.spawn(function()
                 if lv <= 0 and gold <= 0 and mx <= 0 then
                     setStatus("⏳ รอข้อมูลผู้เล่นโหลด...")
                     getSlot(true)
+                    getgenv()._VZWait = (getgenv()._VZWait or 0) + 1
+                    if getgenv()._VZWait % 4 == 1 then
+                        warn(string.format("[BRAIN] ⏳ ยังอ่านข้อมูลไม่ได้ (ครั้งที่ %d) — slotData=%s attrLv=%s",
+                            getgenv()._VZWait, tostring(getSlot() ~= nil),
+                            tostring(plrB:GetAttribute("Level"))))
+                    end
                     return
                 end
-                -- อ่าน slot data ไม่ได้ = นับ perk ไม่ได้ → อย่าเพิ่งสร้างด่าน (ไม่งั้นข้ามการขาย)
+                -- อ่าน slot data ไม่ได้ = นับ perk ไม่ได้ → รอก่อน (แต่ไม่รอตลอดกาล)
                 if not getSlot() then
-                    setStatus("⏳ รอข้อมูล perk/inventory...")
-                    getSlot(true)
-                    return
+                    getgenv()._VZPerkWait = (getgenv()._VZPerkWait or 0) + 1
+                    if getgenv()._VZPerkWait <= 8 then    -- รอสูงสุด ~64 วิ
+                        setStatus("⏳ รอข้อมูล perk/inventory...")
+                        getSlot(true)
+                        return
+                    end
+                    warn("[BRAIN] ⚠️ อ่าน perk ไม่ได้เกิน 1 นาที → ข้ามการขาย ไปสร้างด่านต่อ")
                 end
 
                 -- ⏳ [FIX] รอ auto-pilot เก็บงาน lobby ให้เสร็จก่อน (เควส/achievement/อัพดาบ/สกิล)
