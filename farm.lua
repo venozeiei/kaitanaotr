@@ -268,7 +268,9 @@ if VZC.Enabled == nil then VZC.Enabled = true end
 VZC.AttackInterval = tonumber(VZC.AttackInterval) or 2
 VZC.HitCap         = tonumber(VZC.HitCap)         or 3
 VZC.SpearInterval  = tonumber(VZC.SpearInterval)  or 2
-VZC.HitRange       = tonumber(VZC.HitRange)       or 200   -- ต้องบินถึงก่อนถึงจะฟัน (studs)
+VZC.HitRange       = tonumber(VZC.HitRange)       or 200   -- ระยะสูงสุดที่ยอมให้ register (studs)
+VZC.ArriveRadius   = tonumber(VZC.ArriveRadius)   or 30    -- ⭐ ต้องเข้าใกล้จุดเหนือหัวไททันไม่เกินนี้ = "ถึงแล้ว"
+VZC.SettleTime     = tonumber(VZC.SettleTime)     or 1.5   -- ⭐ ถึงแล้วต้องนิ่งกี่วิก่อนเริ่มฟัน
 
 function VZC.Vel()
     if not VZC.Enabled then return 99999 end
@@ -8468,6 +8470,8 @@ local function AttackAllTitans()
     if #GetTargets(killHits) == 0 then return end
     -- [CHICKEN] กำลังเติม/สลับดาบอยู่ → หยุดฟัน (ฟันตอนดาบพัง = ดาเมจไม่เข้า + เปลือง remote)
     if getgenv().VenozBladeBusy then return end
+    -- [CHICKEN] ⭐ ยังบินไม่ถึงหัวไททัน / ยังไม่นิ่งครบเวลา → ยังไม่ฟัน
+    if not getgenv().VenozReady then return end
 
     if safe then
         SafeFire(POST, "Attacks", "Slash", true)
@@ -8636,6 +8640,36 @@ local function FarmUpdate()
             MoveStableTeleport(hrp, tp)
         else
             MoveSmooth(hrp, tp, lookDir)
+        end
+
+        -- ⭐ [CHICKEN] ARRIVE + SETTLE GATE
+        --   ต้องบินถึงจุดเหนือหัวไททันจริง (<= ArriveRadius) แล้วนิ่งครบ SettleTime
+        --   ก่อนถึงจะเริ่มฟัน — กันเคส "ยังบินไม่ถึงแล้วตี" ที่ดาเมจไม่เข้า
+        do
+            local gg = getgenv()
+            local arriveR = VZC.ArriveRadius or 30
+            local settleT = VZC.SettleTime or 1.5
+            local dist = (hrp.Position - tp).Magnitude
+
+            if gg._VZTarget ~= CurrentEntry then      -- เปลี่ยนเป้า → เริ่มนับใหม่
+                gg._VZTarget = CurrentEntry
+                gg._VZArriveAt = nil
+                gg.VenozReady = false
+            end
+
+            if dist <= arriveR then
+                if not gg._VZArriveAt then
+                    gg._VZArriveAt = tick()
+                    gg.VenozAction = "🛬 ถึงหัวไททันแล้ว — รอนิ่ง"
+                end
+                local held = tick() - gg._VZArriveAt
+                gg.VenozReady = (held >= settleT)
+                if gg.VenozReady then gg.VenozAction = "⚔️ ฟัน" end
+            elseif dist > arriveR * 2 then            -- หลุดไกลจริง → รีเซ็ต
+                gg._VZArriveAt = nil
+                gg.VenozReady = false
+                gg.VenozAction = string.format("🛫 บินไปหาไททัน (%d studs)", math.floor(dist))
+            end
         end
 
         local now = tick()
