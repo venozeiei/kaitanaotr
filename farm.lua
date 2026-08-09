@@ -7004,7 +7004,7 @@ task.spawn(function()
                        "Time Trial","Boring","Simple"})
     dflt("MissionDelay", 0)
     dflt("FarmMode", "Tween")    dflt("HoverHeight", 120)     dflt("HoverSpeed", 120)
-    dflt("SafetyTime", 60)       dflt("StopAtTitans", 10)     dflt("FPS", 60)
+    dflt("SafetyTime", 0)        dflt("StopAtTitans", 0)      dflt("FPS", 60)
     dflt("UpgradeDelay", 1.5)    dflt("ClaimDelay", 0.2)      dflt("UnlockDelay", 0.15)
     dflt("OffenseSide", "Right") dflt("DefenseSide", "Right") dflt("SupportSide", "None")
     dflt("PrestigeBoost", "Gold Boost") dflt("PrestigeCooldown", 0.3)
@@ -7198,6 +7198,11 @@ task.spawn(function()
     -- ══════════════════ ⚔️ MISSION ══════════════════
     else
         print("[AUTO] ⚔️ Mission — เปิดระบบฟาร์ม")
+        if (tonumber(VZ.StopAtTitans) or 0) > 0 or (tonumber(VZ.SafetyTime) or 0) > 0 then
+            warn(string.format("[AUTO] ⚠️ SafetyTime=%s / StopAtTitans=%s → บอทจะ 'หยุดตี' เมื่อไททันเหลือน้อย"
+                .. " (ตั้ง 0 ทั้งคู่ถ้าอยากให้ตีตลอด)",
+                tostring(VZ.SafetyTime), tostring(VZ.StopAtTitans)))
+        end
         setv("KillHitsSlider", VZ.HitCap)
         setv("SafetyTimeSlider", VZ.SafetyTime)
         setv("StopAtTitansLeftSlider", VZ.StopAtTitans)
