@@ -7938,22 +7938,25 @@ end)
 
 
 -- ═══════════════════════════════════════════════════════════════
--- 🧪 VENOZ BOOST SYSTEM — logic เดิมของบอทตัวเก่า (ใช้กับโค้ดใหม่)
+-- 🧪 VENOZ BOOST SYSTEM v2 — logic เดิมของบอทตัวเก่า + เช็คเพชรหลายทาง
 -- ═══════════════════════════════════════════════════════════════
---   ลำดับ: เช็คว่า boost ติดอยู่ยัง → ไม่ติด: กินจากกระเป๋าก่อน → ไม่มีค่อยซื้อ
+--   ลำดับ: เช็ค boost ติดอยู่ยัง → ไม่ติด: กินจากกระเป๋าก่อน → ไม่มีค่อยซื้อ
 --   เลือกชนิดตาม prestige/level แบบเดิม:
 --     • P3-P4      → ไม่เอา XP (ตันเร็ว ไม่คุ้ม)
 --     • P5+        → ไม่เอา Gold | เอา XP เฉพาะ level <= 130
 --     • ไม่ตั้งเอง → P<=3 เอา XP | P<=4 เอา Gold | P5+ & lv<=130 เอา XP
---   ซื้อไล่จากก้อนใหญ่ก่อน: 2h (13999) → 1h (7999) → 30m (4499)
+--   ซื้อไล่จากก้อนใหญ่ก่อน: 2H (13999) → 1H (7999) → 30M (4499)
 --   ปิด: getgenv().VenozChicken.AutoBoost = false
+-- ───────────────────────────────────────────────────────────────
+--   🔧 v2 แก้ 4 บั๊กที่ทำให้ "ไม่ซื้อ boost":
+--     1) อ่านเพชรผิดคีย์ (Currencies → ที่ถูกคือ Currency) = เพชรเป็น 0 ตลอด
+--        ตอนนี้อ่าน 4 ทาง: slot.Currency → slot.Currencies → attribute → Topbar GUI
+--     2) ชื่อไอเทมผิด ("2x Gold Boost [2h]" → ของจริงคือ "2X Gold [2H]")
+--     3) หาในกระเป๋าโดยบังคับต้องมีคำว่า "boost" → ของ Gold ไม่มีคำนี้ = หาไม่เจอ
+--     4) ซื้อแล้วไม่ยืนยันผล → ตอนนี้เช็คเพชรลดจริงก่อนถึงนับว่าซื้อสำเร็จ
+--   + จำเวลาหมดอายุลงดิสก์ กัน "ซื้อซ้ำ" ตอนตรวจ boost ที่ติดอยู่ไม่เจอ
 -- ═══════════════════════════════════════════════════════════════
 task.spawn(function()
-    local VZo = getgenv().VenozChicken or {}
-    if VZo.AutoBoost ~= true then return end
-    VZo.MinGemsToBuyBoosts = tonumber(VZo.MinGemsToBuyBoosts) or 4500
-    VZo.BoostCheckInterval = tonumber(VZo.BoostCheckInterval) or 15
-
     local mePl = game:GetService("Players").LocalPlayer
     local GETo
     pcall(function()
@@ -7962,6 +7965,65 @@ task.spawn(function()
     end)
     if not GETo then warn("[BOOST] ⛔ ไม่พบ GET remote") return end
 
+    local function cfg()
+        return getgenv().VenozChicken or {}
+    end
+
+    -- ── ชื่อ/ไอดี/ราคา/อายุ ตรงกับ BOOST_MAP ของ UI2 เป๊ะ ──
+    -- { id, ชื่อไอเทมจริง, ราคาเพชร, อายุ(วินาที) }
+    local SHOP = {
+        XP = {
+            { 3, "2X XP Boost [2H]", 13999, 7200 },
+            { 2, "2X XP Boost [1H]", 7999, 3600 },
+            { 1, "2X XP Boost [30M]", 4499, 1800 },
+        },
+        Gold = {
+            { 9, "2X Gold [2H]", 13999, 7200 },
+            { 8, "2X Gold [1H]", 7999, 3600 },
+            { 7, "2X Gold [30M]", 4499, 1800 },
+        },
+        Luck = {
+            { 6, "2X Luck [2H]", 13999, 7200 },
+            { 5, "2X Luck [1H]", 7999, 3600 },
+            { 4, "2X Luck [30M]", 4499, 1800 },
+        },
+    }
+    local KIND_WORD = { XP = "xp", Gold = "gold", Luck = "luck" }
+
+    -- ═══ สมุดจดว่า boost แต่ละชนิดหมดอายุเมื่อไหร่ (กันซื้อซ้ำ) ═══
+    local LEDGER_FILE = "VenozChicken_Boost_" .. tostring(mePl.UserId) .. ".json"
+    local ledger = {}
+    pcall(function()
+        if type(isfile) == "function" and isfile(LEDGER_FILE) then
+            local raw = readfile(LEDGER_FILE)
+            local ok, t = pcall(function()
+                return game:GetService("HttpService"):JSONDecode(raw)
+            end)
+            if ok and type(t) == "table" then ledger = t end
+        end
+    end)
+    local function saveLedger()
+        pcall(function()
+            if type(writefile) ~= "function" then return end
+            writefile(LEDGER_FILE, game:GetService("HttpService"):JSONEncode(ledger))
+        end)
+    end
+
+    -- ═══ อ่านตัวเลขจากข้อความ GUI (รองรับ 12.3K / 1.2M / 4,499) ═══
+    local function parseAmt(txt)
+        if type(txt) ~= "string" then return nil end
+        local num, suf = txt:match("([%d%.,]+)%s*([KkMmBb]?)")
+        if not num then return nil end
+        num = tonumber((num:gsub(",", "")))
+        if not num then return nil end
+        suf = string.upper(suf or "")
+        if suf == "K" then num = num * 1e3
+        elseif suf == "M" then num = num * 1e6
+        elseif suf == "B" then num = num * 1e9 end
+        return math.floor(num)
+    end
+
+    -- ═══ ดึงข้อมูล slot (2 endpoint เหมือน BRAIN) ═══
     local bc, bcT = nil, 0
     local function slotB(force)
         local now = os.clock()
@@ -7969,12 +8031,12 @@ task.spawn(function()
         local d
         local ok, r = pcall(function() return GETo:InvokeServer("Data", "Copy") end)
         if ok and type(r) == "table" and type(r.Slots) == "table" then d = r end
-        if not d then   -- endpoint สำรองแบบบอทเก่า
+        if not d then -- endpoint สำรองแบบบอทเก่า
             ok, r = pcall(function() return GETo:InvokeServer("Functions", "Settings", "Blur", "Off") end)
             if ok and type(r) == "table" and type(r.Slots) == "table" then d = r end
         end
         if d then
-            local sd = d.Slots[d.Current_Slot or mePl:GetAttribute("Slot") or VZo.Slot or "A"]
+            local sd = d.Slots[d.Current_Slot or mePl:GetAttribute("Slot") or cfg().Slot or "A"]
             if not sd then
                 for _, v in pairs(d.Slots) do
                     if type(v) == "table" and v.Progression then sd = v break end
@@ -7985,34 +8047,108 @@ task.spawn(function()
         return bc
     end
 
+    -- ═══ 💎 อ่านเพชร 4 ทาง (ตัวที่พังอยู่เดิม) ═══
+    local function readGems(force)
+        local sd = slotB(force)
+        -- 1) slot data — ชื่อคีย์จริงในเกมคือ "Currency" (เดิมเขียน Currencies = อ่านไม่เจอ)
+        if sd then
+            local c = sd.Currency or sd.Currencies
+            local g = c and tonumber(c.Gems)
+            if g and g > 0 then return g, "slot" end
+        end
+        -- 2) attribute บนตัวผู้เล่น
+        local a = tonumber(mePl:GetAttribute("Gems"))
+        if a and a > 0 then return a, "attr" end
+        -- 3) ป้ายเพชรบน Topbar
+        local gui
+        pcall(function()
+            local cur = mePl.PlayerGui.Interface.Topbar.Main:FindFirstChild("Currencies")
+            local gm = cur and cur:FindFirstChild("Gems")
+            local lbl = gm and gm:FindFirstChild("Amount")
+            if lbl then gui = parseAmt(lbl.Text) end
+        end)
+        if gui and gui > 0 then return gui, "gui" end
+        -- 4) หา TextLabel ชื่อ Gems ที่ไหนก็ได้ใน Interface
+        local any
+        pcall(function()
+            local itf = mePl.PlayerGui:FindFirstChild("Interface")
+            if not itf then return end
+            local gm = itf:FindFirstChild("Gems", true)
+            local lbl = gm and (gm:FindFirstChild("Amount") or gm)
+            if lbl and lbl:IsA("TextLabel") then any = parseAmt(lbl.Text) end
+        end)
+        if any and any > 0 then return any, "scan" end
+        return 0, "none"
+    end
+
+    -- ═══ boost ชนิดนี้ติดอยู่หรือยัง ═══
     local function boostActive(kind)
+        -- 1) สมุดจดของเรา (แม่นสุด เพราะเราเป็นคนกดเอง)
+        if (tonumber(ledger[kind]) or 0) > os.time() then return true, "จด" end
+        -- 2) โฟลเดอร์ Boosts บนตัวผู้เล่น
         local on = false
         pcall(function()
             local bf = mePl:FindFirstChild("Boosts")
-            if bf then
-                local nm = (kind == "XP") and "Experience" or kind
-                local bv = bf:FindFirstChild(nm) or bf:FindFirstChild(kind)
-                if bv and tonumber(bv.Value) and tonumber(bv.Value) > 0 then on = true end
-            end
+            if not bf then return end
+            local nm = (kind == "XP") and "Experience" or kind
+            local bv = bf:FindFirstChild(nm) or bf:FindFirstChild(kind)
+            if bv and tonumber(bv.Value) and tonumber(bv.Value) > 0 then on = true end
         end)
-        return on
+        if on then return true, "obj" end
+        -- 3) attribute
+        pcall(function()
+            local nm = (kind == "XP") and "Experience" or kind
+            local v = mePl:GetAttribute(nm .. "_Boost") or mePl:GetAttribute(nm .. "Boost")
+            if tonumber(v) and tonumber(v) > 0 then on = true end
+        end)
+        if on then return true, "attr" end
+        return false, "ไม่ติด"
     end
 
-    local nextCheck = 0
-    print("[BOOST] 🧪 ระบบ boost ตัวเก่าเริ่มทำงาน")
+    -- ═══ หาไอเทม boost ในกระเป๋า (เอาก้อนยาวสุดก่อน) ═══
+    local function findInInv(items, kind)
+        local word = KIND_WORD[kind] or string.lower(kind)
+        local rank = { ["2h"] = 3, ["1h"] = 2, ["30m"] = 1 }
+        local best, bestRank, bestDur = nil, -1, 1800
+        for name, qty in pairs(items) do
+            local q = tonumber(qty) or 0
+            local nl = string.lower(tostring(name))
+            if q > 0 and nl:find(word, 1, true)
+                and (nl:find("boost", 1, true) or nl:find("2x", 1, true)) then
+                local r, dur = 0, 1800
+                for tag, sc in pairs(rank) do
+                    if nl:find(tag, 1, true) and sc > r then
+                        r = sc
+                        dur = (tag == "2h" and 7200) or (tag == "1h" and 3600) or 1800
+                    end
+                end
+                if r > bestRank then best, bestRank, bestDur = name, r, dur end
+            end
+        end
+        return best, bestDur
+    end
+
+    local nextCheck, lastLog = 0, 0
+    print("[BOOST] 🧪 ระบบ boost v2 เริ่มทำงาน (เช็คเพชร 4 ทาง)")
 
     while true do
         task.wait(5)
-        if IsLobbyLobby() and os.time() >= nextCheck then
+        local VZo = cfg()
+        if VZo.AutoBoost ~= true then
+            if os.time() - lastLog > 300 then
+                lastLog = os.time()
+                print("[BOOST] 💤 ปิดอยู่ — เปิดที่ config: AutoBoost = true")
+            end
+        elseif IsLobbyLobby() and os.time() >= nextCheck then
+            local minGems = tonumber(VZo.MinGemsToBuyBoosts) or 4499
             local acted = false
             pcall(function()
                 local sd = slotB()
-                if not sd then return end
-                local pg = sd.Progression or {}
-                local prestige = tonumber(pg.Prestige) or 0
-                local level    = tonumber(pg.Level) or 0
-                local gems     = (sd.Currencies and tonumber(sd.Currencies.Gems)) or 0
-                local items    = (sd.Inventory and sd.Inventory.Items) or {}
+                local pg = (sd and sd.Progression) or {}
+                local prestige = tonumber(pg.Prestige) or tonumber(mePl:GetAttribute("Prestige")) or 0
+                local level = tonumber(pg.Level) or tonumber(mePl:GetAttribute("Level")) or 0
+                local gems, gsrc = readGems()
+                local items = (sd and sd.Inventory and sd.Inventory.Items) or {}
 
                 -- ── เลือกชนิด boost ที่ต้องการ (สูตรเดิม) ──
                 local need = {}
@@ -8029,49 +8165,77 @@ task.spawn(function()
                     if prestige <= 4 then table.insert(need, "Gold") end
                 end
 
+                -- ── 📋 log วินิจฉัย (ดูใน F9 ได้เลยว่าติดตรงไหน) ──
+                local st = {}
+                for _, k in ipairs(need) do
+                    local on, why = boostActive(k)
+                    local inv = findInInv(items, k)
+                    st[#st + 1] = string.format("%s=%s%s", k, on and "ติดแล้ว" or why,
+                        (not on and inv) and ("(มีในกระเป๋า)") or "")
+                end
+                print(string.format("[BOOST] 💎 เพชร %s (จาก %s) | ขั้นต่ำ %s | P%d Lv%d | อยากได้: %s | %s",
+                    tostring(gems), gsrc, tostring(minGems), prestige, level,
+                    (#need > 0 and table.concat(need, ",") or "ไม่มี"),
+                    (#st > 0 and table.concat(st, " ") or "-")))
+                if gsrc == "none" then
+                    warn("[BOOST] ⚠️ อ่านเพชรไม่ได้เลยสักทาง → ยังไม่ซื้อ (รอข้อมูลโหลด)")
+                    return
+                end
+
                 for _, kind in ipairs(need) do
                     if acted then break end
-                    if not boostActive(kind) then
-                        -- 1️⃣ กินของในกระเป๋าก่อน (หาแบบไม่สนตัวพิมพ์)
-                        local used = false
-                        local low = string.lower(kind)
-                        for name, qty in pairs(items) do
-                            if not used and tonumber(qty) and tonumber(qty) > 0 then
-                                local nl = string.lower(tostring(name))
-                                if string.find(nl, low, 1, true) and string.find(nl, "boost", 1, true) then
-                                    print(string.format("[BOOST] 🍷 กิน %s (x%s)", tostring(name), tostring(qty)))
-                                    local ok = pcall(function()
-                                        GETo:InvokeServer("S_Inventory", "Item", name)
-                                    end)
-                                    if ok then used = true; acted = true end
-                                    task.wait(0.5)
-                                end
+                    if not SHOP[kind] then
+                        warn("[BOOST] ⚠️ ไม่รู้จักชนิด " .. tostring(kind))
+                    elseif not (boostActive(kind)) then
+                        -- 1️⃣ กินของในกระเป๋าก่อน (ฟรี)
+                        local itemName, itemDur = findInInv(items, kind)
+                        if itemName then
+                            print(string.format("[BOOST] 🍷 กิน %s (มีในกระเป๋า)", tostring(itemName)))
+                            local ok = pcall(function()
+                                GETo:InvokeServer("S_Inventory", "Item", itemName)
+                            end)
+                            task.wait(1)
+                            if ok then
+                                ledger[kind] = os.time() + (itemDur or 1800)
+                                saveLedger()
+                                acted = true
+                                slotB(true)
                             end
-                        end
-                        if used then break end
-
-                        -- 2️⃣ ไม่มีในกระเป๋า → ซื้อ (เพชรต้องถึงเกณฑ์)
-                        if gems >= VZo.MinGemsToBuyBoosts then
-                            local order = (kind == "Gold")
-                                and { {9, "2x Gold Boost [2h]", 13999}, {8, "2x Gold Boost [1h]", 7999}, {7, "2x Gold Boost [30m]", 4499} }
-                                or  { {3, "2x XP Boost [2h]", 13999},   {2, "2x XP Boost [1h]", 7999},   {1, "2x XP Boost [30m]", 4499} }
-                            for _, t in ipairs(order) do
-                                local idx, nm, price = t[1], t[2], t[3]
-                                if gems >= price then
-                                    print(string.format("[BOOST] 💎 ซื้อ %s (%d เพชร)", nm, price))
-                                    local res
-                                    pcall(function()
-                                        res = GETo:InvokeServer("S_Market", "Buy", "1_Boosts", idx, 1)
-                                    end)
-                                    if res ~= nil and type(res) ~= "string" then
-                                        task.wait(0.8)
-                                        pcall(function() GETo:InvokeServer("S_Inventory", "Item", nm) end)
-                                        print("[BOOST] ✅ ซื้อ + ใช้สำเร็จ")
-                                        acted = true
-                                        slotB(true)
-                                        break
+                        else
+                            -- 2️⃣ ไม่มีในกระเป๋า → ซื้อ (เพชรต้องถึงเกณฑ์)
+                            if gems < minGems then
+                                print(string.format("[BOOST] 🚫 %s: เพชรไม่ถึงเกณฑ์ (%s < %s) → ข้าม",
+                                    kind, tostring(gems), tostring(minGems)))
+                            else
+                                for _, t in ipairs(SHOP[kind]) do
+                                    if acted then break end
+                                    local idx, nm, price, dur = t[1], t[2], t[3], t[4]
+                                    if gems >= price then
+                                        print(string.format("[BOOST] 💳 ซื้อ %s (%d เพชร)", nm, price))
+                                        pcall(function()
+                                            GETo:InvokeServer("S_Market", "Buy", "1_Boosts", idx, 1)
+                                        end)
+                                        task.wait(1.2)
+                                        -- ✅ ยืนยันด้วยเพชรที่ลดจริง (ไม่เชื่อค่าที่ remote คืนมา)
+                                        local after = readGems(true)
+                                        if after > 0 and after <= gems - math.floor(price * 0.9) then
+                                            print(string.format("[BOOST] ✅ ซื้อสำเร็จ (เพชร %s → %s) → ใช้เลย",
+                                                tostring(gems), tostring(after)))
+                                            pcall(function()
+                                                GETo:InvokeServer("S_Inventory", "Item", nm)
+                                            end)
+                                            task.wait(0.6)
+                                            ledger[kind] = os.time() + (dur or 1800)
+                                            saveLedger()
+                                            gems = after
+                                            acted = true
+                                        else
+                                            warn(string.format("[BOOST] ❌ ซื้อไม่ผ่าน %s (เพชรไม่ลด: %s → %s) → ข้าม",
+                                                nm, tostring(gems), tostring(after)))
+                                            gems = (after > 0) and after or gems
+                                            task.wait(0.5)
+                                        end
                                     end
-                                    task.wait(0.5)
                                 end
                             end
                         end
@@ -8079,7 +8243,7 @@ task.spawn(function()
                 end
             end)
             -- ทำอะไรไป → เช็คถี่ | ไม่ได้ทำ → พัก 5 นาที (เหมือนบอทเก่า)
-            nextCheck = os.time() + (acted and VZo.BoostCheckInterval or 300)
+            nextCheck = os.time() + (acted and (tonumber(VZo.BoostCheckInterval) or 15) or 300)
         end
     end
 end)
