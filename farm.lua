@@ -8267,6 +8267,14 @@ task.spawn(function()
         local setv = getgenv().VenozSetOpt
         if type(setv) == "function" then pcall(function() setv("AutoFarmBlade", on) end) end
     end
+    local function farmIsOn()
+        local t = (Toggles and Toggles.AutoFarmBlade) or (Options and Options.AutoFarmBlade)
+        return t and t.Value == true
+    end
+    -- กดปิดฟาร์มค้างไว้ (autopilot/ตัวอื่นอาจเปิดคืนระหว่างเราทำ objective)
+    local function holdFarmOff()
+        if farmIsOn() then setFarm(false) end
+    end
     local function objGet(name)
         local o = RS:FindFirstChild("Objectives")
         return o and o:FindFirstChild(name)
@@ -8364,49 +8372,61 @@ task.spawn(function()
     end
 
     local state, delivered, visited, towerIdx = "INIT", 0, {}, 1
-    local iceSeen = 0
+    local iceSeen, waitCrate = 0, 0
+
+    -- 🔒 เข้าแมพ TS = ไม่ใช่ด่านฟาร์มปกติ → ปิดฟาร์มทันที ทำ objective ก่อน
+    if myMap == "Forest" then setFarm(false) end
 
     while true do
-        task.wait(1)
+        task.wait(0.5)
         local okRun, err = pcall(function()
             -- ══ Forest → Base : เก็บกล่องส่งวงเหลือง ══
+            --   ⚠️ บอทเก่าใช้ "ฆ่าถึง req-5 ก่อนค่อยเก็บ" แต่ใช้กับตัวใหม่ไม่ได้
+            --      ตีตัวใหม่ one-shot เร็วมาก (43 ตัวใน 19 วิ) → ด่านจบก่อนถึงคิวเก็บกล่อง
+            --      ✅ กลับลำดับ: "เก็บกล่องให้เสร็จก่อน แล้วค่อยปล่อยฟาร์ม"
+            --         ระหว่างเก็บไม่ฆ่าเลย → ด่านจบไม่ได้ = ปลอดภัยกว่าเดิม
             if myMap == "Forest" then
                 local slayO = objGet("Slay")
                 local slay = (slayO and slayO.Value) or 0
                 local req = (slayO and slayO:GetAttribute("Requirement")) or 40
                 local defending = objGet("Defend_Supplies") ~= nil
 
-                if state == "INIT" then state = "KILL_TO_MARGIN" end
+                if state == "INIT" then
+                    state = "COLLECT"
+                    holdFarmOff()
+                    print("[TS] 📦 Forest → หยุดฟาร์ม เก็บกล่องก่อนเป็นอย่างแรก")
+                end
+
                 if defending and state ~= "KILL_ALL" then
                     state = "KILL_ALL"
                     setFarm(true)
                     print("[TS] 🛡️ Defend_Supplies เริ่มแล้ว → กลับไปตี titan")
                 end
 
-                if state == "KILL_TO_MARGIN" then
-                    -- เว้น margin 5 ตัว: ถ้าฆ่าครบ req ด่านจบก่อนได้เก็บกล่อง
-                    local safeMax = math.max(req - 5, 1)
-                    getgenv().VenozAction = string.format("⚡ ฆ่า %d/%d ก่อนเก็บกล่อง", slay, safeMax)
-                    if slay >= safeMax then
-                        state = "COLLECT"
-                        print(string.format("[TS] ✅ ฆ่าถึง margin (%d/%d) → เริ่มเก็บกล่อง", slay, req))
-                    end
-                elseif state == "COLLECT" then
+                if state == "COLLECT" then
+                    holdFarmOff()          -- 🔒 กดค้างไว้ทุกรอบ กันโดนเปิดคืนระหว่างเก็บ
                     local circle = findCircle()
-                    if not circle then
-                        print("[TS] ⚠️ ไม่เจอวงเหลือง → กลับไปตี titan")
-                        state = "KILL_ALL"; setFarm(true); return
-                    end
                     local avail = {}
                     for _, c in ipairs(scanCrates()) do
                         if not visited[c.model] then avail[#avail + 1] = c end
                     end
-                    if #avail == 0 then
-                        print(string.format("[TS] ✅ เก็บกล่องครบ %d ใบ → กลับไปตี titan", delivered))
-                        state = "KILL_ALL"; setFarm(true); return
+
+                    if not circle or #avail == 0 then
+                        -- แมพอาจยังโหลดไม่เสร็จ → รอถึง 30 วิ ค่อยยอมแพ้
+                        waitCrate = waitCrate + 1
+                        if delivered > 0 then
+                            print(string.format("[TS] ✅ เก็บกล่องครบ %d ใบ → เปิดฟาร์มตีต่อ", delivered))
+                            state = "KILL_ALL"; setFarm(true)
+                        elseif waitCrate > 30 then
+                            print("[TS] ⚠️ หากล่อง/วงเหลืองไม่เจอใน 30 วิ → ฟาร์มปกติแทน")
+                            state = "KILL_ALL"; setFarm(true)
+                        else
+                            getgenv().VenozAction = "📦 รอกล่องโหลด..."
+                        end
+                        return
                     end
-                    setFarm(false)                 -- 🔒 หยุดฟาร์ม กันแย่งวาร์ป
-                    task.wait(0.3)
+
+                    waitCrate = 0
                     local hrp = plrT.Character and plrT.Character:FindFirstChild("HumanoidRootPart")
                     if not hrp then return end
                     table.sort(avail, function(a, b)
