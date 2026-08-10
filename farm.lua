@@ -8027,7 +8027,11 @@ task.spawn(function()
                     local sellable = perkInfo()
                     local tan, pr = isTan()
                     local pT = perkTarget()
-                    local wantLeave = (sellable >= pT) or (tan and pr < VZ.PrestigeTarget)
+                    -- ⚡ อยู่แมพ TS แล้วได้ชิ้นส่วนแล้ว → ต้อง LEAVE ไปทำแมพต่อไป
+                    --    (ถ้า RETRY จะวนเล่นแมพเดิมทั้งที่ของได้แล้ว — บั๊กที่เจอ)
+                    local tsLeave = (getgenv().VenozTSWantLeave == true)
+                    local wantLeave = tsLeave
+                        or (sellable >= pT) or (tan and pr < VZ.PrestigeTarget)
                     if wantLeave then
                         getgenv().StartRejoin = false
                         local b = rewards:FindFirstChild("Main")
@@ -8035,9 +8039,14 @@ task.spawn(function()
                         b = b and b:FindFirstChild("Buttons")
                         local leave = b and (b:FindFirstChild("Leave_2") or b:FindFirstChild("Leave"))
                         if leave then
-                            print(string.format("[BRAIN] 🚪 LEAVE — perk=%d/%d ตัน=%s P%d",
-                                sellable, pT, tostring(tan), pr))
-                            setStatus("🚪 ออกจากด่าน (ไปขาย perk / จุติ)")
+                            if tsLeave then
+                                print("[TS] 🚪 LEAVE — ได้ชิ้นส่วนแล้ว ไปทำแมพต่อไป")
+                                setStatus("🚪 ออกจากด่าน → ไปเก็บชิ้นส่วนต่อไป")
+                            else
+                                print(string.format("[BRAIN] 🚪 LEAVE — perk=%d/%d ตัน=%s P%d",
+                                    sellable, pT, tostring(tan), pr))
+                                setStatus("🚪 ออกจากด่าน (ไปขาย perk / จุติ)")
+                            end
                             clickBtn(leave)
                             task.wait(5)
                         end
@@ -8240,6 +8249,10 @@ end)
 --      ปล่อยให้ด่านจบเอง แล้ว Rewards UI โผล่ → ระบบ Retry/Leave จัดการต่อ
 -- ═══════════════════════════════════════════════════════════════
 task.spawn(function()
+    -- ⚠️ ต้องรีเซ็ตทุกครั้งที่เข้าแมพใหม่ (getgenv ค้างข้ามการ teleport)
+    --    ไม่งั้นธง "อยากออก" จากแมพ TS จะติดค้างไปถึง Chapel = ออกทุกด่าน
+    getgenv().VenozTSWantLeave = false
+
     local VZt = getgenv().VenozChicken or {}
     if VZt.AutoThunderSpearQuest ~= true then return end
 
@@ -8374,8 +8387,77 @@ task.spawn(function()
     local state, delivered, visited, towerIdx = "INIT", 0, {}, 1
     local iceSeen, waitCrate = 0, 0
 
+    -- ── เช็คชิ้นส่วนจาก inventory (แบบบอทเก่า) ──
+    local TS_ITEM2 = {
+        Handle   = "Thunder Spear - Handle",
+        Thruster = "Thunder Spear - Thruster",
+        Base     = "Thunder Spear - Base",
+    }
+    local GETts = RS:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+    local function ownedParts()
+        local out = {}
+        pcall(function()
+            local d = GETts:InvokeServer("Data", "Copy")
+            local sd = d and d.Slots and d.Slots[d.Current_Slot]
+            local inv = sd and sd.Inventory
+            if type(inv) ~= "table" then return end
+            for p, item in pairs(TS_ITEM2) do
+                for _, cat in pairs(inv) do
+                    if type(cat) == "table" then
+                        for name, amt in pairs(cat) do
+                            if name == item and (tonumber(amt) or 0) > 0 then out[p] = true end
+                        end
+                    end
+                end
+            end
+        end)
+        return out
+    end
+    local function logParts(o, prefix)
+        print(string.format("[TS]   %sHandle=%s Thruster=%s Base=%s", prefix or "",
+            o.Handle and "✅" or "❌", o.Thruster and "✅" or "❌", o.Base and "✅" or "❌"))
+    end
+
+    -- 🚪 ถ้าชิ้นส่วนของแมพนี้ "ได้มาแล้ว" → ไม่ต้องเล่นซ้ำ ออกไปทำแมพต่อไป
+    local function checkDoneAndFlag()
+        local o = ownedParts()
+        if o[part] then
+            if not getgenv().VenozTSWantLeave then
+                print("═══════════════════════════════════════════")
+                print(string.format("[TS] ⚡ ได้ %s แล้ว! (จาก %s)", part, myMap))
+                logParts(o)
+                if o.Thruster and o.Base then
+                    print("[TS] 🎉 ครบแล้ว (Thruster + Base) → กลับไปฟาร์ม Chapel")
+                else
+                    local nxt = (not o.Base) and "Forest" or ((not o.Thruster) and "Utgard" or "-")
+                    print("[TS] ➡️ ต่อไปทำ: " .. nxt)
+                end
+                print("🚪 LEAVE เพื่อไปทำแมพต่อไป")
+                print("═══════════════════════════════════════════")
+            end
+            getgenv().VenozTSWantLeave = true
+            getgenv().StartRejoin = false     -- กัน UI2 กด RETRY แข่ง
+            return true
+        end
+        return false
+    end
+
     -- 🔒 เข้าแมพ TS = ไม่ใช่ด่านฟาร์มปกติ → ปิดฟาร์มทันที ทำ objective ก่อน
     if myMap == "Forest" then setFarm(false) end
+
+    -- เช็คตั้งแต่เข้ามา: ถ้ามีของอยู่แล้ว = เข้าผิดแมพ → ออกเลย ไม่ต้องเสียเวลา
+    task.spawn(function()
+        task.wait(3)
+        if checkDoneAndFlag() then
+            print("[TS] ⏭️ แมพนี้ได้ของแล้วตั้งแต่แรก → ข้ามไปเลย")
+            setFarm(true)                     -- ฟาร์มไปพลางจนด่านจบ แล้วค่อย LEAVE
+        end
+        -- หลังจากนั้นเช็คทุก 20 วิ เผื่อได้ของกลางด่าน
+        while not getgenv().VenozTSWantLeave do
+            task.wait(20)
+            checkDoneAndFlag()
+        end
+    end)
 
     while true do
         task.wait(0.5)
@@ -8415,8 +8497,11 @@ task.spawn(function()
                         -- แมพอาจยังโหลดไม่เสร็จ → รอถึง 30 วิ ค่อยยอมแพ้
                         waitCrate = waitCrate + 1
                         if delivered > 0 then
-                            print(string.format("[TS] ✅ เก็บกล่องครบ %d ใบ → เปิดฟาร์มตีต่อ", delivered))
+                            print(string.format("[TS] ✅ ส่งกล่องครบ %d ใบ → เปิดฟาร์มตีต่อจนจบด่าน", delivered))
                             state = "KILL_ALL"; setFarm(true)
+                            task.spawn(function()      -- เช็คว่าได้ของรึยังหลังส่งครบ
+                                task.wait(4); checkDoneAndFlag()
+                            end)
                         elseif waitCrate > 30 then
                             print("[TS] ⚠️ หากล่อง/วงเหลืองไม่เจอใน 30 วิ → ฟาร์มปกติแทน")
                             state = "KILL_ALL"; setFarm(true)
