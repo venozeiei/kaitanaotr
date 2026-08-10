@@ -8235,6 +8235,112 @@ end)
 
 
 -- ═══════════════════════════════════════════════════════════════
+-- 🎁 TS CLAIM — เคลมเควส Spears (ยกจากบอทเก่า + เพิ่มตัวกดปุ่มจริง)
+-- ═══════════════════════════════════════════════════════════════
+--   🐛 บั๊กที่เจอ: เควส Spears ทำเสร็จแล้ว (3/3 ขึ้นปุ่ม CLAIM) แต่ไม่มีใครกด
+--      เพราะระบบเคลมเควสของ UI2 อยู่ใต้ day-cache (เคลมวันละครั้ง)
+--      → Spears เพิ่งเสร็จทีหลัง = ตกรอบไปเลย ไม่ได้ชิ้นส่วน
+--   ✅ แยกออกมาเป็นตัวของมันเอง ไม่ผูก day-cache — อยู่ lobby ก็เคลมทุกครั้ง
+--      ยิงเฉพาะ tag ที่ยังไม่ Rewarded (ไม่เปลือง remote) + กดปุ่มใน UI เป็นตัวสำรอง
+--   ⚠️ ตัวกดปุ่มใช้ "คลิกเมาส์จริง" (VenozPress) — ทดสอบแล้วว่าเกมนี้
+--      ไม่รับ getconnections():Fire() (โค้ดเก่าใช้วิธีนั้น เลยน่าจะไม่เคยติด)
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    local VZc = getgenv().VenozChicken or {}
+    if VZc.AutoThunderSpearQuest ~= true then return end
+    if not IsLobbyLobby() then return end          -- ร้านเควสเปิดได้แค่ที่ lobby
+
+    local TAGS = { "Towers", "Escort", "Ice Burst Stones",
+        "Retrieve Missing Supplies", "Defend Missing Supplies" }
+    local plrC = game:GetService("Players").LocalPlayer
+    local GETc = game:GetService("ReplicatedStorage")
+        :WaitForChild("Assets", 20):WaitForChild("Remotes", 20):WaitForChild("GET", 20)
+    if not GETc then return end
+
+    -- กดปุ่ม CLAIM ที่โผล่อยู่ใน UI (ทำงานเฉพาะตอนหน้าเควสเปิดอยู่)
+    local function clickClaimButtons()
+        local n = 0
+        pcall(function()
+            local pg = plrC:FindFirstChild("PlayerGui")
+            if not pg then return end
+            local function scan(root, depth)
+                if depth > 8 then return end
+                for _, ch in ipairs(root:GetChildren()) do
+                    if ch:IsA("TextButton") or ch:IsA("TextLabel") then
+                        local t = string.upper(tostring(ch.Text or ""))
+                        if t == "CLAIM" and ch.Visible
+                            and ch.AbsolutePosition.X > 10 and ch.AbsolutePosition.Y > 10 then
+                            local btn = ch
+                            if not btn:IsA("GuiButton") then
+                                local p = ch.Parent
+                                for _ = 1, 3 do
+                                    if not p then break end
+                                    if p:IsA("GuiButton") then btn = p break end
+                                    p = p.Parent
+                                end
+                            end
+                            if btn:IsA("GuiButton") and getgenv().VenozPress then
+                                getgenv().VenozPress(btn)   -- คลิกเมาส์จริง
+                                n = n + 1
+                                task.wait(0.25)
+                            end
+                        end
+                    end
+                    scan(ch, depth + 1)
+                end
+            end
+            scan(pg, 0)
+        end)
+        if n > 0 then print(string.format("[TS] 🖱️ กดปุ่ม CLAIM ใน UI %d ปุ่ม", n)) end
+        return n
+    end
+
+    local function pending()
+        local out = {}
+        pcall(function()
+            local d
+            local ok, r = pcall(function() return GETc:InvokeServer("Data", "Copy") end)
+            if ok and type(r) == "table" and r.Slots then d = r end
+            if not d then
+                ok, r = pcall(function() return GETc:InvokeServer("Functions", "Settings", "Blur", "Off") end)
+                if ok and type(r) == "table" and r.Slots then d = r end
+            end
+            local sd = d and d.Slots[d.Current_Slot]
+            local q = sd and sd.Quests and sd.Quests.Spears
+            if type(q) ~= "table" then return end
+            for _, v in pairs(q) do
+                if type(v) == "table" and v.Tag and v.Rewarded ~= true then
+                    out[tostring(v.Tag)] = true
+                end
+            end
+        end)
+        return out
+    end
+
+    task.wait(8)                                   -- รอข้อมูล slot โหลดก่อน
+    while true do
+        local todo = pending()
+        local list = {}
+        for _, tag in ipairs(TAGS) do
+            if todo[tag] then list[#list + 1] = tag end
+        end
+        if #list > 0 then
+            print("[TS] 🎁 เควส Spears ที่ยังไม่เคลม: " .. table.concat(list, ", "))
+            for _, tag in ipairs(list) do
+                local ok, res = pcall(function()
+                    return GETc:InvokeServer("Functions", "Quest", tag, "Spears")
+                end)
+                if ok and res then print("[TS] 🎁 เคลม: " .. tag) end
+                task.wait(0.2 + math.random() * 0.15)
+            end
+            task.wait(1)
+            clickClaimButtons()                    -- สำรอง: กดปุ่มถ้าหน้าเควสเปิดอยู่
+        end
+        task.wait(45)
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════
 -- ⚡ TS MISSION — ระบบ "ในด่าน" ของบอทเก่า (ยกมาทั้งชุด)
 -- ═══════════════════════════════════════════════════════════════
 --   🐛 ที่ผ่านมา: brain สร้างด่าน TS ให้ถูกแล้ว แต่พอเข้าไป
