@@ -2,6 +2,17 @@
 
 
 
+-- ═══════════════════════════════════════════════════════════════
+-- 🐔 VENOZ CHICKEN  ·  BUILD v3.1  (💎 โชว์เพชร + boost ซื้อด้วยเพชร)
+-- ถ้าไม่เห็น 4 บรรทัดนี้ใน F9 = ยังรันโค้ดตัวเก่าอยู่ ให้ paste ไฟล์ใหม่ทับ
+-- ═══════════════════════════════════════════════════════════════
+print("═══════════════════════════════════════════════")
+print("🐔 VENOZ CHICKEN — BUILD v3.1")
+print("   💎 ป้ายกลางจอโชว์เพชร | boost ซื้อด้วยเพชร (ไม่ใช่ทอง)")
+print("   🧪 เช็ค boost จาก Data.Copy.Boosts ตัวจริง")
+print("═══════════════════════════════════════════════")
+getgenv().VenozBuild = "v3.1"
+
 -- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
 task.spawn(function()
     local Players = game:GetService("Players")
@@ -377,6 +388,77 @@ local TRADE_LOBBY_ID = 14932214603
 local function IsMainmenuLobby() return PlaceId == MAIN_MENU_ID end
 local function IsLobbyLobby() return PlaceId == LOBBY_ID or PlaceId == TRADE_LOBBY_ID end
 local function IsIngameLobby() return not IsMainmenuLobby() and not IsLobbyLobby() end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🖱️ VENOZ PRESS — กดปุ่ม GUI แบบ "คลิกเมาส์จริง"
+-- ═══════════════════════════════════════════════════════════════
+--   🐛 ของ UI2 ใช้ GuiService.SelectedObject + ส่งปุ่ม Enter
+--      → ปุ่ม RETRY ของเกม "ไม่รับ" วิธีนี้เลย ค้างที่ (0/1) ตลอด
+--      → ลองยิง getconnections(MouseButton1Click):Fire() ก็ไม่ติดเหมือนกัน
+--   ✅ ที่ทดสอบกับเกมจริงแล้วติด: VirtualInputManager ส่ง "เมาส์ move + คลิก"
+--      ที่พิกัดจริงของปุ่ม และต้องบวก GuiInset.Y ด้วย ไม่งั้นคลิกพลาดตำแหน่ง
+--      ผลทดสอบ: "RETRY (0/1)" → "STARTING (4s)" ทันที
+-- ═══════════════════════════════════════════════════════════════
+local function VenozVisible(gui)
+    if not (gui and gui.Parent) then return false end
+    local o = gui
+    while o and o ~= game do
+        if o:IsA("GuiObject") and not o.Visible then return false end
+        if o:IsA("ScreenGui") and not o.Enabled then return false end
+        o = o.Parent
+    end
+    return true
+end
+
+local function VenozPress(btn)
+    if not (btn and btn.Parent and btn:IsA("GuiObject")) then return false end
+    if not VenozVisible(btn) then return false end
+    local ok = pcall(function()
+        local VIM = game:GetService("VirtualInputManager")
+        local inset = game:GetService("GuiService"):GetGuiInset()
+        local p, s = btn.AbsolutePosition, btn.AbsoluteSize
+        if s.X <= 0 or s.Y <= 0 then error("ปุ่มขนาด 0") end
+        local x = p.X + s.X / 2
+        local y = p.Y + s.Y / 2 + inset.Y
+        VIM:SendMouseMoveEvent(x, y, game)
+        task.wait(0.12)
+        VIM:SendMouseButtonEvent(x, y, 0, true, game, false)
+        task.wait(0.06)
+        VIM:SendMouseButtonEvent(x, y, 0, false, game, false)
+    end)
+    if ok then return true end
+    -- สำรอง 1: ยิง handler ของปุ่มตรงๆ
+    if type(getconnections) == "function" then
+        pcall(function()
+            for _, c in ipairs(getconnections(btn.MouseButton1Click)) do
+                pcall(function() c:Fire() end)
+            end
+        end)
+    end
+    -- สำรอง 2: วิธีเดิมของ UI2 (เผื่อบางปุ่มรับ)
+    pcall(function()
+        local GS, VIM = game:GetService("GuiService"), game:GetService("VirtualInputManager")
+        GS.SelectedObject = btn
+        task.wait(0.05)
+        VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+        task.wait(0.05)
+        VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+        GS.SelectedObject = nil
+    end)
+    return false
+end
+getgenv().VenozPress = VenozPress
+
+-- อ่านข้อความบนปุ่ม (ปุ่มบางอันเก็บ text ไว้ที่ TextLabel ลูก)
+local function VenozBtnText(btn)
+    local t = ""
+    pcall(function()
+        local tl = btn:FindFirstChildWhichIsA("TextLabel", true)
+        t = string.upper(tostring((tl and tl.Text) or (btn:IsA("TextButton") and btn.Text) or ""))
+    end)
+    return t
+end
+getgenv().VenozBtnText = VenozBtnText
 
 task.spawn(function()
     local start = tick()
@@ -7028,8 +7110,15 @@ task.spawn(function()
     dflt("AutoRaid", false)      dflt("RaidBoss", nil)        dflt("RaidDifficulty", nil)
     dflt("RaidModifiers", {})    dflt("RaidDelay", 0)
     dflt("AutoWaves", false)     dflt("WavesDelay", 0)
-    dflt("AutoBoost", false)     dflt("BoostTypes", {"XP", "Gold"})
-    dflt("MinGemsToBuyBoosts", 4500)  dflt("BoostCheckInterval", 15)
+    dflt("AutoBoost", true)      dflt("BoostTypes", {"XP", "Gold"})
+    dflt("MinGemsToBuyBoosts", 4499)  dflt("BoostCheckInterval", 15)
+    -- 🔧 config เก่า (ก่อน v3) ตั้ง AutoBoost=false ไว้ตอนที่ระบบ boost ยังพัง
+    --    ค่านั้นไม่ใช่ความตั้งใจของผู้ใช้ → ถ้าเจอ config เก่า ให้เปิดให้อัตโนมัติ
+    --    ถ้าอยากปิดจริงๆ ใส่ VenozChicken.ConfigVersion = 3 แล้วตั้ง AutoBoost = false
+    if VZ.AutoBoost == false and (tonumber(VZ.ConfigVersion) or 0) < 3 then
+        VZ.AutoBoost = true
+        warn("[BOOST] 🔧 เจอ config เก่า (AutoBoost=false) → เปิดให้อัตโนมัติแล้ว")
+    end
     dflt("AutoSpin", false)      dflt("SpinFamilies", {})     dflt("SpinDelay", 1)
     dflt("StopAtSpinLimit", true)
         dflt("FailedSafe", false)    dflt("FailedSafeDelay", 1200)
@@ -7304,23 +7393,36 @@ task.spawn(function()
     VZ.PerkSellLow    = tonumber(VZ.PerkSellLow) or 30
     VZ.PrestigeTarget = tonumber(VZ.PrestigeTarget) or 5
 
-    -- 🎯 เป้าขาย perk ตามความยากด่านจริง (logic เดิมของบอทเก่า)
-    --    easy1 normal2 hard3 | severe4 aberrant5 aberrant+6 aberrant++7
-    --    rank 0 (ยังไม่รู้) / <=3 (Hard ลงมา) → PerkSellLow (30) ขายไวไม่ค้าง
-    --    rank >=4 (Severe ขึ้นไป) → PerkSellTarget (ฟาร์มยาว)
+    -- 🎯 เป้าขาย perk ตามความยากด่าน "ที่เล่นจริง"
+    --    easy1 normal2 hard3 severe4 | aberrant5 aberrant+6 aberrant++7
+    --    ต่ำกว่า Aberrant (Severe ลงมา) → PerkSellLow (30) ขายไวไม่ค้าง
+    --    Aberrant ขึ้นไป              → PerkSellTarget (200, ฟาร์มยาว)
     local DIFF_RANK = {
         easy = 1, normal = 2, hard = 3, severe = 4,
         aberrant = 5, ["aberrant+"] = 6, ["aberrant++"] = 7,
     }
+    -- ปรับได้ที่ config: PerkHighFrom = "Aberrant" (ค่าเริ่มต้น) หรือ "Severe" แบบเดิม
+    local HIGH_FROM = DIFF_RANK[string.lower(tostring(VZ.PerkHighFrom or "Aberrant"))] or 5
+
+    -- ชื่อที่เกมคืนมาอาจมีวงเล็บเกรดต่อท้าย เช่น "Severe (B- Grade)" → ตัดทิ้งก่อนเทียบ
+    local function normDiff(d)
+        local s = string.lower(tostring(d or ""))
+        s = s:gsub("%b()", "")            -- ตัด "(B- Grade)"
+        s = s:gsub("grade", ""):gsub("[%s]+", "")
+        return s
+    end
     local function latchDiff(d)
         if not d then return end
-        local r = DIFF_RANK[string.lower(tostring(d))]
-        if r then getgenv().VenozDiffRank = r end
+        local r = DIFF_RANK[normDiff(d)]
+        if r then
+            getgenv().VenozDiffRank = r
+            getgenv().VenozDiffName = tostring(d)
+        end
     end
     local function perkTarget()
         pcall(function() latchDiff(workspace:GetAttribute("Difficulty")) end)
         local rank = tonumber(getgenv().VenozDiffRank) or 0
-        if rank >= 4 then return VZ.PerkSellTarget end
+        if rank >= HIGH_FROM then return VZ.PerkSellTarget end
         return VZ.PerkSellLow
     end
     VZ.GoldReq = VZ.GoldReq or {0, 0, 0, 0, 0}
@@ -7434,7 +7536,12 @@ task.spawn(function()
         local full = (mx > 0 and xp >= mx) or ((pct or 0) >= 100)
         return (lv > 0 and lv >= (100 + pr * 25) and full), pr
     end
+    -- 🖱️ ใช้คลิกเมาส์จริง (ปุ่มหน้าจบด่านไม่รับวิธี GuiService+Enter)
     local function clickBtn(btn)
+        if not btn then return false end
+        return VenozPress(btn)
+    end
+    local function clickBtnOld(btn)
         if not btn then return false end
         local GS, VIM = game:GetService("GuiService"), game:GetService("VirtualInputManager")
         return pcall(function()
@@ -7479,8 +7586,9 @@ task.spawn(function()
             statusLbl = Instance.new("TextLabel")
             statusLbl.AnchorPoint = Vector2.new(0.5, 0)
             statusLbl.Position = UDim2.new(0.5, 0, 0, 8)
-            statusLbl.Size = UDim2.new(0, 620, 0, 96)
+            statusLbl.Size = UDim2.new(0, 660, 0, 140)   -- 5 บรรทัด (เดิม 96 = บรรทัด 🧪 ถูกตัดหาย)
             statusLbl.BackgroundTransparency = 1
+            statusLbl.TextYAlignment = Enum.TextYAlignment.Top
             statusLbl.RichText = true
             statusLbl.Font = Enum.Font.GothamBold
             statusLbl.TextSize = 15
@@ -7600,7 +7708,8 @@ task.spawn(function()
         local res
         pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
         if res == nil then
-            local fallbacks = { "Severe", "Aberrant", "Hard", "Normal", "Easy" }
+            -- ⬇️ ไล่จากยากไปง่าย (เดิมเรียง Severe ก่อน Aberrant = ยอมเล่นด่านง่ายกว่าที่ปลดได้)
+            local fallbacks = { "Aberrant+", "Aberrant", "Severe", "Hard", "Normal", "Easy" }
             for _, diff in ipairs(fallbacks) do
                 mapData.Difficulty = diff
                 pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
@@ -7612,7 +7721,8 @@ task.spawn(function()
             latchDiff(mapData.Difficulty)
             pcall(function() GETb:InvokeServer("S_Missions", "Modify", mapData.Difficulty) end)
             pcall(function() GETb:InvokeServer("S_Missions", "Start") end)
-            print("[BRAIN] ✅ สร้างด่าน Chapel (" .. tostring(mapData.Difficulty) .. ") → เริ่ม")
+            print(string.format("[BRAIN] ✅ สร้างด่าน Chapel (%s) → เป้าขาย perk = %d",
+                tostring(mapData.Difficulty), perkTarget()))
             setStatus("🚀 เข้าด่าน...")
             return true
         end
@@ -7640,7 +7750,9 @@ task.spawn(function()
 
     -- ═══════════ MAIN LOOP ═══════════
     local lastSell, lastMission = 0, os.clock()
-    print(string.format("[BRAIN] 🧠 เริ่มทำงาน | ขาย perk: Hard ลงมา=%d, Severe+=%d", VZ.PerkSellLow, VZ.PerkSellTarget))
+    print(string.format("[BRAIN] 🧠 เริ่มทำงาน | ขาย perk: ต่ำกว่า %s = %d | %s ขึ้นไป = %d",
+        tostring(VZ.PerkHighFrom or "Aberrant"), VZ.PerkSellLow,
+        tostring(VZ.PerkHighFrom or "Aberrant"), VZ.PerkSellTarget))
 
     while true do
         task.wait(8)
@@ -7984,6 +8096,18 @@ task.spawn(function()
 
     local function cfg() return getgenv().VenozChicken or {} end
 
+    -- 🔧 กัน config เก่าค้างใน getgenv (AutoBoost=false ตั้งแต่ตอนระบบยังพัง)
+    do
+        local c = getgenv().VenozChicken
+        if c and c.AutoBoost == false and (tonumber(c.ConfigVersion) or 0) < 3 then
+            c.AutoBoost = true
+        end
+    end
+    print(string.format("[BOOST] ⚙️ สถานะ: %s | เพชรขั้นต่ำ %s | ชนิด %s",
+        (cfg().AutoBoost == true) and "เปิด ✅" or "ปิด ❌",
+        tostring(cfg().MinGemsToBuyBoosts or 4499),
+        table.concat(cfg().BoostTypes or { "XP", "Gold" }, ",")))
+
     -- { id, ชื่อไอเทมจริง, ราคาเพชร, อายุ(วินาที) } — id ตรงกับ BOOST_MAP ของ UI2
     local SHOP = {
         XP = {
@@ -8103,11 +8227,11 @@ task.spawn(function()
             end
         elseif IsLobbyLobby() and os.time() >= nextCheck then
             local minGems = tonumber(VZo.MinGemsToBuyBoosts) or 4499
-            local acted = false
+            local acted, evaluated = false, false
             local okRun, err = pcall(function()
                 local d = fetchAll()
                 if not d then
-                    warn("[BOOST] ⏳ ยังอ่านข้อมูลไม่ได้ → รอรอบหน้า")
+                    warn("[BOOST] ⏳ ยังอ่านข้อมูลไม่ได้ → ลองใหม่ใน 8 วิ")
                     return
                 end
                 local sd = slotOf(d)
@@ -8118,7 +8242,10 @@ task.spawn(function()
 
                 -- ── เลือกชนิด boost ที่ต้องการ (สูตรเดิม) ──
                 local need = {}
-                if type(VZo.BoostTypes) == "table" and #VZo.BoostTypes > 0 then
+                if VZo.IgnorePrestigeFilter == true and type(VZo.BoostTypes) == "table" then
+                    -- 🔓 เอาตาม BoostTypes ตรงๆ ไม่สนเงื่อนไข prestige
+                    for _, b in ipairs(VZo.BoostTypes) do table.insert(need, b) end
+                elseif type(VZo.BoostTypes) == "table" and #VZo.BoostTypes > 0 then
                     for _, b in ipairs(VZo.BoostTypes) do
                         if (prestige == 3 or prestige == 4) and b == "XP" then
                         elseif prestige >= 5 and b == "Gold" then
@@ -8138,8 +8265,10 @@ task.spawn(function()
                     if on == nil then
                         parts[#parts + 1] = k .. "=?"
                     else
-                        parts[#parts + 1] = string.format("%s=%s", k, on and ("ติด " .. tostring(val)) or "ไม่ติด")
-                        if on then shown[#shown + 1] = k end
+                        -- ค่าใน Boosts = วินาทีที่เหลือ → แปลงเป็นนาทีให้อ่านง่าย
+                        parts[#parts + 1] = string.format("%s=%s", k,
+                            on and string.format("ติด %d นาที", math.floor(val / 60)) or "ไม่ติด")
+                        if on then shown[#shown + 1] = string.format("%s %dm", k, math.floor(val / 60)) end
                     end
                 end
                 getgenv().VenozBoostStr = (#shown > 0)
@@ -8154,6 +8283,7 @@ task.spawn(function()
                     warn("[BOOST] ⚠️ อ่านเพชรไม่ได้เลย → ยังไม่ซื้อ (รอข้อมูลโหลด)")
                     return
                 end
+                evaluated = true   -- ✅ ตรวจครบจริง (ข้อมูลพร้อม) → ค่อยพักยาวได้
 
                 for _, kind in ipairs(need) do
                     if acted then break end
@@ -8228,8 +8358,10 @@ task.spawn(function()
                 end
             end)
             if not okRun then warn("[BOOST] ⛔ error: " .. tostring(err)) end
-            -- ทำอะไรไป → เช็คถี่ | ไม่ได้ทำ → พัก 5 นาที (เหมือนบอทเก่า)
-            nextCheck = os.time() + (acted and (tonumber(VZo.BoostCheckInterval) or 15) or 300)
+            -- ทำอะไรไป → เช็คถี่ | ตรวจครบแล้วไม่ต้องทำ → พัก 5 นาที
+            -- ⚠️ ข้อมูลยังไม่พร้อม → ห้ามพักยาว! (อยู่ lobby แค่ ~30 วิ พัก 5 นาที = ไม่ได้เช็คเลย)
+            nextCheck = os.time() + (acted and (tonumber(VZo.BoostCheckInterval) or 15)
+                or (evaluated and 300 or 8))
         end
     end
 end)
@@ -9781,8 +9913,11 @@ if Tabs.AutoFarm then
         local rewardDetectedTime = 0
         local waitingForRetry = false
         local retryAttempts = 0
-        local maxAttempts = 3
-        
+        -- ⬆️ เดิม 3 แต่กดครั้งเดียวแล้วเลิก (waitingForRetry=false ทันที) → พลาดทีนึงคือค้างยาว
+        --    ตอนนี้กดซ้ำทุก 1.5 วิ จนกว่าปุ่มจะขึ้น STARTING หรือหน้าจอปิด
+        local maxAttempts = 15
+        local lastPress = 0
+
         local function IsActuallyVisible(gui)
             if not gui or not gui.Visible then return false end
             local current = gui.Parent
@@ -9856,9 +9991,14 @@ if Tabs.AutoFarm then
             
             if tick() - rewardDetectedTime >= 2.5 then
                 if retryAttempts >= maxAttempts then
+                    -- 🚪 กด RETRY ไม่ติดจริงๆ → ออกจากด่านแทน จะได้ไม่ค้างหน้าจบด่านตลอดกาล
+                    warn("[RETRY] ⛔ กดไม่ติด " .. retryAttempts .. " ครั้ง → ออกจากด่านแทน (กัน bot ค้าง)")
+                    local lv = retry.Parent:FindFirstChild("Leave_2")
+                        or retry.Parent:FindFirstChild("Leave")
+                    if lv then VenozPress(lv) end
                     waitingForRetry = false
                     retryAttempts = 0
-                    task.wait(2)
+                    task.wait(5)
                     continue
                 end
                 
@@ -9880,16 +10020,30 @@ if Tabs.AutoFarm then
                     continue
                 end
                 
-                GS.SelectedObject = retry
-                task.wait(0.05)
-                VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-                task.wait(0.05)
-                VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-                task.wait(0.1)
-                GS.SelectedObject = nil
-                
+                -- ✅ โหวตติดแล้ว → เลิกกด
+                local txt = VenozBtnText(retry)
+                if txt:find("STARTING") or txt:find("1/1") then
+                    if retryAttempts > 0 then
+                        print("[RETRY] ✅ ติดแล้ว → " .. txt)
+                    end
+                    waitingForRetry = false
+                    retryAttempts = 0
+                    continue
+                end
+
+                -- เว้นจังหวะระหว่างกดแต่ละครั้ง
+                if tick() - lastPress < 1.5 then continue end
+                lastPress = tick()
                 retryAttempts = retryAttempts + 1
-                waitingForRetry = false
+
+                -- 🖱️ คลิกเมาส์จริง (วิธีเดิม GuiService+Enter ปุ่มนี้ไม่รับ)
+                VenozPress(retry)
+
+                if retryAttempts == 1 then
+                    print("[RETRY] 🔁 กด RETRY (" .. txt .. ")")
+                elseif retryAttempts % 4 == 0 then
+                    warn(string.format("[RETRY] ⚠️ กดแล้ว %d ครั้งยังไม่ติด (%s)", retryAttempts, txt))
+                end
             end
         end
     end)
