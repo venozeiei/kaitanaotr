@@ -1,3 +1,19 @@
+
+
+
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🐔 VENOZ CHICKEN  ·  BUILD v3.1  (💎 โชว์เพชร + boost ซื้อด้วยเพชร)
+-- ถ้าไม่เห็น 4 บรรทัดนี้ใน F9 = ยังรันโค้ดตัวเก่าอยู่ ให้ paste ไฟล์ใหม่ทับ
+-- ═══════════════════════════════════════════════════════════════
+print("═══════════════════════════════════════════════")
+print("🐔 VENOZ CHICKEN — BUILD v3.1")
+print("   💎 ป้ายกลางจอโชว์เพชร | boost ซื้อด้วยเพชร (ไม่ใช่ทอง)")
+print("   🧪 เช็ค boost จาก Data.Copy.Boosts ตัวจริง")
+print("═══════════════════════════════════════════════")
+getgenv().VenozBuild = "v3.1"
+
+-- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
 task.spawn(function()
     local Players = game:GetService("Players")
     local player = Players.LocalPlayer
@@ -7331,18 +7347,9 @@ task.spawn(function()
         if VZ.SkipForce    then setv("SkipForceToggle", true) end
         setv("AutoReloadBlade", false)   -- [CHICKEN] ปิดของ UI2 (path ถังแก๊สพัง) → ใช้ VENOZ BLADE SYSTEM แทน
         if VZ.AutoRetry    then setv("StartRejoin", true) end
-        -- ⚡ Thunder Spear: "ไม่เปิดตอนนี้" — BRAIN จะเปิดให้เองเมื่อถึงเงื่อนไข
-        --    (จุติถึงเป้า + level ตัน + XP เต็ม) เหมือน logic บอทตัวเก่า
-        --    ตั้งค่าหอกไว้ล่วงหน้าได้ แต่ toggle ยังปิดอยู่
-        if VZ.AutoThunderSpear or VZ.AutoSpearQuest then
-            setv("ThunderSpear_FarmMode", VZ.SpearFarmMode)
-            setv("ThunderSpear_HoverHeight", VZ.SpearHoverHeight)
-            setv("ThunderSpear_HoverSpeed", VZ.SpearHoverSpeed)
-            setv("AutoThunderSpearToggle", false)
-            setv("AutoSpearQuestToggle", false)
-            print(string.format("[AUTO] ⚡ หอกรออยู่ — จะเริ่มเมื่อ P%s + ตัน (XP เต็ม)",
-                tostring(VZ.SpearAtPrestige or VZ.PrestigeTarget or 5)))
-        end
+        -- 🗡️ ดาบล้วนเสมอ — ไม่ใช้หอกเป็นอาวุธเด็ดขาด (ถึงจะหาชิ้นส่วนครบแล้วก็ตาม)
+        setv("AutoThunderSpearToggle", false)
+        setv("AutoSpearQuestToggle", false)
 
         if VZ.AutoFarm then
             setv("HoverHeightSlider", VZ.HoverHeight)
@@ -7526,85 +7533,6 @@ task.spawn(function()
         return (lv > 0 and lv >= (100 + pr * 25) and full), pr
     end
 
-    -- ═══════════════════════════════════════════════════════════════
-    -- ⚡ สลับ ดาบ ↔ หอก (Thunder Spear) — เงื่อนไขแบบบอทตัวเก่า
-    -- ═══════════════════════════════════════════════════════════════
-    --   ❓ ทำไมเปิด AutoFarm คู่ AutoThunderSpear ไม่ได้:
-    --      ตัวละครถืออาวุธได้ทีละอย่าง (ดาบ หรือ หอก) ไม่ใช่ข้อจำกัดที่เราตั้งเอง
-    --      ถ้าเปิดคู่ UI2 จะเรียก resolveConflictingToggles() ปิดให้ตัวหนึ่ง
-    --      "ตามอาวุธที่ถืออยู่ตอนนั้น" = เดาไม่ได้ว่าจะเหลืออันไหน → บอทมั่ว
-    --   ✅ วิธีที่ถูก: ให้บอทตัดสินใจเองว่าจะใช้อะไร แล้วเปิดทีละอัน
-    --      หอกเริ่มทำงานเมื่อ: จุติถึง SpearAtPrestige + level ตัน + XP เต็ม
-    --      (ยังไม่ถึง = ฟาร์มดาบไปก่อน เพราะยังต้องเก็บ XP อยู่)
-    -- ═══════════════════════════════════════════════════════════════
-    --  ⚠️ 2 ค่านี้คนละเรื่องกัน อย่าสับสน:
-    --    AutoThunderSpear = ใช้ "หอกเป็นอาวุธฟาร์ม" แทนดาบ  → สลับอาวุธ (ฟาร์มดาบไม่ได้)
-    --    AutoSpearQuest   = เควสเก็บกล่อง ThunderSpear_Supplies (ไม่ใช่การต่อสู้เลย)
-    --                       มันวาร์ปตัวไปกล่องทีละใบแล้ววาร์ปกลับฐาน วน 3 รอบ แล้วปิดตัวเอง
-    --                       → ห้ามรันพร้อมฟาร์มดาบ เพราะแย่งกันวาร์ปตัวละคร
-    --                       → เลยต้อง "หยุดฟาร์มชั่วคราว → ทำเควส → ฟาร์มต่อ"
-    local function applySpearMode(pr, tan)
-        local setv = getgenv().VenozSetOpt
-        if type(setv) ~= "function" then return end
-        if getgenv().VenozSpearQuestBusy then return end
-
-        local minP = tonumber(VZ.SpearAtPrestige) or tonumber(VZ.PrestigeTarget) or 5
-        local ready = (tonumber(pr) or 0) >= minP
-        if ready and VZ.SpearWhenCapped ~= false then ready = (tan == true) end
-
-        -- ── ① หอกเป็นอาวุธฟาร์ม (สลับถาวรจนกว่าเงื่อนไขจะเปลี่ยน) ──
-        if VZ.AutoThunderSpear == true then
-            if ready ~= (getgenv().VenozSpearOn == true) then
-                getgenv().VenozSpearOn = ready
-                if ready then
-                    print(string.format("[BRAIN] ⚡ ถึงเงื่อนไขหอก (P%d + ตัน) → ปิดดาบ เปิดหอก", pr))
-                    getgenv().VenozAction = "⚡ สลับไปใช้ Thunder Spear"
-                    pcall(function() setv("AutoFarmBlade", false) end)
-                    task.wait(1)
-                    pcall(function() setv("ThunderSpear_FarmMode", VZ.SpearFarmMode) end)
-                    pcall(function() setv("ThunderSpear_HoverHeight", VZ.SpearHoverHeight) end)
-                    pcall(function() setv("ThunderSpear_HoverSpeed", VZ.SpearHoverSpeed) end)
-                    pcall(function() setv("AutoThunderSpearToggle", true) end)
-                else
-                    print(string.format("[BRAIN] 🗡️ ยังไม่ถึงเงื่อนไขหอก (P%d/%d) → ฟาร์มดาบต่อ", pr, minP))
-                    pcall(function() setv("AutoThunderSpearToggle", false) end)
-                    task.wait(1)
-                    if VZ.AutoFarm then pcall(function() setv("AutoFarmBlade", true) end) end
-                end
-            end
-            return
-        end
-
-        -- ── ② เควสเก็บกล่อง (ทำเป็นครั้งๆ แล้วกลับมาฟาร์มดาบต่อ) ──
-        if VZ.AutoSpearQuest ~= true then return end
-        if not ready then return end
-        -- ทำวันละครั้งพอ (เควสรีเซ็ตรายวัน)
-        local today = os.date("%Y-%m-%d")
-        if getgenv().VenozSpearQuestDay == today then return end
-
-        getgenv().VenozSpearQuestDay = today
-        getgenv().VenozSpearQuestBusy = true
-        print("[BRAIN] 📦 ทำเควสเก็บกล่อง Thunder Spear (หยุดฟาร์มดาบชั่วคราว)")
-        getgenv().VenozAction = "📦 เก็บกล่อง Thunder Spear"
-        task.spawn(function()
-            pcall(function() setv("AutoFarmBlade", false) end)
-            task.wait(1)
-            pcall(function() setv("AutoSpearQuestToggle", true) end)
-            -- เควสจะปิด toggle ตัวเองเมื่อเก็บครบ 3 รอบ — รอสูงสุด 3 นาที
-            local t0 = tick()
-            repeat
-                task.wait(2)
-                local t = (Toggles and Toggles.AutoSpearQuestToggle)
-                       or (Options and Options.AutoSpearQuestToggle)
-                if not (t and t.Value) then break end
-            until (tick() - t0) > 180
-            pcall(function() setv("AutoSpearQuestToggle", false) end)
-            task.wait(1)
-            if VZ.AutoFarm ~= false then pcall(function() setv("AutoFarmBlade", true) end) end
-            getgenv().VenozSpearQuestBusy = false
-            print("[BRAIN] ✅ เควสกล่องเสร็จ → กลับไปฟาร์มดาบต่อ")
-        end)
-    end
     -- ═══════════════════════════════════════════════════════════════
     -- ⚡ THUNDER SPEAR QUESTLINE — ยกระบบเดิมของบอทไก่ตันมาทั้งชุด
     -- ═══════════════════════════════════════════════════════════════
@@ -8082,12 +8010,6 @@ task.spawn(function()
                     end
                 end
 
-                -- 4.5) ⚡ สลับดาบ ↔ หอก ตามเงื่อนไข (logic บอทตัวเก่า)
-                --      หอกจะเริ่มก็ต่อเมื่อ: จุติถึงเป้า + level ตัน + XP เต็ม
-                --      เหตุผลที่เปิดคู่ AutoFarm ไม่ได้ = ตัวละครถือได้ทีละอาวุธ
-                --      ถ้าเปิดคู่ UI2 จะปิดให้ตัวหนึ่งเองแบบสุ่มตามอาวุธที่ถืออยู่
-                applySpearMode(pr, tan)
-
                 -- 5) สร้างด่าน Chapel (บอทเราคุมเอง ไม่พึ่ง AutoStartMission)
                 if (os.clock() - lastMission) > 20 then
                     lastMission = os.clock()
@@ -8313,11 +8235,12 @@ end)
 --      อาการที่เจอ: บอทบินวนไปเรื่อยๆ ไม่ฟันไททันเลย เพราะมันสลับไปโหมดหอกแล้ว
 --                   แต่ในมือถือดาบอยู่ / หรือกลับกัน
 --   ✅ ตัวนี้เฝ้าไว้: เจอหอกถูกเปิดเมื่อไหร่ → ปิดหอก เปิดดาบกลับทันที
---   ปิดตัวล็อกนี้: ตั้ง AutoThunderSpear = true (แปลว่าตั้งใจใช้หอกจริง)
+--   🔒 ล็อกถาวร ไม่มีสวิตช์ปิด — บอทตัวนี้ใช้ดาบอย่างเดียวตลอด
+--      ถึงเก็บชิ้นส่วนหอกครบแล้วก็ยังฟาร์มด้วยดาบเหมือนเดิม
+--      (AutoThunderSpearQuest = แค่ไปเก็บของ ไม่ได้เปลี่ยนอาวุธ)
 -- ═══════════════════════════════════════════════════════════════
 task.spawn(function()
     local VZb = getgenv().VenozChicken or {}
-    if VZb.AutoThunderSpear == true then return end   -- ตั้งใจใช้หอก → ไม่ล็อก
 
     local function val(n)
         local t = (Toggles and Toggles[n]) or (Options and Options[n])
@@ -8330,7 +8253,7 @@ task.spawn(function()
     while true do
         task.wait(3)
         local setv = getgenv().VenozSetOpt
-        if type(setv) == "function" and not getgenv().VenozSpearQuestBusy then
+        if type(setv) == "function" then
             getgenv().AutoThunderSpear = false
 
             -- หอกถูกเปิด → ปิดกลับ + เปิดดาบคืน (นี่คืออาการที่ UI2 ทำให้)
@@ -8342,7 +8265,7 @@ task.spawn(function()
                     pcall(function() setv("AutoFarmBlade", true) end)
                 end
             end
-            if VZb.AutoSpearQuest ~= true and val("AutoSpearQuestToggle") == true then
+            if val("AutoSpearQuestToggle") == true then
                 pcall(function() setv("AutoSpearQuestToggle", false) end)
             end
 
