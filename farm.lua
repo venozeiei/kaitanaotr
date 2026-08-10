@@ -1,19 +1,3 @@
-
-
-
-
--- ═══════════════════════════════════════════════════════════════
--- 🐔 VENOZ CHICKEN  ·  BUILD v3.1  (💎 โชว์เพชร + boost ซื้อด้วยเพชร)
--- ถ้าไม่เห็น 4 บรรทัดนี้ใน F9 = ยังรันโค้ดตัวเก่าอยู่ ให้ paste ไฟล์ใหม่ทับ
--- ═══════════════════════════════════════════════════════════════
-print("═══════════════════════════════════════════════")
-print("🐔 VENOZ CHICKEN — BUILD v3.1")
-print("   💎 ป้ายกลางจอโชว์เพชร | boost ซื้อด้วยเพชร (ไม่ใช่ทอง)")
-print("   🧪 เช็ค boost จาก Data.Copy.Boosts ตัวจริง")
-print("═══════════════════════════════════════════════")
-getgenv().VenozBuild = "v3.1"
-
--- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
 task.spawn(function()
     local Players = game:GetService("Players")
     local player = Players.LocalPlayer
@@ -7194,6 +7178,8 @@ task.spawn(function()
         task.wait(0.2)
         return ok
     end
+    getgenv().VenozSetOpt = setv   -- ให้ BRAIN เรียกสลับ toggle ได้ (ใช้ตอนสลับดาบ↔หอก)
+    getgenv().VenozHasOpt = has
     local function tset(list)   -- แปลง array → table สำหรับ multi-dropdown
         local t = {}
         if type(list) == "table" then for _, v in ipairs(list) do t[v] = true end end
@@ -7345,17 +7331,20 @@ task.spawn(function()
         if VZ.SkipForce    then setv("SkipForceToggle", true) end
         setv("AutoReloadBlade", false)   -- [CHICKEN] ปิดของ UI2 (path ถังแก๊สพัง) → ใช้ VENOZ BLADE SYSTEM แทน
         if VZ.AutoRetry    then setv("StartRejoin", true) end
-        if VZ.AutoSpearQuest and has("AutoSpearQuestToggle") then
-            setv("AutoSpearQuestToggle", true)
-        end
-
-        if VZ.AutoThunderSpear and has("AutoThunderSpearToggle") then
-            print("[AUTO] ⚡ ฟาร์มด้วย Thunder Spear")
+        -- ⚡ Thunder Spear: "ไม่เปิดตอนนี้" — BRAIN จะเปิดให้เองเมื่อถึงเงื่อนไข
+        --    (จุติถึงเป้า + level ตัน + XP เต็ม) เหมือน logic บอทตัวเก่า
+        --    ตั้งค่าหอกไว้ล่วงหน้าได้ แต่ toggle ยังปิดอยู่
+        if VZ.AutoThunderSpear or VZ.AutoSpearQuest then
             setv("ThunderSpear_FarmMode", VZ.SpearFarmMode)
             setv("ThunderSpear_HoverHeight", VZ.SpearHoverHeight)
             setv("ThunderSpear_HoverSpeed", VZ.SpearHoverSpeed)
-            setv("AutoThunderSpearToggle", true)
-        elseif VZ.AutoFarm then
+            setv("AutoThunderSpearToggle", false)
+            setv("AutoSpearQuestToggle", false)
+            print(string.format("[AUTO] ⚡ หอกรออยู่ — จะเริ่มเมื่อ P%s + ตัน (XP เต็ม)",
+                tostring(VZ.SpearAtPrestige or VZ.PrestigeTarget or 5)))
+        end
+
+        if VZ.AutoFarm then
             setv("HoverHeightSlider", VZ.HoverHeight)
             setv("HoverSpeedSlider", VZ.HoverSpeed)
             setv("FarmModeDropdown", VZ.FarmMode)
@@ -7536,6 +7525,240 @@ task.spawn(function()
         local full = (mx > 0 and xp >= mx) or ((pct or 0) >= 100)
         return (lv > 0 and lv >= (100 + pr * 25) and full), pr
     end
+
+    -- ═══════════════════════════════════════════════════════════════
+    -- ⚡ สลับ ดาบ ↔ หอก (Thunder Spear) — เงื่อนไขแบบบอทตัวเก่า
+    -- ═══════════════════════════════════════════════════════════════
+    --   ❓ ทำไมเปิด AutoFarm คู่ AutoThunderSpear ไม่ได้:
+    --      ตัวละครถืออาวุธได้ทีละอย่าง (ดาบ หรือ หอก) ไม่ใช่ข้อจำกัดที่เราตั้งเอง
+    --      ถ้าเปิดคู่ UI2 จะเรียก resolveConflictingToggles() ปิดให้ตัวหนึ่ง
+    --      "ตามอาวุธที่ถืออยู่ตอนนั้น" = เดาไม่ได้ว่าจะเหลืออันไหน → บอทมั่ว
+    --   ✅ วิธีที่ถูก: ให้บอทตัดสินใจเองว่าจะใช้อะไร แล้วเปิดทีละอัน
+    --      หอกเริ่มทำงานเมื่อ: จุติถึง SpearAtPrestige + level ตัน + XP เต็ม
+    --      (ยังไม่ถึง = ฟาร์มดาบไปก่อน เพราะยังต้องเก็บ XP อยู่)
+    -- ═══════════════════════════════════════════════════════════════
+    --  ⚠️ 2 ค่านี้คนละเรื่องกัน อย่าสับสน:
+    --    AutoThunderSpear = ใช้ "หอกเป็นอาวุธฟาร์ม" แทนดาบ  → สลับอาวุธ (ฟาร์มดาบไม่ได้)
+    --    AutoSpearQuest   = เควสเก็บกล่อง ThunderSpear_Supplies (ไม่ใช่การต่อสู้เลย)
+    --                       มันวาร์ปตัวไปกล่องทีละใบแล้ววาร์ปกลับฐาน วน 3 รอบ แล้วปิดตัวเอง
+    --                       → ห้ามรันพร้อมฟาร์มดาบ เพราะแย่งกันวาร์ปตัวละคร
+    --                       → เลยต้อง "หยุดฟาร์มชั่วคราว → ทำเควส → ฟาร์มต่อ"
+    local function applySpearMode(pr, tan)
+        local setv = getgenv().VenozSetOpt
+        if type(setv) ~= "function" then return end
+        if getgenv().VenozSpearQuestBusy then return end
+
+        local minP = tonumber(VZ.SpearAtPrestige) or tonumber(VZ.PrestigeTarget) or 5
+        local ready = (tonumber(pr) or 0) >= minP
+        if ready and VZ.SpearWhenCapped ~= false then ready = (tan == true) end
+
+        -- ── ① หอกเป็นอาวุธฟาร์ม (สลับถาวรจนกว่าเงื่อนไขจะเปลี่ยน) ──
+        if VZ.AutoThunderSpear == true then
+            if ready ~= (getgenv().VenozSpearOn == true) then
+                getgenv().VenozSpearOn = ready
+                if ready then
+                    print(string.format("[BRAIN] ⚡ ถึงเงื่อนไขหอก (P%d + ตัน) → ปิดดาบ เปิดหอก", pr))
+                    getgenv().VenozAction = "⚡ สลับไปใช้ Thunder Spear"
+                    pcall(function() setv("AutoFarmBlade", false) end)
+                    task.wait(1)
+                    pcall(function() setv("ThunderSpear_FarmMode", VZ.SpearFarmMode) end)
+                    pcall(function() setv("ThunderSpear_HoverHeight", VZ.SpearHoverHeight) end)
+                    pcall(function() setv("ThunderSpear_HoverSpeed", VZ.SpearHoverSpeed) end)
+                    pcall(function() setv("AutoThunderSpearToggle", true) end)
+                else
+                    print(string.format("[BRAIN] 🗡️ ยังไม่ถึงเงื่อนไขหอก (P%d/%d) → ฟาร์มดาบต่อ", pr, minP))
+                    pcall(function() setv("AutoThunderSpearToggle", false) end)
+                    task.wait(1)
+                    if VZ.AutoFarm then pcall(function() setv("AutoFarmBlade", true) end) end
+                end
+            end
+            return
+        end
+
+        -- ── ② เควสเก็บกล่อง (ทำเป็นครั้งๆ แล้วกลับมาฟาร์มดาบต่อ) ──
+        if VZ.AutoSpearQuest ~= true then return end
+        if not ready then return end
+        -- ทำวันละครั้งพอ (เควสรีเซ็ตรายวัน)
+        local today = os.date("%Y-%m-%d")
+        if getgenv().VenozSpearQuestDay == today then return end
+
+        getgenv().VenozSpearQuestDay = today
+        getgenv().VenozSpearQuestBusy = true
+        print("[BRAIN] 📦 ทำเควสเก็บกล่อง Thunder Spear (หยุดฟาร์มดาบชั่วคราว)")
+        getgenv().VenozAction = "📦 เก็บกล่อง Thunder Spear"
+        task.spawn(function()
+            pcall(function() setv("AutoFarmBlade", false) end)
+            task.wait(1)
+            pcall(function() setv("AutoSpearQuestToggle", true) end)
+            -- เควสจะปิด toggle ตัวเองเมื่อเก็บครบ 3 รอบ — รอสูงสุด 3 นาที
+            local t0 = tick()
+            repeat
+                task.wait(2)
+                local t = (Toggles and Toggles.AutoSpearQuestToggle)
+                       or (Options and Options.AutoSpearQuestToggle)
+                if not (t and t.Value) then break end
+            until (tick() - t0) > 180
+            pcall(function() setv("AutoSpearQuestToggle", false) end)
+            task.wait(1)
+            if VZ.AutoFarm ~= false then pcall(function() setv("AutoFarmBlade", true) end) end
+            getgenv().VenozSpearQuestBusy = false
+            print("[BRAIN] ✅ เควสกล่องเสร็จ → กลับไปฟาร์มดาบต่อ")
+        end)
+    end
+    -- ═══════════════════════════════════════════════════════════════
+    -- ⚡ THUNDER SPEAR QUESTLINE — ยกระบบเดิมของบอทไก่ตันมาทั้งชุด
+    -- ═══════════════════════════════════════════════════════════════
+    --   คนละเรื่องกับ AutoSpearQuest ของ UI2 (ที่เก็บกล่องในด่านเดียว)
+    --   ระบบนี้คือ "ตามเก็บชิ้นส่วนหอก 3 ชิ้น" ชิ้นละแมพ:
+    --     Outskirts → Handle | Utgard → Thruster | Forest → Base
+    --   เช็คจาก inventory ตรงๆ (แม่นสุด): มี item "Thunder Spear - <ชิ้น>" = ได้แล้ว
+    --   ⚠️ Handle ข้ามถาวร — เควส Escort พังฝั่งเกม (Questline.lua ไม่มี Update_Spear_Escort
+    --      ทดสอบ 12 remote pattern คืน nil หมด) ถ้าไม่ข้ามบอทจะวน Outskirts ไม่จบ
+    --      → นับว่า "ครบ" เมื่อได้ Thruster + Base
+    --   เงื่อนไขเริ่มทำ: จุติ >= ThunderSpearAtPrestige + level ตัน + XP เต็ม
+    --   ต้องทำ "ก่อนจุติ" เสมอ ไม่งั้นจุติแล้วหลุดสภาพตัน = ไม่ได้ทำ
+    -- ═══════════════════════════════════════════════════════════════
+    local TS_MAP_TO_PART = { Outskirts = "Handle", Utgard = "Thruster", Forest = "Base" }
+    local TS_ITEM = {
+        Handle   = "Thunder Spear - Handle",
+        Thruster = "Thunder Spear - Thruster",
+        Base     = "Thunder Spear - Base",
+    }
+    local TS_TAGS = { "Towers", "Escort", "Ice Burst Stones",
+        "Retrieve Missing Supplies", "Defend Missing Supplies" }
+
+    local function invHas(inv, itemName)
+        if type(inv) ~= "table" then return false end
+        for _, cat in pairs(inv) do          -- inventory แยกเป็นหมวด → ไล่ทุกหมวด
+            if type(cat) == "table" then
+                for name, amt in pairs(cat) do
+                    if name == itemName and (tonumber(amt) or 0) > 0 then return true end
+                end
+            end
+        end
+        return false
+    end
+    local function tsHasPart(part, inv) return invHas(inv, TS_ITEM[part] or "\0") end
+    local function tsAllDone(inv) return tsHasPart("Thruster", inv) and tsHasPart("Base", inv) end
+    local function tsNextMap(inv)
+        if not tsHasPart("Base", inv) then return "Forest" end
+        if not tsHasPart("Thruster", inv) then return "Utgard" end
+        return nil                            -- Handle: ข้าม (เควสพังฝั่งเกม)
+    end
+    local function tsQuests()
+        local sd = getSlot()
+        local out = {}
+        if sd and sd.Quests and type(sd.Quests.Spears) == "table" then
+            for _, q in pairs(sd.Quests.Spears) do
+                if type(q) == "table" then
+                    out[#out + 1] = { Tag = tostring(q.Tag or ""), Rewarded = q.Rewarded == true }
+                end
+            end
+        end
+        return out
+    end
+    local function tsClaimed(tag)
+        for _, q in ipairs(tsQuests()) do
+            if q.Tag == tag then return q.Rewarded end
+        end
+        return false
+    end
+    -- เคลมเฉพาะ tag ที่ยังไม่ Rewarded + cooldown 10 วิ (กันยิง remote รัว)
+    local function tsClaimAll()
+        local now = os.clock()
+        local last = tonumber(getgenv()._VZTSClaim) or 0
+        if now >= last and (now - last) < 10 then return false end
+        getgenv()._VZTSClaim = now
+        local rewarded = {}
+        for _, q in ipairs(tsQuests()) do
+            if q.Rewarded and q.Tag ~= "" then rewarded[q.Tag] = true end
+        end
+        local any = false
+        for _, tag in ipairs(TS_TAGS) do
+            if not rewarded[tag] then
+                local ok, res = pcall(function()
+                    return GETb:InvokeServer("Functions", "Quest", tag, "Spears")
+                end)
+                if ok and res then any = true print("[TS] 🎁 เคลม: " .. tag) end
+                task.wait(0.15 + math.random() * 0.1)
+            end
+        end
+        return any
+    end
+
+    -- คืน true = สร้างด่าน TS แล้ว → ให้ brain ข้ามการสร้าง Chapel รอบนี้
+    local function tryThunderSpear(pr, tan)
+        if VZ.AutoThunderSpearQuest ~= true then return false end
+        if (tonumber(pr) or 0) < (tonumber(VZ.ThunderSpearAtPrestige) or 2) then return false end
+        if not tan then return false end
+
+        tsClaimAll()
+        task.wait(0.3)
+        getSlot(true)
+        local sd = getSlot()
+        local inv = sd and sd.Inventory
+        if not inv then return false end
+
+        if tsAllDone(inv) then
+            if not getgenv()._VZTSDone then
+                getgenv()._VZTSDone = true
+                print("[TS] ⚡ ได้หอกครบแล้ว (Thruster + Base) → ไม่ต้องทำอีก")
+            end
+            return false
+        end
+
+        local nextMap = tsNextMap(inv)
+        if not nextMap then return false end
+
+        getgenv()._VZTSTry = getgenv()._VZTSTry or {}
+        local part = TS_MAP_TO_PART[nextMap]
+        getgenv()._VZTSTry[part] = (getgenv()._VZTSTry[part] or 0) + 1
+        local attempts = getgenv()._VZTSTry[part]
+
+        -- Outskirts: ถ้า Towers เคลมไปแล้ว = ไม่ต้องสร้างหอ → ใช้ Escort ตรงๆ
+        local obj = "Skirmish"
+        if nextMap == "Outskirts" and (tsClaimed("Towers") or attempts >= 2) then
+            obj = "Escort"
+        end
+
+        print(string.format("[TS] ⚡ ตันแล้ว (P%d) → ไปเก็บ %s ที่ %s (%s, ครั้งที่ %d)",
+            pr, tostring(part), nextMap, obj, attempts))
+        print(string.format("[TS]   Handle=%s Thruster=%s Base=%s",
+            tsHasPart("Handle", inv) and "✅" or "❌",
+            tsHasPart("Thruster", inv) and "✅" or "❌",
+            tsHasPart("Base", inv) and "✅" or "❌"))
+        getgenv().VenozAction = string.format("⚡ TS → %s (%s)", nextMap, obj)
+
+        pcall(function() GETb:InvokeServer("S_Missions", "Leave") end)
+        task.wait(1)
+        local mapData = { Name = nextMap, Type = "Missions",
+            Objective = obj, Difficulty = "Aberrant", Modifiers = {} }
+        local res
+        pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
+        if res == nil and obj ~= "Skirmish" then
+            print("[TS] ⚠️ " .. obj .. " สร้างไม่ได้ → ลอง Skirmish")
+            mapData.Objective = "Skirmish"
+            pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
+        end
+        if res == nil then
+            for _, d in ipairs({ "Hard", "Normal", "Easy" }) do
+                mapData.Difficulty = d
+                pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
+                if res ~= nil then break end
+                task.wait(0.5)
+            end
+        end
+        if res ~= nil then
+            latchDiff(mapData.Difficulty)
+            pcall(function() GETb:InvokeServer("S_Missions", "Modify", mapData.Difficulty) end)
+            pcall(function() GETb:InvokeServer("S_Missions", "Start") end)
+            print(string.format("[TS] ✅ เข้าด่าน %s (%s)", nextMap, mapData.Difficulty))
+            return true
+        end
+        warn("[TS] ⚠️ สร้างด่าน " .. nextMap .. " ไม่ได้ → กลับไปฟาร์ม Chapel")
+        return false
+    end
+
     -- 🖱️ ใช้คลิกเมาส์จริง (ปุ่มหน้าจบด่านไม่รับวิธี GuiService+Enter)
     local function clickBtn(btn)
         if not btn then return false end
@@ -7841,6 +8064,10 @@ task.spawn(function()
                     getgenv().VenozChoresDone = true
                 end
 
+                -- 3.5) ⚡ Thunder Spear questline
+                --      ⚠️ ต้องทำ "ก่อนจุติ" — จุติแล้วจะหลุดสภาพตัน = ไม่ได้ทำอีกยาว
+                if tryThunderSpear(pr, tan) then return end
+
                 -- 4) จุติ (ตัน + ยังไม่ถึงเป้า + ทองถึงเกณฑ์)
                 if tan and pr < VZ.PrestigeTarget then
                     local reqM = tonumber(VZ.GoldReq[pr + 1]) or 0
@@ -7854,6 +8081,12 @@ task.spawn(function()
                         return
                     end
                 end
+
+                -- 4.5) ⚡ สลับดาบ ↔ หอก ตามเงื่อนไข (logic บอทตัวเก่า)
+                --      หอกจะเริ่มก็ต่อเมื่อ: จุติถึงเป้า + level ตัน + XP เต็ม
+                --      เหตุผลที่เปิดคู่ AutoFarm ไม่ได้ = ตัวละครถือได้ทีละอาวุธ
+                --      ถ้าเปิดคู่ UI2 จะปิดให้ตัวหนึ่งเองแบบสุ่มตามอาวุธที่ถืออยู่
+                applySpearMode(pr, tan)
 
                 -- 5) สร้างด่าน Chapel (บอทเราคุมเอง ไม่พึ่ง AutoStartMission)
                 if (os.clock() - lastMission) > 20 then
@@ -8069,6 +8302,65 @@ task.spawn(function()
     end
 end)
 
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🗡️ BLADE-ONLY LOCK — บังคับใช้ดาบอย่างเดียว ไม่แตะหอก
+-- ═══════════════════════════════════════════════════════════════
+--   🐛 UI2 มี "ตัวเฝ้าอาวุธ" อยู่ข้างใน (บรรทัด ~6506):
+--        ถ้าตรวจเจอว่าตัวละครเปลี่ยนไปถือ Thunder Spear
+--        → ปิด AutoFarmBlade + เปิด AutoThunderSpearToggle ให้เองเงียบๆ
+--        ไม่สนว่า config เราตั้ง AutoThunderSpear = false ไว้
+--      อาการที่เจอ: บอทบินวนไปเรื่อยๆ ไม่ฟันไททันเลย เพราะมันสลับไปโหมดหอกแล้ว
+--                   แต่ในมือถือดาบอยู่ / หรือกลับกัน
+--   ✅ ตัวนี้เฝ้าไว้: เจอหอกถูกเปิดเมื่อไหร่ → ปิดหอก เปิดดาบกลับทันที
+--   ปิดตัวล็อกนี้: ตั้ง AutoThunderSpear = true (แปลว่าตั้งใจใช้หอกจริง)
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    local VZb = getgenv().VenozChicken or {}
+    if VZb.AutoThunderSpear == true then return end   -- ตั้งใจใช้หอก → ไม่ล็อก
+
+    local function val(n)
+        local t = (Toggles and Toggles[n]) or (Options and Options[n])
+        return t and t.Value
+    end
+
+    local lastWarn = 0
+    print("[BLADE] 🔒 ล็อกโหมดดาบอย่างเดียว (กัน UI2 แอบสลับไปหอก)")
+
+    while true do
+        task.wait(3)
+        local setv = getgenv().VenozSetOpt
+        if type(setv) == "function" and not getgenv().VenozSpearQuestBusy then
+            getgenv().AutoThunderSpear = false
+
+            -- หอกถูกเปิด → ปิดกลับ + เปิดดาบคืน (นี่คืออาการที่ UI2 ทำให้)
+            if val("AutoThunderSpearToggle") == true then
+                warn("[BLADE] 🔒 UI2 แอบเปิดหอก → ปิดหอก เปิดดาบกลับ")
+                pcall(function() setv("AutoThunderSpearToggle", false) end)
+                if VZb.AutoFarm ~= false then
+                    task.wait(0.5)
+                    pcall(function() setv("AutoFarmBlade", true) end)
+                end
+            end
+            if VZb.AutoSpearQuest ~= true and val("AutoSpearQuestToggle") == true then
+                pcall(function() setv("AutoSpearQuestToggle", false) end)
+            end
+
+            -- เตือนถ้าในมือถือหอกอยู่จริง (ดาบจะฟาร์มไม่ได้ ต้องแก้ loadout ในเกม)
+            if IsIngameLobby() and (os.time() - lastWarn) > 120 then
+                local w = getgenv().GetDetectedWeapon
+                if type(w) == "function" then
+                    local okW, cur = pcall(w)
+                    if okW and cur == "Thunder Spear" then
+                        lastWarn = os.time()
+                        warn("[BLADE] ⚠️ ตอนนี้ถือ Thunder Spear อยู่ → ดาบฟาร์มไม่ได้"
+                            .. " (ไปเปลี่ยน loadout ในเกมให้ใส่ดาบ)")
+                    end
+                end
+            end
+        end
+    end
+end)
 
 -- ═══════════════════════════════════════════════════════════════
 -- 🧪 VENOZ BOOST SYSTEM v3 — อ้างอิงโครงสร้างข้อมูลจริงของเกม
