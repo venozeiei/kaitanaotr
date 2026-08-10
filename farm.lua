@@ -8226,6 +8226,252 @@ end)
 
 
 -- ═══════════════════════════════════════════════════════════════
+-- ⚡ TS MISSION — ระบบ "ในด่าน" ของบอทเก่า (ยกมาทั้งชุด)
+-- ═══════════════════════════════════════════════════════════════
+--   🐛 ที่ผ่านมา: brain สร้างด่าน TS ให้ถูกแล้ว แต่พอเข้าไป
+--      มันฟันไททันจบด่านเฉยๆ ไม่ได้ทำ objective ของเควส → ไม่ได้ชิ้นส่วน
+--   ✅ ตัวนี้คือส่วนที่ขาด — งานในด่านแยกตามแมพ:
+--        Forest    (Base)     : ฆ่าไททันถึง margin → เก็บ crate ส่งวงเหลือง → ตีต่อ
+--        Utgard    (Thruster) : ฆ่า Ice Burst 3 ตัว (ตีทุกตัวเพื่อ progress)
+--        Outskirts (Handle)   : ฆ่าเหลือ 5 → สร้างหอ 3 หลัง → ตีต่อ
+--   ⚠️ ตอนเก็บ crate ต้อง "ปิดฟาร์มดาบชั่วคราว" ไม่งั้นแย่งวาร์ปตัวละครกัน
+--      (ระบบฟาร์มวาร์ปไปหัวไททัน / ตัวนี้วาร์ปไปกล่อง = ตีกันเละ)
+--   ⚠️ ห้ามกด Leave กลางด่าน — เกมจะนับเป็น abandon แล้วเควสไม่ credit
+--      ปล่อยให้ด่านจบเอง แล้ว Rewards UI โผล่ → ระบบ Retry/Leave จัดการต่อ
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    local VZt = getgenv().VenozChicken or {}
+    if VZt.AutoThunderSpearQuest ~= true then return end
+
+    local TS_PLACE = {
+        Outskirts = { [13904207646] = true, [17373824844] = true },
+        Utgard    = { [15220308770] = true, [18182863694] = true },
+        Forest    = { [14638336319] = true, [17373828240] = true },
+    }
+    local TS_PART_OF = { Outskirts = "Handle", Utgard = "Thruster", Forest = "Base" }
+
+    local myMap
+    for name, ids in pairs(TS_PLACE) do
+        if ids[game.PlaceId] then myMap = name break end
+    end
+    if not myMap then return end   -- ไม่ใช่แมพ TS → เงียบไป
+
+    local part = TS_PART_OF[myMap]
+    getgenv().VenozTSMap = myMap
+    print(string.format("[TS] ⚡ อยู่ในแมพ %s → ภารกิจเก็บชิ้นส่วน %s", myMap, part))
+
+    local plrT = game:GetService("Players").LocalPlayer
+    local RS = game:GetService("ReplicatedStorage")
+
+    local function setFarm(on)
+        local setv = getgenv().VenozSetOpt
+        if type(setv) == "function" then pcall(function() setv("AutoFarmBlade", on) end) end
+    end
+    local function objGet(name)
+        local o = RS:FindFirstChild("Objectives")
+        return o and o:FindFirstChild(name)
+    end
+
+    -- วาร์ปไปแตะ hitbox (กล่อง / วงเหลือง / ฐานหอ)
+    local function touchHitbox(hitbox, holdTime)
+        holdTime = holdTime or 1.2
+        if not (hitbox and hitbox.Parent) then return false end
+        local hrp = plrT.Character and plrT.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return false end
+        hrp.Anchored = false
+        hrp.CFrame = CFrame.new(hitbox.Position + Vector3.new(0, 5, 0))
+        task.wait(0.2)
+        local offs = {
+            Vector3.new(0, 0, 0), Vector3.new(2, 0, 0), Vector3.new(-2, 0, 0),
+            Vector3.new(0, 0, 2), Vector3.new(0, 0, -2), Vector3.new(0, -2, 0),
+        }
+        local i, endT = 1, os.clock() + holdTime
+        while os.clock() < endT and hrp.Parent do
+            hrp.CFrame = CFrame.new(hitbox.Position + offs[i])
+            if type(firetouchinterest) == "function" then
+                pcall(function()
+                    firetouchinterest(hrp, hitbox, 0)
+                    firetouchinterest(hrp, hitbox, 1)
+                end)
+            end
+            task.wait(0.15)
+            i = i % #offs + 1
+        end
+        return true
+    end
+
+    local function scanCrates()
+        local list = {}
+        local U = workspace:FindFirstChild("Unclimbable")
+        if not U then return list end
+        for _, m in ipairs(U:GetChildren()) do
+            if m.Name:find("^ThunderSpear_Supplies%d") or m.Name:find("^Supplies%d") then
+                local hb = m:FindFirstChild("Hitbox")
+                local spot = m:FindFirstChild("Spot")
+                if hb and not (spot and spot.Value) then   -- Spot มีค่า = กล่องถูกส่งไปแล้ว
+                    list[#list + 1] = { model = m, hitbox = hb, name = m.Name }
+                end
+            end
+        end
+        return list
+    end
+    local function findCircle()
+        local U = workspace:FindFirstChild("Unclimbable")
+        if not U then return nil end
+        for _, m in ipairs(U:GetChildren()) do
+            if m.Name == "Supplies_Circle" then return m:FindFirstChild("Hitbox") end
+        end
+        return nil
+    end
+    local function aliveTitans()
+        local f = workspace:FindFirstChild("Titans") or workspace:FindFirstChild("Enemies")
+        if not f then return 99 end
+        local n = 0
+        for _, t in ipairs(f:GetChildren()) do
+            local h = t:FindFirstChildWhichIsA("Humanoid")
+            if h and h.Health > 0 then n = n + 1 end
+        end
+        return n
+    end
+    local function buildTower(idx)
+        local wt = workspace:FindFirstChild("WatchTower_" .. idx)
+        local circle = wt and wt:FindFirstChild("Circle")
+        local hb = circle and circle:FindFirstChild("Hitbox")
+        if not hb then return false end
+        print(string.format("[TS] 🏗️ สร้างหอคอย #%d", idx))
+        getgenv().VenozAction = string.format("🏗️ สร้างหอ %d/3", idx)
+        local endT = os.clock() + 22
+        while os.clock() < endT do
+            local ch = plrT.Character
+            local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+            local hum = ch and ch:FindFirstChildWhichIsA("Humanoid")
+            if hrp and hum and hum.Health > 0 then
+                hrp.Anchored = false
+                hrp.CFrame = CFrame.new(hb.Position)
+                task.wait(0.1)
+                hrp.Anchored = true       -- ต้อง anchor ค้าง ไม่งั้นหลุดวง
+            else
+                task.wait(1)
+            end
+            task.wait(2)
+        end
+        pcall(function()                   -- ปลด anchor เสมอ ไม่งั้นบอทลอยค้าง
+            local hrp = plrT.Character and plrT.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp.Anchored = false end
+        end)
+        print(string.format("[TS] ✅ หอคอย #%d เสร็จ", idx))
+        return true
+    end
+
+    local state, delivered, visited, towerIdx = "INIT", 0, {}, 1
+    local iceSeen = 0
+
+    while true do
+        task.wait(1)
+        local okRun, err = pcall(function()
+            -- ══ Forest → Base : เก็บกล่องส่งวงเหลือง ══
+            if myMap == "Forest" then
+                local slayO = objGet("Slay")
+                local slay = (slayO and slayO.Value) or 0
+                local req = (slayO and slayO:GetAttribute("Requirement")) or 40
+                local defending = objGet("Defend_Supplies") ~= nil
+
+                if state == "INIT" then state = "KILL_TO_MARGIN" end
+                if defending and state ~= "KILL_ALL" then
+                    state = "KILL_ALL"
+                    setFarm(true)
+                    print("[TS] 🛡️ Defend_Supplies เริ่มแล้ว → กลับไปตี titan")
+                end
+
+                if state == "KILL_TO_MARGIN" then
+                    -- เว้น margin 5 ตัว: ถ้าฆ่าครบ req ด่านจบก่อนได้เก็บกล่อง
+                    local safeMax = math.max(req - 5, 1)
+                    getgenv().VenozAction = string.format("⚡ ฆ่า %d/%d ก่อนเก็บกล่อง", slay, safeMax)
+                    if slay >= safeMax then
+                        state = "COLLECT"
+                        print(string.format("[TS] ✅ ฆ่าถึง margin (%d/%d) → เริ่มเก็บกล่อง", slay, req))
+                    end
+                elseif state == "COLLECT" then
+                    local circle = findCircle()
+                    if not circle then
+                        print("[TS] ⚠️ ไม่เจอวงเหลือง → กลับไปตี titan")
+                        state = "KILL_ALL"; setFarm(true); return
+                    end
+                    local avail = {}
+                    for _, c in ipairs(scanCrates()) do
+                        if not visited[c.model] then avail[#avail + 1] = c end
+                    end
+                    if #avail == 0 then
+                        print(string.format("[TS] ✅ เก็บกล่องครบ %d ใบ → กลับไปตี titan", delivered))
+                        state = "KILL_ALL"; setFarm(true); return
+                    end
+                    setFarm(false)                 -- 🔒 หยุดฟาร์ม กันแย่งวาร์ป
+                    task.wait(0.3)
+                    local hrp = plrT.Character and plrT.Character:FindFirstChild("HumanoidRootPart")
+                    if not hrp then return end
+                    table.sort(avail, function(a, b)
+                        return (a.hitbox.Position - hrp.Position).Magnitude
+                             < (b.hitbox.Position - hrp.Position).Magnitude
+                    end)
+                    local t = avail[1]
+                    visited[t.model] = true
+                    delivered = delivered + 1
+                    print(string.format("[TS] 📦 [%d] เก็บ %s", delivered, t.name))
+                    getgenv().VenozAction = string.format("📦 เก็บกล่อง %d", delivered)
+                    touchHitbox(t.hitbox)
+                    task.wait(0.3)
+                    print(string.format("[TS] 🚚 [%d] ส่งวงเหลือง", delivered))
+                    getgenv().VenozAction = string.format("🚚 ส่งกล่อง %d", delivered)
+                    touchHitbox(circle)
+                    task.wait(0.3)
+                else
+                    getgenv().VenozAction = string.format("⚡ Forest — ตี titan (%d/%d)", slay, req)
+                end
+
+            -- ══ Utgard → Thruster : ฆ่า Ice Burst (ตีทุกตัวเพื่อ progress) ══
+            elseif myMap == "Utgard" then
+                local ib = objGet("Ice_Burst") or objGet("Ice Burst Stones")
+                local cur = (ib and ib.Value) or iceSeen
+                getgenv().VenozAction = string.format("❄️ Utgard — Ice Burst %s/3", tostring(cur))
+
+            -- ══ Outskirts → Handle : ฆ่าเหลือ 5 → สร้างหอ 3 หลัง ══
+            elseif myMap == "Outskirts" then
+                if state == "INIT" then
+                    local esc = false
+                    pcall(function()
+                        local o = workspace:GetAttribute("Objective")
+                        if o and string.upper(tostring(o)) == "ESCORT" then esc = true end
+                    end)
+                    state = esc and "KILL_ALL" or "KILL_TO_5"
+                    if esc then print("[TS] 🐎 Escort mode → ข้ามสร้างหอ") end
+                end
+                if state == "KILL_TO_5" then
+                    local n = aliveTitans()
+                    getgenv().VenozAction = string.format("⚡ ฆ่าเหลือ 5 (ตอนนี้ %d)", n)
+                    if n <= 5 then
+                        state = "BUILD_TOWERS"
+                        print("[TS] ✅ เหลือ 5 ตัว → เริ่มสร้างหอ")
+                    end
+                elseif state == "BUILD_TOWERS" then
+                    setFarm(false)                 -- 🔒 หยุดฟาร์มระหว่างสร้างหอ
+                    task.wait(0.3)
+                    if towerIdx <= 3 then
+                        buildTower(towerIdx)
+                        towerIdx = towerIdx + 1
+                    end
+                    if towerIdx > 3 then
+                        state = "KILL_ALL"
+                        setFarm(true)
+                        print("[TS] ✅ ครบ 3 หอ → กลับไปตี titan")
+                    end
+                end
+            end
+        end)
+        if not okRun then warn("[TS] ⛔ " .. tostring(err)) end
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════
 -- 🗡️ BLADE-ONLY LOCK — บังคับใช้ดาบอย่างเดียว ไม่แตะหอก
 -- ═══════════════════════════════════════════════════════════════
 --   🐛 UI2 มี "ตัวเฝ้าอาวุธ" อยู่ข้างใน (บรรทัด ~6506):
