@@ -114,8 +114,14 @@ task.spawn(function()
     local plr = Players.LocalPlayer
     if not plr then return end
     if game.PlaceId == 13379208636 or game.PlaceId == 14916516914 then return end
-    if getgenv().VenozShieldOn then return end
-    getgenv().VenozShieldOn = true
+    -- ⚠️ ห้ามใช้ธง boolean เป็นตัวกันรันซ้ำ!
+    --    getgenv ค้างข้าม teleport → พอจบด่าน/ย้ายเซิร์ฟกลางคัน connection ตาย
+    --    แต่ stop() ไม่ถูกเรียก = ธงค้าง true ตลอดกาล
+    --    → ด่านถัดไป return ทันที ไม่ยกอีกเลยสักครั้ง (บั๊กที่เจอ)
+    --    ✅ ผูกกับ JobId แทน — คนละเซิร์ฟ = ถือว่ายังไม่เคยรัน → ยกเสมอ
+    local key = tostring(game.JobId) .. "|" .. tostring(game.PlaceId)
+    if getgenv().VenozShieldKey == key then return end
+    getgenv().VenozShieldKey = key
 
     local H = tonumber(getgenv().VenozShieldH) or 120
     -- ⏱️ ยกค้างกี่วิ "นับจากตัวละครเกิด" แล้วปล่อยให้ระบบฟาร์มทำงาน
@@ -124,7 +130,6 @@ task.spawn(function()
     local t0 = os.clock()
     local function stop()
         if conn then pcall(function() conn:Disconnect() end) conn = nil end
-        getgenv().VenozShieldOn = false
         if lifted then print("[SHIELD] ✅ ครบเวลา → ปล่อยให้ระบบฟาร์มคุมต่อ") end
     end
     -- ⚠️ ห้ามใช้ getgenv().Farm เป็นสัญญาณปล่อย!
@@ -159,8 +164,18 @@ end)
     if VL.SpawnShield then
         getgenv().VenozShieldH = tonumber(VL.SpawnShieldHeight) or 120
         getgenv().VenozShieldSec = tonumber(VL.SpawnShieldSeconds) or 10
-        -- รันทันทีในเพลสนี้ (เผื่อ execute ตอนอยู่ในด่านอยู่แล้ว)
-        if inMission then pcall(function() loadstring(SHIELD_SRC)() end) end
+        -- ▶️ รันทันทีตอนสคริปเริ่ม ไม่รออะไรทั้งนั้น
+        --    (ตัวเกราะเช็ค PlaceId เองอยู่แล้ว อยู่ lobby/menu มันจะไม่ทำงาน)
+        local started = false
+        if type(loadstring) == "function" then
+            local f = loadstring(SHIELD_SRC)
+            if f then started = pcall(f) end
+        end
+        if started then
+            print("[LITE] 🛡️ เกราะเริ่มทำงานแล้ว (ยกทันทีที่ตัวละครมี)")
+        else
+            warn("[LITE] ⛔ loadstring ใช้ไม่ได้ → เกราะรันไม่ขึ้น! บอกผมด้วย")
+        end
         -- 🔑 คิวไว้ให้เพลสถัดไป — รันตั้งแต่หน้าโหลด ก่อนสคริปหลักเสร็จ
         pcall(function()
             local q = queue_on_teleport or queueonteleport
