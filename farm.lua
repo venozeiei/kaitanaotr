@@ -13,6 +13,119 @@ print("   🧪 เช็ค boost จาก Data.Copy.Boosts ตัวจริ�
 print("═══════════════════════════════════════════════")
 getgenv().VenozBuild = "v3.1"
 
+-- ═══════════════════════════════════════════════════════════════
+-- ⚙️ VENOZ LITE — ตั้งค่า 3 อย่างที่เพิ่มเข้ามา (แก้ตรงนี้ได้เลย)
+-- ═══════════════════════════════════════════════════════════════
+--   ทั้ง 3 ตัวเป็น "ฝั่ง client ล้วน" ไม่ยิง remote สักตัว
+--   → ไม่กระทบเรื่อง shadow ban ของเวอร์ชันนี้เลย
+-- ═══════════════════════════════════════════════════════════════
+getgenv().VenozLite = getgenv().VenozLite or {
+    Disable3D         = true,   -- ⬛ ปิด render 3D = จอว่าง (ประหยัด CPU/GPU มากสุด)
+                                --    ป้ายสถานะ / F9 / หน้าจบด่าน ยังเห็นปกติ
+    LowGraphic        = true,   -- ลด quality + ปิดเงา/หมอก/PostEffect
+    KillEffects       = true,   -- ปิด particle/trail/beam + หยุดเสียง (ทุก 60 วิ)
+    FPSCap            = 30,     -- 30 = ลื่นพอให้ตัวนิ่ง | 20 = เบาขึ้น | 0 = ไม่ตั้ง
+    SpawnShield       = true,   -- 🛡️ ยกตัวลอยตอนเข้าด่าน จนระบบฟาร์มเริ่ม
+    SpawnShieldHeight = 120,    -- ยกสูงกี่ studs (เท่ากับ HoverHeight = ดูกลมกลืน)
+    -- ⚠️ ไม่มี "ลบแมพ" ให้เลย — ลบแมพทำให้ด่านไม่สรุปผล Rewards ไม่โผล่ บอทค้างทุกจอ
+}
+
+do
+    local VL = getgenv().VenozLite
+    local RunSvc = game:GetService("RunService")
+    local Lighting = game:GetService("Lighting")
+    local PlrsL = game:GetService("Players")
+
+    local MENU_ID, LOBBY_ID2 = 13379208636, 14916516914
+    local inMission = (game.PlaceId ~= MENU_ID and game.PlaceId ~= LOBBY_ID2)
+
+    -- ── 🖥️ กราฟิก: ปิด render 3D + ลด quality ──
+    task.spawn(function()
+        if VL.FPSCap and VL.FPSCap > 0 and type(setfpscap) == "function" then
+            pcall(function() setfpscap(VL.FPSCap) end)
+        end
+        if VL.LowGraphic then
+            pcall(function()
+                settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+                Lighting.GlobalShadows = false
+                Lighting.Brightness = 0
+                Lighting.FogEnd = 9e9
+                Lighting.EnvironmentDiffuseScale = 0
+                Lighting.EnvironmentSpecularScale = 0
+                for _, v in ipairs(Lighting:GetChildren()) do
+                    if v:IsA("PostEffect") then v.Enabled = false end
+                end
+            end)
+        end
+        if VL.Disable3D then
+            pcall(function() RunSvc:Set3dRenderingEnabled(false) end)
+            print("[LITE] ⬛ ปิด render 3D แล้ว (จอว่าง — ป้ายสถานะ/F9 ยังเห็น)")
+        end
+
+        -- ปิด effect/เสียงที่ spawn มาเรื่อยๆ (ห่างๆ พอ เพราะสแกนแพง)
+        if VL.KillEffects then
+            while true do
+                task.wait(60)
+                pcall(function()
+                    for _, v in ipairs(workspace:GetDescendants()) do
+                        if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam")
+                            or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
+                            if v.Enabled then v.Enabled = false end
+                        elseif v:IsA("Sound") and v.Playing then
+                            v.Playing = false
+                        end
+                    end
+                end)
+            end
+        end
+    end)
+
+    -- ── 🖱️ ตอนกดปุ่ม ต้องเปิด render คืนชั่วคราว ไม่งั้นคลิกพลาดตำแหน่ง ──
+    getgenv().VenozWithRender = function(fn)
+        local re = false
+        pcall(function()
+            if RunSvc.Is3dRenderingEnabled and not RunSvc:Is3dRenderingEnabled() then
+                RunSvc:Set3dRenderingEnabled(true)
+                re = true
+            end
+        end)
+        local ok, err = pcall(fn)
+        if re then pcall(function() RunSvc:Set3dRenderingEnabled(false) end) end
+        if not ok then warn("[LITE] " .. tostring(err)) end
+    end
+
+    -- ── 🛡️ SPAWN SHIELD: ยกตัวลอยตอนเข้าด่าน จนระบบฟาร์มเริ่มทำงาน ──
+    if inMission and VL.SpawnShield then
+        task.spawn(function()
+            local H = tonumber(VL.SpawnShieldHeight) or 120
+            local plrS = PlrsL.LocalPlayer
+            local holdY, lastChar, lifted = nil, nil, false
+            local t0 = os.clock()
+            while os.clock() - t0 < 180 do          -- กันค้าง: อย่างมาก 3 นาที
+                task.wait(0.15)
+                if getgenv().Farm == true then break end     -- ฟาร์มเริ่มแล้ว → ปล่อยทันที
+                local ch = plrS.Character
+                local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+                local hum = ch and ch:FindFirstChildWhichIsA("Humanoid")
+                if hrp and hum and hum.Health > 0 then
+                    if ch ~= lastChar then lastChar, holdY = ch, nil end
+                    if not holdY then
+                        holdY = hrp.Position.Y + H
+                        if not lifted then
+                            lifted = true
+                            print(string.format("[LITE] 🛡️ ลอยรอที่ %d studs จนระบบฟาร์มเริ่ม", H))
+                        end
+                    end
+                    hrp.CFrame = CFrame.new(hrp.Position.X, holdY, hrp.Position.Z)
+                    pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
+                end
+            end
+            if lifted then print("[LITE] ✅ ระบบฟาร์มเริ่มแล้ว → ปล่อยตัวละคร") end
+        end)
+    end
+end
+
+
 -- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
 task.spawn(function()
     local Players = game:GetService("Players")
@@ -413,9 +526,44 @@ end
 local function VenozPress(btn)
     if not (btn and btn.Parent and btn:IsA("GuiObject")) then return false end
     if not VenozVisible(btn) then return false end
+
+    -- ⚠️ ตอน Disable3D = true พิกัด/hit-test ของ GUI เพี้ยน คลิกไม่ติด
+    --    → เปิด render คืนชั่วคราวตอนกด แล้วปิดกลับ (client ล้วน ไม่มี remote)
+    --    + ซ่อน ScreenGui ของเราเองด้วย เผื่อบังปุ่มอยู่
+    local hidden, re3d = {}, false
+    pcall(function()
+        local RS3 = game:GetService("RunService")
+        if RS3.Is3dRenderingEnabled and not RS3:Is3dRenderingEnabled() then
+            RS3:Set3dRenderingEnabled(true)
+            re3d = true
+        end
+    end)
+    pcall(function()
+        local roots = {}
+        local okc, cg = pcall(function() return game:GetService("CoreGui") end)
+        if okc and cg then table.insert(roots, cg) end
+        if typeof(gethui) == "function" then table.insert(roots, gethui()) end
+        for _, root in ipairs(roots) do
+            for _, v in ipairs(root:GetChildren()) do
+                if v:IsA("ScreenGui") and v.Enabled
+                    and (v.Name == "VenozChickenStatus" or v.Name == "VenozTracker") then
+                    v.Enabled = false
+                    table.insert(hidden, v)
+                end
+            end
+        end
+    end)
+    local function restore()
+        for _, v in ipairs(hidden) do pcall(function() v.Enabled = true end) end
+        if re3d then
+            pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(false) end)
+        end
+    end
+
     local ok = pcall(function()
         local VIM = game:GetService("VirtualInputManager")
         local inset = game:GetService("GuiService"):GetGuiInset()
+        task.wait(0.05)                 -- ให้ layout อัปเดตหลังซ่อน GUI
         local p, s = btn.AbsolutePosition, btn.AbsoluteSize
         if s.X <= 0 or s.Y <= 0 then error("ปุ่มขนาด 0") end
         local x = p.X + s.X / 2
@@ -426,6 +574,7 @@ local function VenozPress(btn)
         task.wait(0.06)
         VIM:SendMouseButtonEvent(x, y, 0, false, game, false)
     end)
+    restore()
     if ok then return true end
     -- สำรอง 1: ยิง handler ของปุ่มตรงๆ
     if type(getconnections) == "function" then
@@ -2230,7 +2379,7 @@ if IsLobbyLobby() then
             local lastConfirmClick = 0
             local confirmCooldown = 0.05
             while true do
-                task.wait(0.01)
+                task.wait(0.5)   -- [PERF] เดิม 0.01 = 100 ครั้ง/วิ (ไม่ได้ใช้ระบบเทรด)
                 pcall(function()
                     if not Alt2Enabled then return end
                     local confirmTitle = getConfirm()
@@ -2595,14 +2744,20 @@ if IsLobbyLobby() then
             holderCheckCount = 0
         end
 
-        RunService.RenderStepped:Connect(function()
+        local _tradeAcc = 0
+        RunService.RenderStepped:Connect(function(_dt)
             if not MonitorEnabled then
                 return
             end
-            
+
             if alreadyTeleported then
                 return
             end
+
+            -- [PERF] เดิมทำงานทุกเฟรม → หน้าเทรดไม่ได้เปิดบ่อย
+            _tradeAcc = _tradeAcc + (_dt or 0)
+            if _tradeAcc < 0.5 then return end
+            _tradeAcc = 0
             
             local tradeOpen = false
             pcall(function()
@@ -3017,7 +3172,7 @@ if IsMainmenuLobby() then
 
     task.spawn(function()
         while true do
-            task.wait(0.3)
+            task.wait(1)   -- [PERF] เดิม 0.3
             pcall(function()
                 if IsJoinCommunityDialogVisible() then
                     if autoJoinEnabled then
@@ -6837,7 +6992,7 @@ if Tabs.AutoFarm then
 
     task.spawn(function()
         while true do
-            task.wait(0.1)
+            task.wait(0.5)   -- [PERF] เดิม 0.1
             pcall(function()
                 local G = getgenv()
                 if G.AutoFarmBlade and not G.Farm then
@@ -9252,7 +9407,7 @@ task.spawn(function()
             updateMissionInfo()
             checkProtectHQ()
         end)
-        task.wait()
+        task.wait(0.5)   -- [PERF] เดิมทุกเฟรม ทั้งที่ข้างในมี guard 5 วิอยู่แล้ว
     end
 end)
 
@@ -10220,7 +10375,7 @@ end
 -- ===== สร้าง loop ตรวจสอบสถานะ (เร็วขึ้น) =====
 task.spawn(function()
     while true do
-        task.wait(0.03)
+        task.wait(0.25)   -- [PERF] เดิม 0.03 = 33 ครั้ง/วิ
         local G = getgenv()
         if G.AutoFarmBlade then
             if not G.Farm then
@@ -10248,7 +10403,7 @@ end)
 
 task.spawn(function()
     while true do
-        task.wait(0.03)
+        task.wait(2)   -- [PERF] ระบบหอกไม่ได้ใช้ → เดิม 0.03
         local G = getgenv()
         if G.AutoThunderSpear then
             if not G.SpearFarm then
@@ -10276,7 +10431,7 @@ end)
 
 -- ===== loop เช็คและสร้างใหม่ =====
 task.spawn(function()
-    while task.wait(0.1) do
+    while task.wait(0.5) do   -- [PERF] เดิม 0.1
         local G = getgenv()
         if G.AutoFarmBlade and (not FarmConn or not FarmConn.Connected) then
             CreateFarmLoop()
@@ -10285,7 +10440,7 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    while task.wait(0.1) do
+    while task.wait(2) do   -- [PERF] ระบบหอกไม่ได้ใช้ → เดิม 0.1
         local G = getgenv()
         if G.AutoThunderSpear and (not SpearFarmConn or not SpearFarmConn.Connected) then
             CreateSpearFarmLoop()
@@ -10550,7 +10705,7 @@ CreateSpearFarmLoop()
 
 task.spawn(function()
     while true do
-        task.wait(0.1)
+        task.wait(2)   -- [PERF] ระบบหอกไม่ได้ใช้ → เดิม 0.1
         local G = getgenv()
         if G.AutoThunderSpear then
             if not G.SpearFarm then
@@ -10603,7 +10758,7 @@ if Tabs.AutoFarm then
         local LastState = nil
         
         while true do
-            task.wait(0.2)
+            task.wait(0.5)   -- [PERF] เดิม 0.2
             
             if not getgenv().StartRejoin then
                 LastState = nil
@@ -11770,7 +11925,7 @@ if Tabs.AutoFarm then
         local hasClicked = false
 
         while true do
-            task.wait(0.1)
+            task.wait(0.5)   -- [PERF] เดิม 0.1
 
             if not skipEnabled then
                 detectedTime = 0
