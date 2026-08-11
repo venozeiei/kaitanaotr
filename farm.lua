@@ -3,199 +3,24 @@
 
 
 -- ═══════════════════════════════════════════════════════════════
--- 🐔 VENOZ CHICKEN  ·  BUILD v3.1  (💎 โชว์เพชร + boost ซื้อด้วยเพชร)
--- ถ้าไม่เห็น 4 บรรทัดนี้ใน F9 = ยังรันโค้ดตัวเก่าอยู่ ให้ paste ไฟล์ใหม่ทับ
+-- 🛡️ VENOZ NO-SB  ·  BUILD v4.0   (ต่อยอดจาก titan_noshadowban ตัวที่รอด)
+-- ═══════════════════════════════════════════════════════════════
+--  แก้จากตัวเดิม 3 อย่าง:
+--   1️⃣ RETRY  : 15 ครั้ง/1.5 วิ  →  "กดครั้งเดียว" หลังรอนิ่ง 3 วิ
+--   2️⃣ SPEED  : ตัด task.wait(8) + waits ยิบย่อย → เข้าด่านปุ๊บฟาร์มเลย
+--   3️⃣ SLIM   : ตัดโค้ดที่ไม่ได้ใช้ทิ้ง 2,749 บรรทัด (Trade/Spin/Family/Webhook)
+--   4️⃣ ⬛ANTI-LAG : ปิด render 3D ทุกที่ + กราฟิกต่ำสุด + ปิด particle/เสียง
+--   5️⃣ 🔇CHAT  : ปิดช่องแชทถาวร (CoreGui + TextChatService + ScreenGui เก่า)
+--  ถ้าไม่เห็น 4 บรรทัดนี้ใน F9 = ยังรันโค้ดตัวเก่าอยู่ ให้ paste ไฟล์ใหม่ทับ
 -- ═══════════════════════════════════════════════════════════════
 print("═══════════════════════════════════════════════")
-print("🐔 VENOZ CHICKEN — BUILD v3.1")
-print("   💎 ป้ายกลางจอโชว์เพชร | boost ซื้อด้วยเพชร (ไม่ใช่ทอง)")
-print("   🧪 เช็ค boost จาก Data.Copy.Boosts ตัวจริง")
+print("🛡️ VENOZ NO-SB — BUILD v4.1")
+print("   🔁 RETRY กดครั้งเดียว (รอนิ่ง 3 วิก่อนกด)")
+print("   ⚡ เข้าด่าน = ฟาร์มทันที ไม่รอโหลดอะไรทั้งนั้น")
+print("   ⬛ จอว่างทุกที่ (Main Menu + Lobby + ในด่าน) + ปิดแชทถาวร")
+print("   🗑️ ตัดโค้ดไม่ใช้ทิ้ง 2,749 บรรทัด")
 print("═══════════════════════════════════════════════")
-getgenv().VenozBuild = "v3.1"
-
--- ═══════════════════════════════════════════════════════════════
--- ⚙️ VENOZ LITE — ตั้งค่า 3 อย่างที่เพิ่มเข้ามา (แก้ตรงนี้ได้เลย)
--- ═══════════════════════════════════════════════════════════════
---   ทั้ง 3 ตัวเป็น "ฝั่ง client ล้วน" ไม่ยิง remote สักตัว
---   → ไม่กระทบเรื่อง shadow ban ของเวอร์ชันนี้เลย
--- ═══════════════════════════════════════════════════════════════
-getgenv().VenozLite = getgenv().VenozLite or {
-    Disable3D         = true,   -- ⬛ ปิด render 3D = จอว่าง (ประหยัด CPU/GPU มากสุด)
-                                --    ป้ายสถานะ / F9 / หน้าจบด่าน ยังเห็นปกติ
-    LowGraphic        = true,   -- ลด quality + ปิดเงา/หมอก/PostEffect
-    KillEffects       = true,   -- ปิด particle/trail/beam + หยุดเสียง (ทุก 60 วิ)
-    FPSCap            = 30,     -- 30 = ลื่นพอให้ตัวนิ่ง | 20 = เบาขึ้น | 0 = ไม่ตั้ง
-    SpawnShield       = false,  -- 🛡️ ยกตัวลอยตอนเข้าด่าน
-                                --    ⚠️ ปิดไว้! เปิดแล้วบอทจะ "ลอยรอ" ตามวินาทีที่ตั้ง
-                                --       = เริ่มฆ่าไททันช้าลง ซึ่งตรงข้ามกับที่ต้องการ
-                                --       เปิดเฉพาะตอนเจอปัญหาตายตอนโหลดจริงๆ
-    SpawnShieldHeight = 120,    -- ยกสูงกี่ studs (เท่ากับ HoverHeight = ดูกลมกลืน)
-    SpawnShieldSeconds = 10,    -- ⏱️ ยกค้างกี่วิ "นับจากตัวละครเกิด" แล้วปล่อยให้ฟาร์มทำงาน
-                                --    น้อยไป = ไททันตีทัน | มากไป = เริ่มฟาร์มช้า | 8-12 กำลังดี
-    -- ⚠️ ไม่มี "ลบแมพ" ให้เลย — ลบแมพทำให้ด่านไม่สรุปผล Rewards ไม่โผล่ บอทค้างทุกจอ
-}
-
-do
-    local VL = getgenv().VenozLite
-    local RunSvc = game:GetService("RunService")
-    local Lighting = game:GetService("Lighting")
-    local PlrsL = game:GetService("Players")
-
-    local MENU_ID, LOBBY_ID2 = 13379208636, 14916516914
-    local inMission = (game.PlaceId ~= MENU_ID and game.PlaceId ~= LOBBY_ID2)
-
-    -- ── 🖥️ กราฟิก: ปิด render 3D + ลด quality ──
-    task.spawn(function()
-        if VL.FPSCap and VL.FPSCap > 0 and type(setfpscap) == "function" then
-            pcall(function() setfpscap(VL.FPSCap) end)
-        end
-        if VL.LowGraphic then
-            pcall(function()
-                settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-                Lighting.GlobalShadows = false
-                Lighting.Brightness = 0
-                Lighting.FogEnd = 9e9
-                Lighting.EnvironmentDiffuseScale = 0
-                Lighting.EnvironmentSpecularScale = 0
-                for _, v in ipairs(Lighting:GetChildren()) do
-                    if v:IsA("PostEffect") then v.Enabled = false end
-                end
-            end)
-        end
-        if VL.Disable3D then
-            pcall(function() RunSvc:Set3dRenderingEnabled(false) end)
-            print("[LITE] ⬛ ปิด render 3D แล้ว (จอว่าง — ป้ายสถานะ/F9 ยังเห็น)")
-        end
-
-        -- ปิด effect/เสียงที่ spawn มาเรื่อยๆ (ห่างๆ พอ เพราะสแกนแพง)
-        if VL.KillEffects then
-            while true do
-                task.wait(60)
-                pcall(function()
-                    for _, v in ipairs(workspace:GetDescendants()) do
-                        if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam")
-                            or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
-                            if v.Enabled then v.Enabled = false end
-                        elseif v:IsA("Sound") and v.Playing then
-                            v.Playing = false
-                        end
-                    end
-                end)
-            end
-        end
-    end)
-
-    -- ── 🖱️ ตอนกดปุ่ม ต้องเปิด render คืนชั่วคราว ไม่งั้นคลิกพลาดตำแหน่ง ──
-    getgenv().VenozWithRender = function(fn)
-        local re = false
-        pcall(function()
-            if RunSvc.Is3dRenderingEnabled and not RunSvc:Is3dRenderingEnabled() then
-                RunSvc:Set3dRenderingEnabled(true)
-                re = true
-            end
-        end)
-        local ok, err = pcall(fn)
-        if re then pcall(function() RunSvc:Set3dRenderingEnabled(false) end) end
-        if not ok then warn("[LITE] " .. tostring(err)) end
-    end
-
-    -- ═══════════════════════════════════════════════════════════
-    -- 🛡️ INSTANT SHIELD — ยกตัวตั้งแต่ "เฟรมแรก" ที่ตัวละครเกิด
-    -- ═══════════════════════════════════════════════════════════
-    --   🐛 ปัญหาเดิม: executor รันสคริป "หลังโหลดเสร็จ" → ไททันได้จังหวะฟาดก่อน
-    --   ✅ แก้ 2 ชั้น:
-    --      1) ใช้ Heartbeat แทน task.wait — จับตัวละครได้ทันทีที่เกิด ไม่มีช่องว่าง
-    --      2) queue_on_teleport — คิวเกราะไว้ให้ "เพลสถัดไป"
-    --         พอ teleport ปุ๊บ เกราะรันตั้งแต่เฟรมแรกของหน้าโหลดเลย
-    --         ไม่ต้องรอสคริปหลัก 11,000 บรรทัดโหลดจบก่อน
-    --   ⚠️ client ล้วน ไม่มี remote
-    -- ═══════════════════════════════════════════════════════════
-    local SHIELD_SRC = [==[
-task.spawn(function()
-    local Players = game:GetService("Players")
-    local RunService = game:GetService("RunService")
-    local plr = Players.LocalPlayer
-    if not plr then return end
-    if game.PlaceId == 13379208636 or game.PlaceId == 14916516914 then return end
-    -- ⚠️ ห้ามใช้ธง boolean เป็นตัวกันรันซ้ำ!
-    --    getgenv ค้างข้าม teleport → พอจบด่าน/ย้ายเซิร์ฟกลางคัน connection ตาย
-    --    แต่ stop() ไม่ถูกเรียก = ธงค้าง true ตลอดกาล
-    --    → ด่านถัดไป return ทันที ไม่ยกอีกเลยสักครั้ง (บั๊กที่เจอ)
-    --    ✅ ผูกกับ JobId แทน — คนละเซิร์ฟ = ถือว่ายังไม่เคยรัน → ยกเสมอ
-    local key = tostring(game.JobId) .. "|" .. tostring(game.PlaceId)
-    if getgenv().VenozShieldKey == key then return end
-    getgenv().VenozShieldKey = key
-
-    local H = tonumber(getgenv().VenozShieldH) or 120
-    -- ⏱️ ยกค้างกี่วิ "นับจากตัวละครเกิด" แล้วปล่อยให้ระบบฟาร์มทำงาน
-    local HOLD = tonumber(getgenv().VenozShieldSec) or 10
-    local holdY, lastChar, conn, lifted, bornAt = nil, nil, nil, false, nil
-    local t0 = os.clock()
-    local function stop()
-        if conn then pcall(function() conn:Disconnect() end) conn = nil end
-        if lifted then print("[SHIELD] ✅ ครบเวลา → ปล่อยให้ระบบฟาร์มคุมต่อ") end
-    end
-    -- ⚠️ ห้ามใช้ getgenv().Farm เป็นสัญญาณปล่อย!
-    --    getgenv ค้างข้าม teleport → พอเข้าด่านใหม่ Farm ยังเป็น true จากด่านก่อน
-    --    = เกราะหยุดตั้งแต่ Heartbeat แรก ไม่เคยยกสักครั้ง (บั๊กที่เจอ)
-    --    ใช้ "เวลาตั้งแต่ตัวละครเกิด" แทน — ชัดเจน ไม่มีทางเพี้ยน
-    conn = RunService.Heartbeat:Connect(function()
-        if os.clock() - t0 > 180 then stop() return end
-        local ch = plr.Character
-        local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
-        local hum = ch and ch:FindFirstChildWhichIsA("Humanoid")
-        if not (hrp and hum and hum.Health > 0) then
-            holdY, bornAt = nil, nil
-            return
-        end
-        if ch ~= lastChar then lastChar, holdY, bornAt = ch, nil, nil end
-        if not bornAt then bornAt = os.clock() end
-        if os.clock() - bornAt >= HOLD then stop() return end   -- ครบเวลา → ปล่อย
-        if not holdY then
-            holdY = hrp.Position.Y + H
-            if not lifted then
-                lifted = true
-                print(string.format("[SHIELD] 🛡️ ยกตัว %d studs ค้าง %d วิ", H, HOLD))
-            end
-        end
-        hrp.CFrame = CFrame.new(hrp.Position.X, holdY, hrp.Position.Z)
-        pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
-    end)
-end)
-]==]
-
-    if VL.SpawnShield then
-        getgenv().VenozShieldH = tonumber(VL.SpawnShieldHeight) or 120
-        getgenv().VenozShieldSec = tonumber(VL.SpawnShieldSeconds) or 10
-        -- ▶️ รันทันทีตอนสคริปเริ่ม ไม่รออะไรทั้งนั้น
-        --    (ตัวเกราะเช็ค PlaceId เองอยู่แล้ว อยู่ lobby/menu มันจะไม่ทำงาน)
-        local started = false
-        if type(loadstring) == "function" then
-            local f = loadstring(SHIELD_SRC)
-            if f then started = pcall(f) end
-        end
-        if started then
-            print("[LITE] 🛡️ เกราะเริ่มทำงานแล้ว (ยกทันทีที่ตัวละครมี)")
-        else
-            warn("[LITE] ⛔ loadstring ใช้ไม่ได้ → เกราะรันไม่ขึ้น! บอกผมด้วย")
-        end
-        -- 🔑 คิวไว้ให้เพลสถัดไป — รันตั้งแต่หน้าโหลด ก่อนสคริปหลักเสร็จ
-        pcall(function()
-            local q = queue_on_teleport or queueonteleport
-                or (syn and syn.queue_on_teleport)
-            if q then
-                q("getgenv().VenozShieldH=" .. tostring(getgenv().VenozShieldH)
-                    .. "\ngetgenv().VenozShieldSec=" .. tostring(getgenv().VenozShieldSec)
-                    .. "\n" .. SHIELD_SRC)
-                print("[LITE] 📦 คิวเกราะไว้ให้ด่านถัดไปแล้ว (รันตั้งแต่หน้าโหลด)")
-            else
-                warn("[LITE] ⚠️ executor ไม่มี queue_on_teleport → เกราะจะเริ่มช้ากว่าปกติเล็กน้อย")
-            end
-        end)
-    end
-
-end
-
+getgenv().VenozBuild = "v4.1-nosb"
 
 -- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
 task.spawn(function()
@@ -283,105 +108,12 @@ task.spawn(function()
 end)
 
 
--- ═══════════════════════════════════════════════════════════════
--- ⚡ EARLY FARM — ฆ่าไททันตั้งแต่หน้าโหลด ไม่รอ GUI / ไม่รอข้อมูล
--- ═══════════════════════════════════════════════════════════════
---   🐛 บรรทัดถัดจากนี้คือประตูที่บล็อกทั้งไฟล์:
---        repeat task.wait() until game:IsLoaded()
---        repeat task.wait() until PlayerGui:FindFirstChild("Interface")
---      = ต้องรอ GUI + ป้ายบนหัวโหลดครบก่อน สคริป 11,000 บรรทัดถึงจะเริ่มทำงาน
---      นั่นแหละคือ 3-4 วิที่เห็นบอทยืนเฉย
---   ✅ ตัวนี้วางไว้ "ก่อนประตู" → รันตั้งแต่เฟรมแรกที่ execute
---      รอแค่ 3 อย่าง: POST remote / โฟลเดอร์ Titans / HumanoidRootPart
---      ไม่แตะ GUI เลย → เจอไททันเมื่อไหร่ วาร์ปไปฟันทันที
---   ⚠️ ใช้ remote ชุดเดียวกับ UI2 เป๊ะ (Attacks/Slash + Hitboxes/Register 99999, 0)
---      → โปรไฟล์การยิงเหมือนเดิมทุกประการ ไม่กระทบเรื่อง shadow ban
---   พอระบบฟาร์มหลักติดเครื่อง ตัวนี้จะปิดตัวเองทันที
---   ปิด: getgenv().VenozEarlyFarm = false
--- ═══════════════════════════════════════════════════════════════
-getgenv().VenozMainFarmReady = false   -- ⚠️ ต้องรีเซ็ต! getgenv ค้างข้าม teleport
-if getgenv().VenozEarlyFarm ~= false then
-    task.spawn(function()
-        if game.PlaceId == 13379208636 or game.PlaceId == 14916516914 then return end
-
-        local Players = game:GetService("Players")
-        local RS = game:GetService("ReplicatedStorage")
-        local plr = Players.LocalPlayer
-        if not plr then return end
-
-        -- รอแค่ remote (ไม่แตะ PlayerGui/Interface เลย)
-        local POST
-        for _ = 1, 200 do
-            local ok = pcall(function()
-                POST = RS:FindFirstChild("Assets")
-                    and RS.Assets:FindFirstChild("Remotes")
-                    and RS.Assets.Remotes:FindFirstChild("POST")
-            end)
-            if ok and POST then break end
-            task.wait(0.05)
-        end
-        if not POST then return end
-
-        local function nape(t)
-            local hb = t:FindFirstChild("Hitboxes")
-            local hit = hb and hb:FindFirstChild("Hit")
-            local n = hit and hit:FindFirstChild("Nape")
-            if n and n:IsA("BasePart") then return n end
-            return nil
-        end
-
-        local hits, t0 = 0, os.clock()
-        print("[EARLY] ⚡ เริ่มล่าไททันตั้งแต่หน้าโหลด (ไม่รอ GUI)")
-
-        while os.clock() - t0 < 90 do
-            task.wait(0.05)
-            -- ระบบฟาร์มหลักติดเครื่องแล้ว → ถอยให้มันทำงาน
-            if getgenv().VenozMainFarmReady == true then break end
-
-            local ok = pcall(function()
-                local ch = plr.Character
-                local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
-                local hum = ch and ch:FindFirstChildWhichIsA("Humanoid")
-                if not (hrp and hum and hum.Health > 0) then return end
-
-                local folder = workspace:FindFirstChild("Titans")
-                if not folder then return end
-
-                -- หาไททันเป้าหมายที่ใกล้ที่สุด
-                local best, bestD, bestNape = nil, math.huge, nil
-                for _, t in ipairs(folder:GetChildren()) do
-                    local h = t:FindFirstChildWhichIsA("Humanoid")
-                    if h and h.Health > 0 then
-                        local n = nape(t)
-                        if n then
-                            local d = (n.Position - hrp.Position).Magnitude
-                            if d < bestD then best, bestD, bestNape = t, d, n end
-                        end
-                    end
-                end
-                if not bestNape then return end
-
-                -- วาร์ปไปเหนือคอแล้วฟันทันที (ชุดเดียวกับ UI2 เป๊ะ)
-                hrp.CFrame = CFrame.new(bestNape.Position + Vector3.new(0, 3, 0))
-                pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
-                pcall(function() POST:FireServer("Attacks", "Slash", true) end)
-                pcall(function() POST:FireServer("Hitboxes", "Register", bestNape, 99999, 0) end)
-                hits = hits + 1
-                if hits == 1 then print("[EARLY] ⚔️ ฟันตัวแรกแล้ว (ก่อน GUI โหลดเสร็จ)") end
-            end)
-            if not ok then task.wait(0.2) end
-        end
-        if hits > 0 then
-            print(string.format("[EARLY] ✅ ส่งไม้ต่อให้ระบบหลัก (ฟันไป %d ครั้ง)", hits))
-        end
-    end)
-end
-
+-- ⚡ [SPEED] รอเท่าที่ "จำเป็นจริงๆ" เท่านั้น — ตัด task.wait(1) ท้ายบล็อกทิ้ง
+--    (1 วินาทีนั้นคือเวลาที่ไททันเดินมาถึงตัวเราพอดี)
 repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(1)
 
 -- ระบบ AFK 
 local Players = game:GetService("Players")
@@ -497,6 +229,16 @@ do
     ThemeManager = setmetatable({}, anyMethod)
     SaveManager  = setmetatable({}, anyMethod)
 end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🚦 ธง "สคริปโหลดครบแล้ว" (แทน task.wait(8) แบบเดาสุ่ม)
+-- ═══════════════════════════════════════════════════════════════
+--   ทำไมต้องมี: ปุ่ม AutoFarmBlade เรียก CreateFarmLoop() ซึ่งเป็นตัวแปร global
+--   ที่ถูกประกาศ "ท้ายไฟล์" ถ้าเปิดฟาร์มก่อนถึงบรรทัดนั้น = CreateFarmLoop เป็น nil
+--   = ตัวยืนนิ่งไม่ฟาร์ม (บั๊กที่เคยเจอ) → เลยต้องรอ "โหลดครบ" จริงๆ ไม่ใช่รอ 8 วิ
+--   ⚠️ ต้องเซ็ต false ทุกครั้งที่รัน เพราะ getgenv ค้างข้ามการ teleport
+getgenv().VenozScriptReady = false
+getgenv().VenozPressing    = 0   -- ⚠️ ต้องรีเซ็ตด้วย ไม่งั้นค้างข้าม teleport = ปิดจอไม่ลง
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -688,30 +430,45 @@ local function VenozVisible(gui)
     return true
 end
 
+-- ⬛ สลับ render 3D (ใช้ร่วมกันทั้งสคริป)
+local function Venoz3D(on)
+    pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(on and true or false) end)
+end
+local function Venoz3DIsOn()
+    local ok, v = pcall(function()
+        local RS = game:GetService("RunService")
+        if RS.Is3dRenderingEnabled then return RS:Is3dRenderingEnabled() end
+        return true
+    end)
+    return (not ok) or v
+end
+getgenv().Venoz3D = Venoz3D
+
 local function VenozPress(btn)
     if not (btn and btn.Parent and btn:IsA("GuiObject")) then return false end
     if not VenozVisible(btn) then return false end
 
-    -- ⚠️ ตอน Disable3D = true พิกัด/hit-test ของ GUI เพี้ยน คลิกไม่ติด
-    --    → เปิด render คืนชั่วคราวตอนกด แล้วปิดกลับ (client ล้วน ไม่มี remote)
-    --    + ซ่อน ScreenGui ของเราเองด้วย เผื่อบังปุ่มอยู่
-    local hidden, re3d = {}, false
-    pcall(function()
-        local RS3 = game:GetService("RunService")
-        if RS3.Is3dRenderingEnabled and not RS3:Is3dRenderingEnabled() then
-            RS3:Set3dRenderingEnabled(true)
-            re3d = true
-        end
-    end)
+    -- ⬛ ตอนปิด render 3D อยู่ เกมจะไม่คิด hit-test ของ GUI → คลิกไม่โดน
+    --    เลยต้อง "เปิดคืนชั่วคราว" เฉพาะตอนกด แล้วปิดกลับทันทีที่เสร็จ
+    --    + ซ่อนป้ายสถานะของเราไว้ก่อน กันมันบังปุ่ม
+    -- 🔒 บอกลูป anti-lag ว่า "กำลังกดปุ่มอยู่ อย่าเพิ่งปิด render"
+    --    ไม่งั้นลูป 10 วิอาจปิด 3D กลางคันพอดี → คลิกพลาด
+    getgenv().VenozPressing = (tonumber(getgenv().VenozPressing) or 0) + 1
+    local re3d = false
+    if not Venoz3DIsOn() then Venoz3D(true) re3d = true end
+    local hidden = {}
     pcall(function()
         local roots = {}
         local okc, cg = pcall(function() return game:GetService("CoreGui") end)
         if okc and cg then table.insert(roots, cg) end
+        local pg = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then table.insert(roots, pg) end
         if typeof(gethui) == "function" then table.insert(roots, gethui()) end
         for _, root in ipairs(roots) do
             for _, v in ipairs(root:GetChildren()) do
                 if v:IsA("ScreenGui") and v.Enabled
-                    and (v.Name == "VenozChickenStatus" or v.Name == "VenozTracker") then
+                    and (v.Name == "VenozChickenStatus" or v.Name == "VenozTracker"
+                         or v.Name == "TownShipPlayerStats") then
                     v.Enabled = false
                     table.insert(hidden, v)
                 end
@@ -720,15 +477,14 @@ local function VenozPress(btn)
     end)
     local function restore()
         for _, v in ipairs(hidden) do pcall(function() v.Enabled = true end) end
-        if re3d then
-            pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(false) end)
-        end
+        if re3d then Venoz3D(false) end
+        getgenv().VenozPressing = math.max(0, (tonumber(getgenv().VenozPressing) or 1) - 1)
     end
 
     local ok = pcall(function()
         local VIM = game:GetService("VirtualInputManager")
         local inset = game:GetService("GuiService"):GetGuiInset()
-        task.wait(0.05)                 -- ให้ layout อัปเดตหลังซ่อน GUI
+        task.wait(0.05)                      -- ให้ layout อัปเดตหลังซ่อน GUI
         local p, s = btn.AbsolutePosition, btn.AbsoluteSize
         if s.X <= 0 or s.Y <= 0 then error("ปุ่มขนาด 0") end
         local x = p.X + s.X / 2
@@ -773,6 +529,133 @@ local function VenozBtnText(btn)
     return t
 end
 getgenv().VenozBtnText = VenozBtnText
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🔇 ปิดช่องแชทถาวร
+-- ═══════════════════════════════════════════════════════════════
+--   ปิดครบทั้ง 3 ระบบ (เกมอาจใช้อันไหนก็ได้ แล้วแต่เวอร์ชัน):
+--     1) CoreGui Chat        — ระบบแชทมาตรฐาน
+--     2) TextChatService     — แชทตัวใหม่ (หน้าต่าง + ช่องพิมพ์ + bubble)
+--     3) ScreenGui ชื่อ Chat — แชทแบบเก่าใน PlayerGui/CoreGui
+--   เฝ้าซ้ำทุก 5 วิ เผื่อเกมเปิดคืนเองตอนเปลี่ยนแมพ
+--   ปิดระบบนี้: getgenv().VenozChicken.DisableChat = false
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    if (getgenv().VenozChicken or {}).DisableChat == false then return end
+
+    local function killChat()
+        pcall(function()
+            game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Chat, false)
+        end)
+        pcall(function()
+            local TCS = game:GetService("TextChatService")
+            if TCS.ChatWindowConfiguration   then TCS.ChatWindowConfiguration.Enabled   = false end
+            if TCS.ChatInputBarConfiguration then TCS.ChatInputBarConfiguration.Enabled = false end
+            if TCS.BubbleChatConfiguration   then TCS.BubbleChatConfiguration.Enabled   = false end
+        end)
+        pcall(function()
+            local plrC = game:GetService("Players").LocalPlayer
+            local roots = { plrC:FindFirstChild("PlayerGui") }
+            local okc, cg = pcall(function() return game:GetService("CoreGui") end)
+            if okc and cg then table.insert(roots, cg) end
+            for _, root in ipairs(roots) do
+                if root then
+                    for _, v in ipairs(root:GetChildren()) do
+                        if v:IsA("ScreenGui") and v.Name:lower():find("chat") and v.Enabled then
+                            v.Enabled = false
+                        end
+                    end
+                end
+            end
+        end)
+    end
+
+    killChat()
+    print("[CHAT] 🔇 ปิดช่องแชทแล้ว (กันคลิก/คีย์หลุดไปโดนแชทหรือ popup ยืนยัน)")
+    while true do
+        task.wait(5)
+        killChat()
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- ⬛ VENOZ ANTI-LAG — จอขาว/ว่างทุกที่ (Main Menu + Lobby + ในด่าน)
+-- ═══════════════════════════════════════════════════════════════
+--   ⭐ Set3dRenderingEnabled(false) = "ไม่วาดภาพ 3D" เฉยๆ
+--      ของในเกมยังอยู่ครบทุกชิ้น → ฟาร์ม/ตี/จบด่าน ทำงานปกติ 100%
+--      ประหยัด CPU/GPU แรงที่สุด และปลอดภัยกว่า "ลบแมพ" มาก
+--   🖱️ ตอนกดปุ่ม VenozPress จะเปิด render คืนให้เองชั่วคราว แล้วปิดกลับ
+--      (RETRY / LEAVE / ปุ่มใน lobby ยังกดติดปกติ)
+--   🔁 ย้ำซ้ำทุก 10 วิ เผื่อเกมเปิด render คืนตอนเปลี่ยนแมพ/เกิดใหม่
+--   ปิด: getgenv().VenozChicken.AntiLag = false
+--   อยากเห็นภาพเกมตอนดีบัก: getgenv().VenozChicken.Disable3D = false
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    local VZa = getgenv().VenozChicken or {}
+    if VZa.AntiLag == false then return end
+
+    local Lighting = game:GetService("Lighting")
+
+    -- ── กราฟิกต่ำสุด (ทำได้ทุกที่ ไม่มีผลกับ logic) ──
+    local function lowGfx()
+        pcall(function()
+            settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+            Lighting.GlobalShadows = false
+            Lighting.Brightness    = 0
+            Lighting.FogEnd        = 9e9
+            Lighting.EnvironmentDiffuseScale  = 0
+            Lighting.EnvironmentSpecularScale = 0
+            for _, v in ipairs(Lighting:GetChildren()) do
+                if v:IsA("PostEffect") then v.Enabled = false end
+            end
+        end)
+    end
+
+    -- ── ✂️ ปิด particle / trail / เสียง (ตัวกิน CPU ที่ spawn มาเรื่อยๆ) ──
+    local function killFx()
+        local n = 0
+        pcall(function()
+            for _, v in ipairs(workspace:GetDescendants()) do
+                if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam")
+                    or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
+                    if v.Enabled then v.Enabled = false n = n + 1 end
+                elseif v:IsA("Sound") and v.Playing then
+                    v.Playing = false
+                    n = n + 1
+                end
+            end
+        end)
+        return n
+    end
+
+    lowGfx()
+    local want3DOff = (VZa.Disable3D ~= false)
+    if want3DOff then
+        Venoz3D(false)
+        print("[LAG] ⬛ ปิด render 3D แล้ว — จอว่างทุกที่ (ป้ายสถานะ + F9 ยังเห็นปกติ)")
+    end
+
+    local f = killFx()
+    if f > 0 then print(string.format("[LAG] ✂️ ปิด effect/เสียง %d ชิ้น", f)) end
+
+    -- ── 🔁 ย้ำซ้ำ กันเกมเปิดคืนตอนเปลี่ยนแมพ / ตัวละครเกิดใหม่ ──
+    local round = 0
+    while true do
+        task.wait(10)
+        -- ⏸️ ถ้ากำลังกดปุ่มอยู่ → ข้ามรอบนี้ (ห้ามปิด render กลางคัน)
+        if (tonumber(getgenv().VenozPressing) or 0) == 0 then
+            if want3DOff and Venoz3DIsOn() then
+                Venoz3D(false)      -- เกมเปิด render คืน → ปิดกลับ
+            end
+        end
+        round = round + 1
+        if round >= 6 then          -- ทุก ~60 วิ (killFx สแกนทั้ง workspace = แพง)
+            round = 0
+            lowGfx()
+            killFx()
+        end
+    end
+end)
 
 task.spawn(function()
     local start = tick()
@@ -852,2126 +735,26 @@ if IsIngameLobby() then
     Tabs.AutoFarm = Window:AddTab("Auto Farm")
     Tabs.Webhook = Window:AddTab("Webhook")
 end
-if IsMainmenuLobby() then
-  
-    if not getgenv().SpinState then
-        getgenv().SpinState = {
-            storedSpins = 0,
-            hasRolled = false
-        }
-    end
+-- 🗑️ [ตัดออก] 🎰 Auto Spin / Family (Main Menu) — ไม่ได้ใช้  (เดิม 676 บรรทัด)
 
-    Tabs.Webhook = Window:AddTab("Family")
+-- 🗑️ [ตัดออก] 👨‍👩‍👧 Show Family popup GUI — ไม่ได้ใช้  (เดิม 373 บรรทัด)
 
-    local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Webhook")
 
-    local function IsActuallyVisible(gui)
-        if not gui or not gui:IsA("GuiObject") then
-            return false
-        end
-        if not gui.Visible then
-            return false
-        end
-        local current = gui.Parent
-        while current do
-            if current:IsA("GuiObject") then
-                if not current.Visible then
-                    return false
-                end
-            end
-            if current:IsA("ScreenGui") then
-                if not current.Enabled then
-                    return false
-                end
-            end
-            current = current.Parent
-        end
-        return true
-    end
 
-    local function isSlotAVisible()
-        local targetGui = PlayerGui:FindFirstChild("Interface")
-        if targetGui then
-            targetGui = targetGui:FindFirstChild("Title_Screen")
-            if targetGui then
-                targetGui = targetGui:FindFirstChild("Slots")
-                if targetGui then
-                    targetGui = targetGui:FindFirstChild("A")
-                    if targetGui then
-                        return IsActuallyVisible(targetGui)
-                    end
-                end
-            end
-        end
-        return false
-    end
 
-    local slotReady = false
 
-    task.spawn(function()
-        while true do
-            slotReady = isSlotAVisible()
-            task.wait(0.5)
-        end
-    end)
 
-    local function getCurrentFamilyFromSlotA()
-        local success, label = pcall(function()
-            return PlayerGui.Interface.Title_Screen.Slots.A.Details.Label
-        end)
-        if success and label and label:IsA("TextLabel") and label.Visible then
-            local text = label.Text
-            local family = text:match("^([^,]+)")
-            if family then
-                return family:gsub("%s+$", "")
-            end
-        end
-        return nil
-    end
 
-    local function GetFamilyRarity(familyName)
-        if not familyName then return "Common" end
-        local commonList = {"Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut"}
-        local rareList = {"Braus","Kruger","Azumabito","Smith","Grice","Springer","Kirstein"}
-        local epicList = {"Galliard","Zoe","Leonhart","Tybur","Ksaver","Braun","Finger","Arlert"}
-        local legendaryList = {"Yeager","Ackerman","Reiss"}
-        local mythicList = {"Fritz","Helos"}
-        for _, name in ipairs(commonList) do if familyName:find(name) then return "Common" end end
-        for _, name in ipairs(rareList) do if familyName:find(name) then return "Rare" end end
-        for _, name in ipairs(epicList) do if familyName:find(name) then return "Epic" end end
-        for _, name in ipairs(legendaryList) do if familyName:find(name) then return "Legendary" end end
-        for _, name in ipairs(mythicList) do if familyName:find(name) then return "Mythic" end end
-        return "Common"
-    end
+-- 🗑️ [ตัดออก] 🤝 Trade: saved players — ไม่ได้ใช้  (เดิม 278 บรรทัด)
 
-    local function GetColorByRarity(rarity)
-        if rarity == "Epic" then return 0x9b59b6
-        elseif rarity == "Legendary" then return 0xf1c40f
-        elseif rarity == "Mythic" then return 0xe74c3c
-        elseif rarity == "Rare" then return 0x3498db
-        else return 0x95a5a6 end
-    end
 
-    local function SendTargetWebhook(currentFamily, spinNumber)
-        local webhookURL = getgenv().WebhookURL or webhookURL
-        if webhookURL == "" then return false end
-        if spinNumber == "?" or spinNumber == nil or tonumber(spinNumber) == nil then
-            return false
-        end
+-- 🗑️ [ตัดออก] 🤝 Trade: settings — ไม่ได้ใช้  (เดิม 40 บรรทัด)
 
-        local pingMode = getgenv().WebhookPingMode or pingMode
-        local rarity = GetFamilyRarity(currentFamily)
-        local color = GetColorByRarity(rarity)
-        local content = nil
-        if pingMode == "Everyone" then content = "@everyone"
-        elseif pingMode == "Here" then content = "@here" end
 
-        local player = game:GetService("Players").LocalPlayer
-        local userName = player.Name
+-- 🗑️ [ตัดออก] 🤝 Auto Trade Manual — ไม่ได้ใช้  (เดิม 543 บรรทัด)
 
-        local body = game:GetService("HttpService"):JSONEncode({
-            content = content,
-            embeds = {{
-                title = "Family Found: " .. currentFamily,
-                color = color,
-                fields = {
-                    { name = "━━━━━━━━━  PLAYER ━━━━━━━━━", value = "Username : @" .. userName, inline = false },
-                    { name = "━━━━━━━━━  SPINS ━━━━━━━━━", value = "Spins: " .. spinNumber, inline = false }
-                },
-                footer = { text = "Rarity: " .. rarity },
-                timestamp = DateTime.now():ToIsoDate()
-            }}
-        })
 
-        local requestFunction = (syn and syn.request) or (http and http.request) or http_request or request
-        if not requestFunction then return false end
-        return pcall(function()
-            requestFunction({ Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body })
-        end)
-    end
-
-    local function SendSpinFinishedWebhook()
-        local webhookURL = getgenv().WebhookURL or webhookURL
-        if webhookURL == "" then return false end
-
-        local pingMode = getgenv().WebhookPingMode or pingMode
-        local content = nil
-        if pingMode == "Everyone" then content = "@everyone"
-        elseif pingMode == "Here" then content = "@here" end
-
-        local player = game:GetService("Players").LocalPlayer
-        local userName = player.Name
-
-        local body = game:GetService("HttpService"):JSONEncode({
-            content = content,
-            embeds = {{
-                title = "Spin Finished",
-                color = 0xFFFF00,
-                fields = {
-                    { name = "━━━━━━━━━  PLAYER ━━━━━━━━━", value = "Username : @" .. userName, inline = false },
-                    { name = "━━━━━━━━━  STATUS ━━━━━━━━━", value = "No Spins Left", inline = false }
-                },
-                footer = { text = "Spin session ended" },
-                timestamp = DateTime.now():ToIsoDate()
-            }}
-        })
-
-        local requestFunction = (syn and syn.request) or (http and http.request) or http_request or request
-        if not requestFunction then return false end
-        return pcall(function()
-            requestFunction({ Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body })
-        end)
-    end
-
-    local function SendSpinStopWebhook(spinsLeft)
-        local webhookURL = getgenv().WebhookURL or webhookURL
-        if webhookURL == "" then return false end
-
-        local pingMode = getgenv().WebhookPingMode or pingMode
-        local content = nil
-        if pingMode == "Everyone" then content = "@everyone"
-        elseif pingMode == "Here" then content = "@here" end
-
-        local player = game:GetService("Players").LocalPlayer
-        local userName = player.Name
-
-        local body = game:GetService("HttpService"):JSONEncode({
-            content = content,
-            embeds = {{
-                title = "Auto Spin Stopped",
-                color = 0x00BFFF,
-                fields = {
-                    { name = "━━━━━━━━━  PLAYER ━━━━━━━━━", value = "Username : @" .. userName, inline = false },
-                    { name = "━━━━━━━━━  SPINS LEFT ━━━━━━━━━", value = tostring(spinsLeft), inline = false },
-                    { name = "━━━━━━━━━  STATUS ━━━━━━━━━", value = "Stopped by spin limit", inline = false }
-                },
-                footer = { text = "Spin limit reached" },
-                timestamp = DateTime.now():ToIsoDate()
-            }}
-        })
-
-        local requestFunction = (syn and syn.request) or (http and http.request) or http_request or request
-        if not requestFunction then return false end
-        return pcall(function()
-            requestFunction({ Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body })
-        end)
-    end
-
-    local autoNotifyEnabled = false
-    local lastSentFamily = nil
-    local lastSentSpins = nil
-
-    task.spawn(function()
-        while true do
-            task.wait(0.5)
-
-            if not autoNotifyEnabled then
-                lastSentFamily = nil
-                lastSentSpins = nil
-                continue
-            end
-
-            local targetFamilies = {}
-            if Options and Options.AutoSpinFamilies then
-                for name, enabled in pairs(Options.AutoSpinFamilies.Value or {}) do
-                    if enabled and not string.match(name, "^%-%-%-") then
-                        table.insert(targetFamilies, string.lower(name))
-                    end
-                end
-            end
-            if #targetFamilies == 0 then
-                lastSentFamily = nil
-                lastSentSpins = nil
-                continue
-            end
-
-            local currentFamily = getCurrentFamilyFromSlotA()
-            local spinState = getgenv().SpinState
-            local currentSpins = (spinState and spinState.hasRolled) and tostring(spinState.storedSpins) or "?"
-
-            if not currentFamily then
-                lastSentFamily = nil
-                lastSentSpins = nil
-                continue
-            end
-
-            local lowerFamily = string.lower(currentFamily)
-            local isTarget = false
-            for _, target in ipairs(targetFamilies) do
-                if string.find(lowerFamily, target) then
-                    isTarget = true
-                    break
-                end
-            end
-
-            if isTarget then
-                if (lastSentFamily ~= currentFamily or lastSentSpins ~= currentSpins) and currentSpins ~= "?" then
-                    lastSentFamily = currentFamily
-                    lastSentSpins = currentSpins
-                    SendTargetWebhook(currentFamily, currentSpins)
-                end
-            else
-                if lastSentFamily ~= nil then
-                    lastSentFamily = nil
-                    lastSentSpins = nil
-                end
-            end
-        end
-    end)
-
-    local webhookURL = ""
-    local pingMode = "None"
-
-    WebhookGroup:AddInput("Webhook_URL", {
-        Default = "", Numeric = false, Finished = true,
-        Text = "Discord Webhook URL",
-        Placeholder = "https://discord.com/api/webhooks/...",
-        Callback = function(v) webhookURL = v; getgenv().WebhookURL = v end
-    })
-
-    WebhookGroup:AddDropdown("Webhook_PingMode", {
-        Text = "Ping Mode",
-        Values = {"None", "Everyone", "Here"},
-        Default = "None",
-        Multi = false,
-        Callback = function(v) pingMode = v; getgenv().WebhookPingMode = v end
-    })
-
-    WebhookGroup:AddButton("Test Send", function()
-        SendTargetWebhook("Test Family (JaMe)", "?")
-    end)
-
-    WebhookGroup:AddToggle("AutoNotifyToggle", {
-        Text = "Auto Send Families to Discord",
-        Default = false,
-        Callback = function(v)
-            autoNotifyEnabled = v
-            if v then
-                lastSentFamily = nil
-                lastSentSpins = nil
-            end
-        end
-    })
-
-    local SpinGroup = Tabs.Webhook:AddRightGroupbox("Auto Spin")
-    local StopSpinGroup = Tabs.Webhook:AddRightGroupbox("Stop at Spin Left")
-
-    local selectedFamilies = {}
-    local rollDelay = 0.01
-    local autoActive = false
-    local spinTask = nil
-    local waitingForSlot = false
-    local stopAtSpinLimitEnabled = false
-    local stopAtSpinLimitValue = 0
-
-    local player = game:GetService("Players").LocalPlayer
-    local playerGui = player:WaitForChild("PlayerGui")
-    local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
-
-    local function performRoll()
-        local maxRetries = 3
-        local retryDelay = 0.3
-        
-        for attempt = 1, maxRetries do
-            local success, ret1, ret2, ret3, ret4, ret5 = pcall(function()
-                return Event:InvokeServer("Family", "Roll")
-            end)
-            
-            if success then
-                local spinsLeft = 0
-                local familyGot = nil
-                
-                if type(ret1) == "number" then
-                    spinsLeft = ret1
-                end
-                if type(ret2) == "number" then
-                    spinsLeft = spinsLeft + ret2
-                end
-                
-                if type(ret3) == "string" and ret3 ~= "" then
-                    familyGot = ret3
-                else
-                    for _, v in ipairs({ret1, ret2, ret3, ret4, ret5}) do
-                        if type(v) == "string" and v ~= "" then
-                            familyGot = v
-                            break
-                        end
-                    end
-                end
-                
-                if familyGot then
-                    local spinState = getgenv().SpinState
-                    if not spinState then
-                        getgenv().SpinState = { storedSpins = 0, hasRolled = false }
-                        spinState = getgenv().SpinState
-                    end
-                    spinState.storedSpins = spinsLeft
-                    spinState.hasRolled = true
-                    return spinsLeft, familyGot
-                end
-            end
-            
-            if attempt < maxRetries then
-                task.wait(retryDelay)
-            end
-        end
-        
-        return 0, nil
-    end
-
-    local function getSlotLabel()
-        local success, label = pcall(function()
-            return playerGui.Interface.Title_Screen.Slots.A.Details.Label
-        end)
-        if success and label and label:IsA("TextLabel") then return label end
-        return nil
-    end
-
-    local function getFamilyTitleLabel()
-        local success, title = pcall(function()
-            return playerGui.Interface.Customisation.Family.Family.Title
-        end)
-        if success and title and title:IsA("TextLabel") then return title end
-        return nil
-    end
-
-    local function getCurrentFamilyFromUI()
-        local slotLabel = getSlotLabel()
-        if slotLabel and slotLabel.Visible then
-            local text = slotLabel.Text
-            local family = text:match("^([^,]+)")
-            if family then return family:gsub("%s+$", "") end
-        end
-        local familyTitle = getFamilyTitleLabel()
-        if familyTitle and familyTitle.Visible then
-            local text = familyTitle.Text
-            local family = text:match("^([^%(]+)")
-            if family then return family:gsub("%s+$", "") end
-        end
-        return nil
-    end
-
-    local function updateUIFamily(newFamily)
-        local slotLabel = getSlotLabel()
-        if slotLabel then
-            local oldText = slotLabel.Text
-            local lv = oldText:match("Lv%.(%d+)")
-            if lv then
-                slotLabel.Text = string.format("%s, Lv.%s", newFamily, lv)
-            else
-                slotLabel.Text = newFamily
-            end
-        end
-        local familyTitle = getFamilyTitleLabel()
-        if familyTitle then
-            familyTitle.Text = newFamily
-        end
-    end
-
-    local function syncUIFamilies()
-        local slotFamily = nil
-        local slotLabel = getSlotLabel()
-        if slotLabel and slotLabel.Visible then
-            local text = slotLabel.Text
-            slotFamily = text:match("^([^,]+)")
-            if slotFamily then slotFamily = slotFamily:gsub("%s+$", "") end
-        end
-        local titleFamily = nil
-        local familyTitle = getFamilyTitleLabel()
-        if familyTitle and familyTitle.Visible then
-            local text = familyTitle.Text
-            titleFamily = text:match("^([^%(]+)")
-            if titleFamily then titleFamily = titleFamily:gsub("%s+$", "") end
-        end
-        if slotFamily and titleFamily and slotFamily ~= titleFamily then
-            updateUIFamily(slotFamily)
-        end
-    end
-
-    local function isCurrentFamilyTarget()
-        local currentFamily = getCurrentFamilyFromUI()
-        if not currentFamily or #selectedFamilies == 0 then return false end
-        local lower = string.lower(currentFamily)
-        for _, target in ipairs(selectedFamilies) do
-            if string.find(lower, string.lower(target)) then return true end
-        end
-        return false
-    end
-
-    local function FormatFamilyDisplay(rawFamily)
-        if not rawFamily or rawFamily == "" then return "Unknown" end
-        local baseName = rawFamily:match("^([^%(]+)") or rawFamily
-        baseName = baseName:gsub("%s+$", "")
-        baseName = baseName:gsub("[()]", "")
-        local rarity = GetFamilyRarity(rawFamily)
-        return string.format("%s (%s)", baseName, rarity)
-    end
-
-    local function isTargetFamily(name, targetList)
-        if not name or #targetList == 0 then return false end
-        local lower = string.lower(name)
-        for _, t in ipairs(targetList) do
-            if string.find(lower, string.lower(t)) then return true end
-        end
-        return false
-    end
-
-    local FAMILY_LIST = {
-        "--- Common ---","Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut",
-        "--- Rare ---","Braus","Kruger","Azumabito","Smith","Grice","Springer","Kirstein",
-        "--- Epic ---","Galliard","Zoe","Leonhart","Tybur","Ksaver","Braun","Finger","Arlert",
-        "--- Legendary ---","Yeager","Ackerman","Reiss",
-        "--- Mythic ---","Fritz","Helos",
-    }
-    local function isHeader(name) return string.sub(name, 1, 3) == "---" end
-
-    local function startAutoSpin()
-        if spinTask then return end
-        spinTask = task.spawn(function()
-            local notifiedSpinFinished = false
-            local notifiedSpinStop = false
-            while autoActive do
-                if not slotReady then
-                    if not waitingForSlot then
-                        waitingForSlot = true
-                        Library:Notify("Waiting for Title_Slot A to Start...", 2)
-                    end
-                    task.wait(1)
-                    continue
-                end
-                waitingForSlot = false
-                syncUIFamilies()
-                if isCurrentFamilyTarget() then
-                    local currentFamily = getCurrentFamilyFromUI()
-                    local display = FormatFamilyDisplay(currentFamily)
-                    Library:Notify(string.format("Already have target: %s! Stopping.", display), 5)
-                    break
-                end
-
-                local spinsLeft, familyGot = performRoll()
-                if familyGot then
-                    local display = FormatFamilyDisplay(familyGot)
-                    Library:Notify(string.format("Roll: %s | Spins left: %d", display, spinsLeft), 2)
-                    updateUIFamily(familyGot)
-                    
-                    if spinsLeft == 0 and not notifiedSpinFinished then
-                        notifiedSpinFinished = true
-                        SendSpinFinishedWebhook()
-                        Library:Notify("Spins finished! Webhook sent.", 3)
-                        break
-                    end
-                    
-                    if stopAtSpinLimitEnabled and stopAtSpinLimitValue > 0 and spinsLeft <= stopAtSpinLimitValue and not notifiedSpinStop then
-                        notifiedSpinStop = true
-                        SendSpinStopWebhook(spinsLeft)
-                        Library:Notify(string.format("Stopped at Spins left: %d", spinsLeft), 3)
-                        break
-                    end
-                    
-                    if isTargetFamily(familyGot, selectedFamilies) then
-                        Library:Notify(string.format("Found! %s | Spins left: %d", display, spinsLeft), 10)
-                        break
-                    end
-                else
-                    task.wait(0.1)
-                    continue
-                end
-                if spinsLeft == 0 then break end
-                task.wait(rollDelay)
-            end
-            if Options and Options.AutoSpinToggle then
-                Options.AutoSpinToggle:SetValue(false)
-            end
-            autoActive = false
-            spinTask = nil
-            waitingForSlot = false
-        end)
-    end
-
-    SpinGroup:AddLabel("Slot A (only)")
-    SpinGroup:AddDivider()
-
-    SpinGroup:AddButton("Check Current Family", function()
-        syncUIFamilies()
-        local family = getCurrentFamilyFromUI() or "Unknown"
-        local spinState = getgenv().SpinState
-        local spinsText = (spinState and spinState.hasRolled) and tostring(spinState.storedSpins) or "??"
-        Library:Notify(string.format("Slot A | Family: %s | Spins left: %s", family, spinsText), 3)
-    end)
-
-    SpinGroup:AddDivider()
-    SpinGroup:AddDropdown("AutoSpinFamilies", {
-        Text = "Select Target Families",
-        Values = FAMILY_LIST,
-        Multi = true,
-        Default = {},
-        Callback = function(v)
-            selectedFamilies = {}
-            for k, val in pairs(v) do
-                if val and not isHeader(k) then table.insert(selectedFamilies, k) end
-            end
-        end
-    })
-    SpinGroup:AddDivider()
-    SpinGroup:AddSlider("AutoSpinDelaySlider", {
-        Text = "Roll Delay",
-        Default = 0.01,
-        Min = 0.001,
-        Max = 1,
-        Rounding = 3,
-        Suffix = "s",
-        Callback = function(v) rollDelay = v end
-    })
-
-    SpinGroup:AddToggle("AutoSpinToggle", {
-        Text = "Auto Spin",
-        Default = false,
-        Callback = function(v)
-            if v then
-                if #selectedFamilies == 0 then
-                    task.wait(0.5)
-                    if #selectedFamilies == 0 and Options and Options.AutoSpinFamilies and Options.AutoSpinFamilies.Value then
-                        local temp = {}
-                        for k, val in pairs(Options.AutoSpinFamilies.Value) do
-                            if val and not isHeader(k) then
-                                table.insert(temp, k)
-                            end
-                        end
-                        if #temp > 0 then
-                            selectedFamilies = temp
-                        end
-                    end
-                end
-
-                if #selectedFamilies == 0 then
-                    Library:Notify("Please select target families first!", 3)
-                    Options.AutoSpinToggle:SetValue(false)
-                    return
-                end
-
-                local spinState = getgenv().SpinState
-                if stopAtSpinLimitEnabled and stopAtSpinLimitValue > 0 and spinState and spinState.hasRolled and spinState.storedSpins <= stopAtSpinLimitValue then
-                    Library:Notify("Cannot Roll: spins already limit", 3)
-                    Options.AutoSpinToggle:SetValue(false)
-                    return
-                end
-
-                autoActive = true
-                startAutoSpin()
-            else
-                autoActive = false
-                if spinTask then task.cancel(spinTask); spinTask = nil end
-                waitingForSlot = false
-            end
-        end
-    })
-
-    StopSpinGroup:AddToggle("StopAtSpinLimitToggle", {
-        Text = "Enable Stop at Spin Left",
-        Default = false,
-        Callback = function(v)
-            stopAtSpinLimitEnabled = v
-        end
-    })
-
-    StopSpinGroup:AddInput("StopAtSpinLimitInput", {
-        Text = "Stop when spins < Left",
-        Default = "0",
-        Numeric = true,
-        Finished = true,
-        Placeholder = "0 - 100000",
-        Callback = function(v)
-            local num = tonumber(v)
-            if num then
-                stopAtSpinLimitValue = math.clamp(num, 0, 100000)
-            else
-                stopAtSpinLimitValue = 0
-            end
-        end
-    })
-
-    if Options and Options.AutoSpinFamilies and Options.AutoSpinFamilies.Value then
-        selectedFamilies = {}
-        for k, val in pairs(Options.AutoSpinFamilies.Value) do
-            if val and not isHeader(k) then
-                table.insert(selectedFamilies, k)
-            end
-        end
-    end
-
-    task.spawn(function()
-        repeat task.wait(0.1) until Window and Window.Holder
-        repeat task.wait(0.1) until Options and Options.AutoSpinFamilies
-        task.wait(0.5)
-
-        if Options.AutoSpinToggle and Options.AutoSpinToggle.Value then
-            local hasTarget = (#selectedFamilies > 0)
-            if not hasTarget and Options.AutoSpinFamilies and Options.AutoSpinFamilies.Value then
-                for k, v in pairs(Options.AutoSpinFamilies.Value) do
-                    if v and not string.match(k, "^%-%-%-") then
-                        hasTarget = true
-                        break
-                    end
-                end
-            end
-
-            if not hasTarget then
-                Options.AutoSpinToggle:SetValue(false)
-                Library:Notify("Auto Spin disabled: No target families selected", 3)
-            else
-                Options.AutoSpinToggle:SetValue(true)
-            end
-        end
-
-        if Options.AutoNotifyToggle and Options.AutoNotifyToggle.Value then
-            Options.AutoNotifyToggle:SetValue(true)
-        end
-    end)
-end
-
-if IsMainmenuLobby() then
-    while not Tabs.Webhook do task.wait(0.1) end
-
-    local PopupGroup = Tabs.Webhook:AddLeftGroupbox("Show Family")
-    local popupEnabled = false
-    local popupGui = nil
-    local updateConnection = nil
-    local glowConnection = nil
-    local rainbowConnection = nil
-    local currentScale = 1.0
-    local rainbowActive = false
-
-    local Players = game:GetService("Players")
-    local LocalPlayer = Players.LocalPlayer
-    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-    local RunService = game:GetService("RunService")
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-
-    local function getSlotAFamily()
-        local success, label = pcall(function()
-            return PlayerGui.Interface.Title_Screen.Slots.A.Details.Label
-        end)
-        if success and label and label:IsA("TextLabel") and label.Visible then
-            local text = label.Text
-            local family = text:match("^([^,]+)")
-            if family then
-                return family:gsub("%s+$", "")
-            end
-        end
-        return nil
-    end
-
-    local function GetRarity(familyName)
-        if not familyName then return "Common" end
-        local commonList = {"Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut"}
-        local rareList = {"Braus","Kruger","Azumabito","Smith","Grice","Springer","Kirstein"}
-        local epicList = {"Galliard","Zoe","Leonhart","Tybur","Ksaver","Braun","Finger","Arlert"}
-        local legendaryList = {"Yeager","Ackerman","Reiss"}
-        local mythicList = {"Fritz","Helos"}
-        for _, name in ipairs(commonList) do if familyName:find(name) then return "Common" end end
-        for _, name in ipairs(rareList) do if familyName:find(name) then return "Rare" end end
-        for _, name in ipairs(epicList) do if familyName:find(name) then return "Epic" end end
-        for _, name in ipairs(legendaryList) do if familyName:find(name) then return "Legendary" end end
-        for _, name in ipairs(mythicList) do if familyName:find(name) then return "Mythic" end end
-        return "Common"
-    end
-
-    local function GetBaseColor(rarity)
-        if rarity == "Common" then return Color3.fromHex("#C0C0C0")
-        elseif rarity == "Rare" then return Color3.fromHex("#00E5FF")
-        elseif rarity == "Epic" then return Color3.fromHex("#CC33FF")
-        elseif rarity == "Legendary" then return Color3.fromHex("#FFD700")
-        elseif rarity == "Mythic" then return Color3.fromHex("#FF3366")
-        else return Color3.fromHex("#FFFFFF") end
-    end
-
-    local function GetRainbowColor(offset)
-        local hue = (offset % 1) * 360
-        local r, g, b = Color3.fromHSV(hue / 360, 1.0, 1.0)
-        return Color3.new(r, g, b)
-    end
-
-    local function StartRainbowBorder(innerBorder, outerGlow)
-        if rainbowConnection then rainbowConnection:Disconnect() end
-        rainbowActive = true
-        local startTime = tick()
-        local cycleDuration = 20
-        rainbowConnection = RunService.RenderStepped:Connect(function()
-            if not popupEnabled or not popupGui or not innerBorder or not outerGlow then return end
-            local elapsed = (tick() - startTime) / cycleDuration
-            local hue = elapsed % 1
-            local color = GetRainbowColor(hue)
-            innerBorder.Color = color
-            outerGlow.Color = color
-            innerBorder.Thickness = 3
-            outerGlow.Thickness = 6
-            outerGlow.Transparency = 0.3
-        end)
-    end
-
-    local function StopRainbowBorder()
-        if rainbowConnection then
-            rainbowConnection:Disconnect()
-            rainbowConnection = nil
-        end
-        rainbowActive = false
-    end
-
-    local function getBrightColor(baseColor)
-        return Color3.new(
-            math.min(baseColor.R + 0.35, 1),
-            math.min(baseColor.G + 0.35, 1),
-            math.min(baseColor.B + 0.35, 1)
-        )
-    end
-
-    local function GetTotalSpins()
-        local spinState = getgenv().SpinState
-        if spinState and spinState.hasRolled then
-            return tostring(spinState.storedSpins)
-        else
-            return "?"
-        end
-    end
-
-    local function UpdateUIScale()
-        if popupGui then
-            local scaleObj = popupGui:FindFirstChild("UIScale")
-            if scaleObj then scaleObj.Scale = currentScale end
-        end
-    end
-
-    local function StartSmoothPulse(innerBorder, outerGlow, baseColor)
-        if glowConnection then glowConnection:Disconnect() end
-        local brightColor = getBrightColor(baseColor)
-        local time = 0
-        local pulseSpeed = 1.2
-        glowConnection = RunService.RenderStepped:Connect(function(deltaTime)
-            if not popupEnabled or not popupGui then return end
-            local spins = GetTotalSpins()
-            if spins == "0" then return end
-            time = time + deltaTime * pulseSpeed
-            local intensity = (math.sin(time) + 1) / 2
-            local currentColor = Color3.new(
-                baseColor.R + (brightColor.R - baseColor.R) * intensity,
-                baseColor.G + (brightColor.G - baseColor.G) * intensity,
-                baseColor.B + (brightColor.B - baseColor.B) * intensity
-            )
-            local thickness = 2 + intensity * 1.5
-            local glowThickness = 5 + intensity * 3
-            local glowTransparency = 0.55 - intensity * 0.25
-            innerBorder.Color = currentColor
-            outerGlow.Color = currentColor
-            outerGlow.Thickness = glowThickness
-            outerGlow.Transparency = glowTransparency
-            innerBorder.Thickness = thickness
-        end)
-    end
-
-    local function CreatePopupUI()
-        if popupGui then popupGui:Destroy() end
-        if glowConnection then glowConnection:Disconnect() end
-        if rainbowConnection then rainbowConnection:Disconnect() end
-        rainbowActive = false
-
-        local screenGui = Instance.new("ScreenGui")
-        screenGui.Name = "TownShipRealTimePopup"
-        screenGui.ResetOnSpawn = false
-        screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-        screenGui.DisplayOrder = 999
-        screenGui.IgnoreGuiInset = true
-        screenGui.Parent = LocalPlayer.PlayerGui
-        popupGui = screenGui
-
-        local uiScale = Instance.new("UIScale")
-        uiScale.Scale = currentScale
-        uiScale.Parent = screenGui
-
-        local mainFrame = Instance.new("Frame")
-        mainFrame.Size = UDim2.new(0, 300, 0, 130)
-        mainFrame.Position = UDim2.new(0.5, -150, 0.5, -65)
-        mainFrame.BackgroundColor3 = Color3.fromHex("#050505")
-        mainFrame.BackgroundTransparency = 0.08
-        mainFrame.BorderSizePixel = 0
-        mainFrame.ClipsDescendants = true
-        mainFrame.Parent = screenGui
-
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 14)
-        corner.Parent = mainFrame
-
-        local innerBorder = Instance.new("UIStroke")
-        innerBorder.Thickness = 2.5
-        innerBorder.Transparency = 0.1
-        innerBorder.LineJoinMode = Enum.LineJoinMode.Round
-        innerBorder.Parent = mainFrame
-
-        local outerGlow = Instance.new("UIStroke")
-        outerGlow.Thickness = 5
-        outerGlow.Transparency = 0.55
-        outerGlow.LineJoinMode = Enum.LineJoinMode.Round
-        outerGlow.Parent = mainFrame
-
-        local closeBtn = Instance.new("TextButton")
-        closeBtn.Size = UDim2.new(0, 26, 0, 26)
-        closeBtn.Position = UDim2.new(1, -34, 0, 6)
-        closeBtn.BackgroundTransparency = 0.3
-        closeBtn.Text = "X"
-        closeBtn.TextColor3 = Color3.new(1,1,1)
-        closeBtn.Font = Enum.Font.GothamBold
-        closeBtn.TextSize = 14
-        closeBtn.Parent = mainFrame
-        local btnCorner = Instance.new("UICorner")
-        btnCorner.CornerRadius = UDim.new(0, 13)
-        btnCorner.Parent = closeBtn
-        
-        closeBtn.MouseEnter:Connect(function()
-            closeBtn.BackgroundTransparency = 0.1
-        end)
-        closeBtn.MouseLeave:Connect(function()
-            closeBtn.BackgroundTransparency = 0.3
-        end)
-        closeBtn.MouseButton1Click:Connect(function()
-            if popupGui then popupGui:Destroy() end
-            if glowConnection then glowConnection:Disconnect() end
-            if rainbowConnection then rainbowConnection:Disconnect() end
-            if Options and Options.PopupRealTimeToggle then
-                Options.PopupRealTimeToggle:SetValue(false)
-            end
-        end)
-
-        local titleLabel = Instance.new("TextLabel")
-        titleLabel.Size = UDim2.new(1, -40, 0, 24)
-        titleLabel.Position = UDim2.new(0, 12, 0, 6)
-        titleLabel.BackgroundTransparency = 1
-        titleLabel.Text = "CURRENT FAMILY"
-        titleLabel.Font = Enum.Font.GothamBold
-        titleLabel.TextSize = 12
-        titleLabel.TextColor3 = Color3.new(1,1,1)
-        titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-        titleLabel.Parent = mainFrame
-
-        local familyLabel = Instance.new("TextLabel")
-        familyLabel.Size = UDim2.new(1, -50, 0, 46)
-        familyLabel.Position = UDim2.new(0, 12, 0, 32)
-        familyLabel.BackgroundTransparency = 1
-        familyLabel.Text = "Loading..."
-        familyLabel.Font = Enum.Font.GothamBlack
-        familyLabel.TextSize = 24
-        familyLabel.TextColor3 = Color3.new(1,1,1)
-        familyLabel.TextXAlignment = Enum.TextXAlignment.Left
-        familyLabel.TextScaled = true
-        familyLabel.TextWrapped = true
-        familyLabel.Parent = mainFrame
-
-        local spinLabel = Instance.new("TextLabel")
-        spinLabel.Size = UDim2.new(1, -40, 0, 18)
-        spinLabel.Position = UDim2.new(0, 12, 0, 86)
-        spinLabel.BackgroundTransparency = 1
-        spinLabel.Text = "Total Spins: ?"
-        spinLabel.Font = Enum.Font.GothamBold
-        spinLabel.TextSize = 14
-        spinLabel.TextColor3 = Color3.fromHex("#AAAAAA")
-        spinLabel.TextXAlignment = Enum.TextXAlignment.Left
-        spinLabel.Parent = mainFrame
-
-        local footerLabel = Instance.new("TextLabel")
-        footerLabel.Size = UDim2.new(1, -40, 0, 14)
-        footerLabel.Position = UDim2.new(0, 12, 0, 110)
-        footerLabel.BackgroundTransparency = 1
-        footerLabel.Text = "TownShip"
-        footerLabel.Font = Enum.Font.GothamMedium
-        footerLabel.TextSize = 9
-        footerLabel.TextColor3 = Color3.fromHex("#888888")
-        footerLabel.TextXAlignment = Enum.TextXAlignment.Left
-        footerLabel.Parent = mainFrame
-
-        local currentRarity = nil
-        local currentBaseColor = nil
-
-        local function UpdateDisplay()
-            if not popupGui or not popupEnabled then return end
-
-            local family = getSlotAFamily() or "Unknown"
-            local rarity = GetRarity(family)
-            local baseColor = GetBaseColor(rarity)
-            local spins = GetTotalSpins()
-
-            familyLabel.Text = family
-            familyLabel.TextColor3 = baseColor
-            titleLabel.TextColor3 = baseColor
-            closeBtn.BackgroundColor3 = baseColor
-            closeBtn.TextColor3 = (rarity == "Legendary" or rarity == "Mythic") and Color3.fromHex("#111111") or Color3.new(1,1,1)
-
-            if spins == "0" then
-                spinLabel.Text = "No Spins Left"
-                spinLabel.TextColor3 = Color3.fromHex("#FF6B6B")
-                spinLabel.TextSize = 16
-                if not rainbowActive then
-                    StartRainbowBorder(innerBorder, outerGlow)
-                end
-                innerBorder.Thickness = 3
-                outerGlow.Thickness = 6
-            else
-                spinLabel.Text = "Total Spins: " .. spins
-                spinLabel.TextColor3 = Color3.fromHex("#AAAAAA")
-                spinLabel.TextSize = 14
-                if rainbowActive then
-                    StopRainbowBorder()
-                    innerBorder.Color = baseColor
-                    outerGlow.Color = baseColor
-                    innerBorder.Thickness = 2.5
-                    outerGlow.Thickness = 5
-                    outerGlow.Transparency = 0.55
-                end
-            end
-
-            if spins ~= "0" then
-                if currentRarity ~= rarity then
-                    currentRarity = rarity
-                    currentBaseColor = baseColor
-                    StartSmoothPulse(innerBorder, outerGlow, baseColor)
-                end
-            else
-                if glowConnection then
-                    glowConnection:Disconnect()
-                    glowConnection = nil
-                end
-            end
-        end
-
-        if updateConnection then updateConnection:Disconnect() end
-        updateConnection = RunService.Heartbeat:Connect(function()
-            if popupEnabled and popupGui then UpdateDisplay() end
-        end)
-
-        UpdateDisplay()
-    end
-
-    PopupGroup:AddSlider("PopupUIScale", {
-        Text = "UI Scale (%)",
-        Default = 100,
-        Min = 10,
-        Max = 200,
-        Rounding = 0,
-        Suffix = "%",
-        Callback = function(v)
-            currentScale = v / 100
-            UpdateUIScale()
-        end
-    })
-
-    PopupGroup:AddToggle("PopupRealTimeToggle", {
-        Text = "Show Family",
-        Default = false,
-        Callback = function(v)
-            popupEnabled = v
-            if v then
-                CreatePopupUI()
-            else
-                if updateConnection then updateConnection:Disconnect() end
-                if glowConnection then glowConnection:Disconnect() end
-                if rainbowConnection then rainbowConnection:Disconnect() end
-                if popupGui then popupGui:Destroy() end
-            end
-        end
-    })
-
-    PopupGroup:AddButton("Deposit Family", function()
-        local currentFamily = getSlotAFamily()
-        if not currentFamily then
-            Library:Notify("No family detected to deposit.", 3)
-            return
-        end
-
-        local success, result, depositedFamily, newFamily = pcall(function()
-            return GET:InvokeServer("Family", "Store")
-        end)
-
-        if success and result == true then
-            local deposited = depositedFamily or "Unknown"
-            local received = newFamily or "Unknown"
-            local label = PlayerGui.Interface.Title_Screen.Slots.A.Details.Label
-            if label and label:IsA("TextLabel") then
-                label.Text = received
-            end
-            Library:Notify("Deposit successful! You deposited " .. deposited .. " and received " .. received, 5)
-        else
-            Library:Notify("Deposit failed! " .. currentFamily .. " could not be deposited", 3)
-        end
-    end)
-end
-
-
-
-
-
-
-
-if IsLobbyLobby() then
-    task.defer(function()
-        local Players = game:GetService("Players")
-        local Player = Players.LocalPlayer
-        local POST = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
-        
-        local file1, file2 = "TownShip/saved_players.txt", "TownShip/saved_players_2.txt"
-
-        local function loadList(f) 
-            local t={} 
-            if isfile(f) then 
-                for n in string.gmatch(readfile(f),"[^\r\n]+") do 
-                    n=n:gsub("^%s+",""):gsub("%s+$","") 
-                    if n~="" then table.insert(t,n) end 
-                end 
-            end 
-            return t 
-        end
-        local function saveList(f,t) writefile(f,table.concat(t,"\n")) end
-        local function addName(f,n) 
-            n=n:gsub("^%s+",""):gsub("%s+$","") 
-            if n=="" then return false end 
-            local t=loadList(f) 
-            for _,v in ipairs(t) do if v:lower()==n:lower() then return false end end 
-            table.insert(t,n) 
-            saveList(f,t) 
-            return true 
-        end
-        local function addMulti(f,s) 
-            local a=0 
-            for n in string.gmatch(s,"[^,;\r\n%s]+") do if addName(f,n) then a=a+1 end end 
-            return a,0 
-        end
-        local function removeName(f,n) 
-            local t=loadList(f) 
-            local r={} 
-            for _,v in ipairs(t) do if v~=n then table.insert(r,v) end end 
-            saveList(f,r) 
-        end
-        local function toList(v) 
-            local r={} 
-            if type(v)=="table" then for k,e in pairs(v) do if e then table.insert(r,k) end end end 
-            return r 
-        end
-        local function inGame(n) 
-            if n:lower()==Player.Name:lower() then return false end 
-            for _,p in ipairs(Players:GetPlayers()) do if p~=Player and p.Name:lower()==n:lower() then return true end end 
-            return false 
-        end
-        local function filterOnline(l) 
-            local o={} 
-            for _,n in ipairs(l) do if n~="No Players" and n:lower()~=Player.Name:lower() and inGame(n) then table.insert(o,n) end end 
-            return o 
-        end
-        local function selectAllFromFile(file) 
-            local all=loadList(file) 
-            local new={} 
-            for _,n in ipairs(all) do new[n]=true end 
-            return new 
-        end
-        
-        local function isTradeOpen() 
-            local success, result = pcall(function() 
-                return Player.PlayerGui.Interface.Trading.Prompt.Visible 
-            end)
-            return success and result or false
-        end
-        
-        local sendCooldown, acceptCooldown = {}, {}
-        local lastSend, lastAccept = 0, 0
-        
-        local trackedPlayers = {}
-        
-        local function clearCooldownForPlayer(name) 
-            sendCooldown[name]=nil
-            acceptCooldown[name]=nil 
-        end
-        
-        task.spawn(function()
-            while true do
-                task.wait(2)
-                pcall(function()
-                    local currentPlayers = {}
-                    for _, p in ipairs(Players:GetPlayers()) do
-                        if p ~= Player then
-                            currentPlayers[p.Name] = true
-                            if not trackedPlayers[p.Name] then
-                                trackedPlayers[p.Name] = true
-                                clearCooldownForPlayer(p.Name)
-                            end
-                        end
-                    end
-                    for name in pairs(trackedPlayers) do
-                        if not currentPlayers[name] then
-                            trackedPlayers[name] = nil
-                        end
-                    end
-                end)
-            end
-        end)
-        
-        local function sendTrade(n)
-            if n:lower()==Player.Name:lower() or not inGame(n) then return end
-            local now=tick()
-            if sendCooldown[n] and now-sendCooldown[n]<1.5 then return end
-            if now-lastSend<0.35 then return end
-            lastSend, sendCooldown[n] = now, now
-            
-            local args = {"Invites", "Invite", n}
-            pcall(function()
-                POST:FireServer(unpack(args))
-            end)
-        end
-        
-        local function acceptTrade(n)
-            if n:lower()==Player.Name:lower() or not inGame(n) then return end
-            local now=tick()
-            if acceptCooldown[n] and now-acceptCooldown[n]<1 then return end
-            if now-lastAccept<0.25 then return end
-            lastAccept, acceptCooldown[n] = now, now
-            
-            local args = {"Invites", "State", n, "Accept"}
-            pcall(function()
-                POST:FireServer(unpack(args))
-            end)
-        end
-        
-        local function buildSendLoop(getCache)
-            return function(toggleRef)
-                task.spawn(function()
-                    while toggleRef.Enabled do
-                        if isTradeOpen() then task.wait(0.3); continue end
-                        local targets = filterOnline(toList(getCache()))
-                        for _, n in ipairs(targets) do
-                            if not toggleRef.Enabled then break end
-                            if isTradeOpen() then break end
-                            sendTrade(n)
-                            task.wait(0.12)
-                        end
-                        task.wait(0.3)
-                    end
-                end)
-            end
-        end
-
-        local function buildAcceptLoop(getCache)
-            return function(toggleRef)
-                task.spawn(function()
-                    while toggleRef.Enabled do
-                        if isTradeOpen() then task.wait(0.3); continue end
-                        local targets = filterOnline(toList(getCache()))
-                        for _, n in ipairs(targets) do
-                            if not toggleRef.Enabled then break end
-                            if isTradeOpen() then break end
-                            acceptTrade(n)
-                            task.wait(0.08)
-                        end
-                        task.wait(0.2)
-                    end
-                end)
-            end
-        end
-        
-        local function addToggles(box, cacheName, getCache)
-            local sendToggle = { Enabled = false }
-            local acceptToggle = { Enabled = false }
-            
-            box:AddToggle(cacheName.."_Send", {
-                Text = "Send Trade", 
-                Default = false, 
-                Callback = function(v) 
-                    sendToggle.Enabled = v
-                    if v then buildSendLoop(getCache)(sendToggle) end 
-                end
-            })
-            box:AddToggle(cacheName.."_Accept", {
-                Text = "Auto Accept", 
-                Default = false, 
-                Callback = function(v) 
-                    acceptToggle.Enabled = v
-                    if v then buildAcceptLoop(getCache)(acceptToggle) end 
-                end
-            })
-        end
-        
-        local function buildSavedBox(title, file, cacheName)
-            local State = { Cache = {} }
-            local box = Tabs.Trade:AddLeftGroupbox(title)
-            local dd = box:AddDropdown(cacheName.."_Dropdown", {
-                Text = "Players", 
-                Values = loadList(file), 
-                Multi = true, 
-                Default = {}, 
-                Callback = function(v) State.Cache = v end
-            })
-            box:AddInput(cacheName.."_Input", {
-                Text = "Add Users", 
-                Placeholder = "name1, name2", 
-                Default = "", 
-                Callback = function(v) State.Input = v end
-            })
-            box:AddButton("Save", function()
-                local txt = State.Input or ""
-                if txt ~= "" then
-                    addMulti(file, txt)
-                    dd:SetValues(loadList(file))
-                    pcall(function() 
-                        if Options and Options[cacheName.."_Input"] then 
-                            Options[cacheName.."_Input"]:SetValue("") 
-                        end 
-                    end)
-                    State.Input = ""
-                end
-            end)
-            box:AddButton("Remove", function() 
-                for _, n in ipairs(toList(State.Cache)) do 
-                    removeName(file, n) 
-                end 
-                dd:SetValues(loadList(file)) 
-            end)
-            box:AddButton("Select All", function() 
-                local all = selectAllFromFile(file) 
-                dd:SetValue(all)
-                State.Cache = all 
-            end)
-            box:AddButton("Deselect All", function() 
-                dd:SetValue({})
-                State.Cache = {} 
-            end)
-            box:AddButton("Refresh", function() 
-                dd:SetValues(loadList(file)) 
-            end)
-            addToggles(box, cacheName, function() return State.Cache end)
-        end
-        
-        local currentState = { Cache = nil }
-        local g1 = Tabs.Trade:AddLeftGroupbox("Current Players")
-        local cd = g1:AddDropdown("Trade_CurrentDropdown", {
-            Text = "Online", 
-            Values = {"No Players"}, 
-            Multi = true, 
-            Default = {}, 
-            Callback = function(v) currentState.Cache = v end
-        })
-        
-        g1:AddButton("Select All Online", function()
-            local allOnline = {}
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= Player then allOnline[p.Name] = true end
-            end
-            cd:SetValue(allOnline)
-            currentState.Cache = allOnline
-        end)
-        
-        g1:AddButton("Deselect All", function()
-            cd:SetValue({})
-            currentState.Cache = {}
-        end)
-        
-        addToggles(g1, "Trade_Current", function() return currentState.Cache end)
-        
-        buildSavedBox("Account 1", file1, "Trade_Acc1")
-        buildSavedBox("Account 2", file2, "Trade_Acc2")
-        
-        task.spawn(function()
-            while true do
-                task.wait(1.5)
-                pcall(function()
-                    local onlineList = {}
-                    for _, p in ipairs(Players:GetPlayers()) do
-                        if p ~= Player then table.insert(onlineList, p.Name) end
-                    end
-                    cd:SetValues(#onlineList > 0 and onlineList or {"No Players"})
-                end)
-            end
-        end)
-    end)
-end
-
-
-if IsLobbyLobby() then
-    local SettingBox = Tabs.Trade:AddLeftGroupbox("Setting Trading")
-    
-    local selectedOption = "On"
-    
-    local function setHistory(state)
-        local args = {"Functions", "Settings", "History", state}
-        return pcall(function()
-            game:GetService("ReplicatedStorage"):WaitForChild("Assets")
-                :WaitForChild("Remotes"):WaitForChild("GET")
-                :InvokeServer(unpack(args))
-        end)
-    end
-    
-    SettingBox:AddDropdown("HistoryOptionDropdown", {
-        Text = "",
-        Values = {"On", "Off"},
-        Default = "On",
-        Multi = false,
-        Callback = function(v)
-            selectedOption = v
-        end
-    })
-    
-    SettingBox:AddToggle("ApplyHistoryToggle", {
-        Text = "Apply History",
-        Default = false,
-        Callback = function(v)
-            if v then
-                local success = setHistory(selectedOption)
-                task.wait(0.1)
-                pcall(function()
-                    if Options and Options.ApplyHistoryToggle then
-                        Options.ApplyHistoryToggle:SetValue(false)
-                    end
-                end)
-            end
-        end
-    })
-end
-
-
-if IsLobbyLobby() then
-    task.spawn(function()
-        while not Tabs.Trade do task.wait(0.1) end
-
-        local Alt2Box = Tabs.Trade:AddRightGroupbox("Auto Trade : Manual")
-
-        local Alt2Enabled = false
-        local Alt2Running = false
-        local SelectAmount = 1
-        local isWaitingForConfirm = false
-        local pendingTargetChange = false
-        local newTargetValue = 1
-
-        local ClickInterval = 0.015
-        local MainLoopDelay = 0.001
-        local AddPanelOpenDelay = 0.08
-        local CheckWait = 0.001
-        local ReduceWait = 0.001
-        local AddWait = 0
-        local UIUpdateDelay = 0.03
-
-        local Players = game:GetService("Players")
-        local VIM = game:GetService("VirtualInputManager")
-        local GS = game:GetService("GuiService")
-        local player = Players.LocalPlayer
-        local RunService = game:GetService("RunService")
-
-        local lastHideNotifyTime = 0
-
-        local autoDisableEnabled = false
-        local autoDisableThreshold = 0
-
-        local itemMapping = {
-            ["Memory Scroll"] = "600_Memory Scroll",
-            ["Emperor's Key"] = "500_Emperor's Key",
-        }
-        local SelectedItems = {"Memory Scroll"}
-
-        local acceptTradeEnabled = false
-
-        local autoTradeToggleRef = nil
-        local acceptTradeToggleRef = nil
-
-        local function isGuiAlive(obj)
-            if not obj then return false end
-            if typeof(obj) ~= "Instance" then return false end
-            if not obj.Parent then return false end
-
-            local ok = pcall(function() return obj.AbsoluteSize end)
-            if not ok then return false end
-
-            if obj:IsA("GuiObject") then
-                if obj.AbsoluteSize.X <= 0 or obj.AbsoluteSize.Y <= 0 then
-                    return false
-                end
-            end
-
-            local current = obj
-            while current do
-                if current:IsA("GuiObject") and not current.Visible then
-                    return false
-                end
-                if current:IsA("ScreenGui") and not current.Enabled then
-                    return false
-                end
-                current = current.Parent
-            end
-
-            return true
-        end
-
-        local function clickWithMouse(target)
-            if not isGuiAlive(target) then
-                return false
-            end
-
-            local inset = GS:GetGuiInset()
-            local x = target.AbsolutePosition.X + (target.AbsoluteSize.X / 2) + inset.X
-            local y = target.AbsolutePosition.Y + (target.AbsoluteSize.Y / 2) + inset.Y
-
-            VIM:SendMouseMoveEvent(x, y, game)
-            VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
-            VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
-
-            return true
-        end
-
-        local function click(target)
-            return clickWithMouse(target)
-        end
-
-        local _cachedYouBox = false
-        local _lastYouBoxCheck = 0
-        local function isYouBoxVisible()
-            local now = tick()
-            if now - _lastYouBoxCheck < 0.01 then return _cachedYouBox end
-            _lastYouBoxCheck = now
-            local success, box = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box
-            end)
-            if not success or not box then _cachedYouBox = false; return false end
-            if not box.Visible then _cachedYouBox = false; return false end
-            if box.AbsoluteSize.X <= 0 or box.AbsoluteSize.Y <= 0 then _cachedYouBox = false; return false end
-
-            local obj = box
-            while obj do
-                if obj:IsA("GuiObject") and not obj.Visible then _cachedYouBox = false; return false end
-                if obj:IsA("ScreenGui") and not obj.Enabled then _cachedYouBox = false; return false end
-                obj = obj.Parent
-            end
-            _cachedYouBox = true
-            return true
-        end
-
-        local function sendStateReady()
-            pcall(function()
-                game:GetService("ReplicatedStorage"):WaitForChild("Assets")
-                    :WaitForChild("Remotes"):WaitForChild("GET")
-                    :InvokeServer("S_Trade", "State", "Receiver", true)
-            end)
-            pcall(function()
-                game:GetService("ReplicatedStorage"):WaitForChild("Assets")
-                    :WaitForChild("Remotes"):WaitForChild("GET")
-                    :InvokeServer("S_Trade", "State", "Sender", true)
-            end)
-        end
-
-        local function getTradeItem(itemName)
-            if not isYouBoxVisible() then return nil end
-            local realName = itemMapping[itemName] or itemName
-            local success, item = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.List.Holder.Items[realName].Main.Interact
-            end)
-            return success and item or nil
-        end
-
-        local function getAddButton()
-            if not isYouBoxVisible() then return nil end
-            return pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items.Item_Add
-            end) and player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items.Item_Add or nil
-        end
-
-        local function getAddButtonTitle()
-            if not isYouBoxVisible() then return nil end
-            local btn = getAddButton()
-            return btn and pcall(function() return btn.Add.Inner.Title.Text end) and btn.Add.Inner.Title.Text or nil
-        end
-
-        local function getConfirm()
-            return pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.Review.Rate.Title
-            end) and player.PlayerGui.Interface.Trading.Prompt.Review.Rate.Title or nil
-        end
-
-        local function getInventoryCount(itemName)
-            if not isYouBoxVisible() then return 0 end
-            local realName = itemMapping[itemName] or itemName
-            local success, item = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.List.Holder.Items[realName]
-            end)
-            if success and item then
-                local label = item.Main and item.Main.Inner and item.Main.Inner.Quantity
-                return label and tonumber(label.Text:match("%d+")) or 0
-            end
-            return 0
-        end
-
-        local function getMemoryScrollCount()
-            local count = 0
-            pcall(function()
-                local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-                local data = GET:InvokeServer("Data", "Copy")
-                if data and data.Slots then
-                    local slot = data.Current_Slot or "A"
-                    local slotData = data.Slots[slot]
-                    if slotData and slotData.Inventory and slotData.Inventory.Items then
-                        count = slotData.Inventory.Items["600_Memory Scroll"] or 0
-                    end
-                end
-            end)
-            return count
-        end
-
-        local function getCurrentAddedCount(itemName)
-            if not isYouBoxVisible() then return 0 end
-            local realName = itemMapping[itemName] or itemName
-            local success, item = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
-            end)
-            if success and item then
-                local label = item.Main and item.Main.Inner and item.Main.Inner.Quantity
-                return label and tonumber(label.Text:match("%d+")) or 0
-            end
-            return 0
-        end
-
-        local function allItemsMatchTarget(target)
-            for _, itemName in ipairs(SelectedItems) do
-                if getCurrentAddedCount(itemName) ~= target then
-                    return false
-                end
-            end
-            return true
-        end
-
-        local function waitForAddedStable(itemName, target, timeout)
-            local start = tick()
-            local lastAdded = getCurrentAddedCount(itemName)
-            local stableTime = 0
-            local requiredStable = 0.1
-            
-            while tick() - start < (timeout or 1.5) do
-                if not isYouBoxVisible() then return false end
-                local current = getCurrentAddedCount(itemName)
-                if current == target then
-                    if current == lastAdded then
-                        stableTime = stableTime + CheckWait
-                        if stableTime >= requiredStable then return true end
-                    else 
-                        stableTime = 0 
-                    end
-                else 
-                    stableTime = 0 
-                end
-                lastAdded = current
-                task.wait(CheckWait)
-            end
-            return false
-        end
-
-        Alt2Box:AddDropdown("Alt2_ItemSelectDropdown", {
-            Text = "Select Items",
-            Values = {"Memory Scroll", "Emperor's Key"},
-            Default = {"Memory Scroll"},
-            Multi = true,
-            Callback = function(val)
-                SelectedItems = {}
-                for item, enabled in pairs(val) do
-                    if enabled then table.insert(SelectedItems, item) end
-                end
-                if Alt2Enabled then
-                    isWaitingForConfirm = false
-                    Alt2Running = false
-                    pendingTargetChange = true
-                    newTargetValue = SelectAmount
-                end
-            end
-        })
-
-        Alt2Box:AddSlider("Alt2_SelectAmountSlider", {
-            Text = "Amount Per Item",
-            Default = 1, Min = 1, Max = 100, Rounding = 0,
-            Callback = function(val)
-                if SelectAmount ~= val then
-                    SelectAmount = val
-                    if Alt2Enabled then
-                        isWaitingForConfirm = false
-                        Alt2Running = false
-                        pendingTargetChange = true
-                        newTargetValue = val
-                    end
-                end
-            end
-        })
-
-        autoTradeToggleRef = Alt2Box:AddToggle("Alt2_AutoTradeToggle", {
-            Text = "Auto Trade [ Manual ]",
-            Default = false,
-            Callback = function(v)
-                Alt2Enabled = v
-                if not v then
-                    isWaitingForConfirm = false
-                    Alt2Running = false
-                    pendingTargetChange = false
-                end
-            end
-        })
-
-        Alt2Box:AddDivider()
-        acceptTradeToggleRef = Alt2Box:AddToggle("Alt2_AcceptTradeToggle", {
-            Text = "Accept Trade",
-            Default = false,
-            Callback = function(v)
-                acceptTradeEnabled = v
-            end
-        })
-
-        Alt2Box:AddDivider()
-        local autoDisableSlider = Alt2Box:AddSlider("AutoDisableThresholdSlider", {
-            Text = "Disable if Memory Scroll ≤",
-            Default = 0,
-            Min = 0,
-            Max = 1000,
-            Rounding = 0,
-            Suffix = " scrolls",
-            Callback = function(v)
-                autoDisableThreshold = v
-            end
-        })
-
-        local autoDisableToggle = Alt2Box:AddToggle("AutoDisableToggle", {
-            Text = "Auto Disable Trade",
-            Default = false,
-            Callback = function(v)
-                autoDisableEnabled = v
-            end
-        })
-
-        task.spawn(function()
-            local lastConfirmClick = 0
-            local confirmCooldown = 0.05
-            while true do
-                task.wait(0.5)   -- [PERF] เดิม 0.01 = 100 ครั้ง/วิ (ไม่ได้ใช้ระบบเทรด)
-                pcall(function()
-                    if not Alt2Enabled then return end
-                    local confirmTitle = getConfirm()
-                    if confirmTitle and confirmTitle:IsA("TextLabel") and string.lower(confirmTitle.Text) == "confirm" then
-                        local visible = true
-                        local obj = confirmTitle
-                        while obj do
-                            if obj:IsA("GuiObject") and not obj.Visible then visible = false; break end
-                            if obj:IsA("ScreenGui") and not obj.Enabled then visible = false; break end
-                            obj = obj.Parent
-                        end
-                        if visible and confirmTitle.AbsoluteSize.X > 0 then
-                            if tick() - lastConfirmClick >= confirmCooldown then
-                                click(confirmTitle)
-                                lastConfirmClick = tick()
-                                isWaitingForConfirm = false
-                            end
-                        end
-                    end
-                end)
-            end
-        end)
-
-        task.spawn(function()
-            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-            while true do
-                task.wait(2)
-                if acceptTradeEnabled then
-                    pcall(function()
-                        GET:InvokeServer("S_Trade", "State", "Receiver", true)
-                        GET:InvokeServer("S_Trade", "State", "Sender", true)
-                    end)
-                end
-            end
-        end)
-
-        local endTradeLoopRunning = false
-        task.spawn(function()
-            while true do
-                task.wait(2)
-                if autoDisableEnabled then
-                    local addTitle = getAddButtonTitle()
-                    if addTitle == "-" then
-                        local scrollCount = getMemoryScrollCount()
-                        if scrollCount <= autoDisableThreshold then
-                            local shouldNotify = false
-                            if Alt2Enabled then
-                                Alt2Enabled = false
-                                if autoTradeToggleRef then
-                                    autoTradeToggleRef:SetValue(false)
-                                end
-                                shouldNotify = true
-                            end
-                            if acceptTradeEnabled then
-                                acceptTradeEnabled = false
-                                if acceptTradeToggleRef then
-                                    acceptTradeToggleRef:SetValue(false)
-                                end
-                                shouldNotify = true
-                            end
-                            if shouldNotify then
-                                local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-                                pcall(function() GET:InvokeServer("S_Trade", "End") end)
-                                Library:Notify(string.format("⚠️ Memory Scrolls low (%d ≤ %d). Trading disabled.", scrollCount, autoDisableThreshold), 5)
-                                if not endTradeLoopRunning then
-                                    endTradeLoopRunning = true
-                                    task.spawn(function()
-                                        while endTradeLoopRunning and isYouBoxVisible() do
-                                            task.wait(5)
-                                            if isYouBoxVisible() then
-                                                pcall(function()
-                                                    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-                                                    GET:InvokeServer("S_Trade", "End")
-                                                end)
-                                            else
-                                                endTradeLoopRunning = false
-                                            end
-                                        end
-                                        endTradeLoopRunning = false
-                                    end)
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end)
-
-        local function processItem(itemName, target)
-            if not isYouBoxVisible() then return false end
-            
-            local added = getCurrentAddedCount(itemName)
-            local inventoryCount = getInventoryCount(itemName)
-            local needed = target - added
-
-            if added == target then return true end
-
-            if needed < 0 then
-                local realName = itemMapping[itemName] or itemName
-                local youItem = pcall(function()
-                    return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
-                end) and player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName] or nil
-                
-                if not youItem then return false end
-                
-                local current = added
-                local targetTotal = target
-                local clicksNeeded = current - targetTotal
-                
-                for i = 1, clicksNeeded do
-                    if not Alt2Enabled or not isYouBoxVisible() then break end
-                    local clickTarget = youItem:FindFirstChild("Main") or youItem
-                    if clickTarget then
-                        click(clickTarget)
-                        if getCurrentAddedCount(itemName) >= targetTotal then break end
-                    end
-                end
-                return true
-            end
-
-            local addBtn = getAddButton()
-            if not addBtn then return false end
-            
-            local addTitle = getAddButtonTitle()
-            if addTitle == "+" then
-                click(addBtn)
-                task.wait(0.3)
-                return false
-            elseif addTitle ~= "-" then
-                return false
-            end
-
-            local currentInv = getInventoryCount(itemName)
-            if currentInv == 0 then return true end
-
-            local actualNeeded = needed
-            if currentInv < needed then
-                actualNeeded = currentInv
-                target = added + currentInv
-            end
-            
-            if actualNeeded <= 0 then return true end
-
-            local tradeItem = getTradeItem(itemName)
-            if not tradeItem then return false end
-
-            local current = added
-            local targetTotal = target
-            local clicksNeeded = targetTotal - current
-            
-            for i = 1, clicksNeeded do
-                if not Alt2Enabled or not isYouBoxVisible() then break end
-                click(tradeItem)
-                if getCurrentAddedCount(itemName) >= targetTotal then break end
-            end
-            
-            return true
-        end
-
-        task.spawn(function()
-            while true do
-                task.wait(MainLoopDelay)
-
-                pcall(function()
-                    if not Alt2Enabled then return end
-
-                    if not isUIHiddenGlobal() then
-                        Alt2Running = false
-                        local now = tick()
-                        if now - lastHideNotifyTime >= 10 then
-                            Library:Notify("⚠️ Hide UI for Working Trading (press End)", 3)
-                            lastHideNotifyTime = now
-                        end
-                        return
-                    end
-
-                    if not isYouBoxVisible() then
-                        Alt2Running = false
-                        return
-                    end
-
-                    if isWaitingForConfirm then
-                        local confirm = getConfirm()
-                        if confirm and confirm:IsA("TextLabel") and string.lower(confirm.Text) == "confirm" then
-                            click(confirm)
-                            isWaitingForConfirm = false
-                        end
-                        return
-                    end
-
-                    if pendingTargetChange then
-                        pendingTargetChange = false
-                    end
-
-                    if Alt2Running then return end
-                    if not isYouBoxVisible() then return end
-
-                    local target = SelectAmount
-
-                    if allItemsMatchTarget(target) then
-                        local allStable = true
-                        for _, itemName in ipairs(SelectedItems) do
-                            if not waitForAddedStable(itemName, target, 1) then
-                                allStable = false
-                                break
-                            end
-                        end
-                        
-                        if allStable then
-                            Alt2Running = true
-                            sendStateReady()
-                            task.wait(0.02)
-                            isWaitingForConfirm = true
-                            Alt2Running = false
-                        end
-                        return
-                    end
-
-                    Alt2Running = true
-                    for _, itemName in ipairs(SelectedItems) do
-                        if not Alt2Enabled or not isYouBoxVisible() then break end
-                        processItem(itemName, target)
-                    end
-                    Alt2Running = false
-                end)
-            end
-        end)
-    end)
-end
-
-
---[[
-if IsLobbyLobby() then
-    task.spawn(function()
-        while not Tabs.Trade do task.wait(0.1) end
-        task.wait(0.5)
-
-        local MiscGroup = Tabs.Trade:AddRightGroupbox("Misc : Auto Save")
-
-        local alreadyTeleported = false
-        local hasChecked = false
-        local panelWasOpen = false
-        local holderCheckCount = 0
-        local MAX_HOLDER_CHECKS = 30
-        
-        local LOBBY_ID = 14916516914
-        local TeleportService = game:GetService("TeleportService")
-        local Players = game:GetService("Players")
-        local player = Players.LocalPlayer
-        local RunService = game:GetService("RunService")
-        
-        local CONFIG_FILE = "TownShip/teleport_config.json"
-        local MonitorEnabled = false
-        local minScrolls = 1
-        
-        if isfile(CONFIG_FILE) then
-            pcall(function()
-                local data = game:GetService("HttpService"):JSONDecode(readfile(CONFIG_FILE))
-                MonitorEnabled = data.MonitorEnabled or false
-                minScrolls = data.minScrolls or 1
-            end)
-        end
-        
-        local function saveConfig()
-            local data = {
-                MonitorEnabled = MonitorEnabled,
-                minScrolls = minScrolls,
-                lastSaved = os.date("%Y-%m-%d %H:%M:%S")
-            }
-            pcall(function()
-                if not isfolder("TownShip") then makefolder("TownShip") end
-                writefile(CONFIG_FILE, game:GetService("HttpService"):JSONEncode(data))
-            end)
-        end
-        
-        MiscGroup:AddSlider("AutoTeleport_MinScrollsSlider", {
-            Text = "Teleport when <= (scrolls)",
-            Default = minScrolls,
-            Min = 0,
-            Max = 100,
-            Rounding = 0,
-            Callback = function(v)
-                minScrolls = v
-                saveConfig()
-            end
-        })
-        
-        MiscGroup:AddDropdown("AutoTeleport_EnableDropdown", {
-            Text = "Auto Teleport When Low",
-            Values = {"Disabled", "Enabled"},
-            Default = MonitorEnabled and "Enabled" or "Disabled",
-            Multi = false,
-            Callback = function(val)
-                MonitorEnabled = (val == "Enabled")
-                saveConfig()
-                if MonitorEnabled then
-                    hasChecked = false
-                    alreadyTeleported = false
-                    panelWasOpen = false
-                    holderCheckCount = 0
-                end
-            end
-        })
-
-        MiscGroup:AddDivider()
-        MiscGroup:AddLabel("Destination: Lobby")
-        
-        local function isAddPanelOpen()
-            local success, title = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items.Item_Add.Add.Inner.Title
-            end)
-            if success and title and title:IsA("TextLabel") then
-                return title.Text == "-"
-            end
-            return false
-        end
-        
-        local function isHolderFullyLoaded()
-            local success, result = pcall(function()
-                local holder = player.PlayerGui.Interface.Trading.Prompt.List.Holder
-                if not holder then return false end
-                if not holder.Visible then return false end
-                local items = holder:FindFirstChild("Items")
-                if not items then return false end
-                if items:FindFirstChild("600_Memory Scroll") then
-                    return true
-                end
-                return false
-            end)
-            return success and result or false
-        end
-        
-        local function getInventoryCount()
-            local success, count = pcall(function()
-                local scroll = game:GetService("Players").LocalPlayer.PlayerGui.Interface.Trading.Prompt.List.Holder.Items["600_Memory Scroll"]
-                if not scroll then return 0 end
-                local main = scroll:FindFirstChild("Main")
-                if not main then return 0 end
-                local inner = main:FindFirstChild("Inner")
-                if not inner then return 0 end
-                local quantity = inner:FindFirstChild("Quantity")
-                if quantity and quantity:IsA("TextLabel") and quantity.Text then
-                    local num = tonumber(quantity.Text:match("%d+"))
-                    return num or 0
-                end
-                return 0
-            end)
-            return (success and count) or 0
-        end
-
-        local function teleportToLobby()
-            if alreadyTeleported then return end
-            alreadyTeleported = true
-            task.wait(0.1)
-            pcall(function() TeleportService:Teleport(LOBBY_ID, player) end)
-        end
-        
-        local function resetSessionState()
-            hasChecked = false
-            alreadyTeleported = false
-            panelWasOpen = false
-            holderCheckCount = 0
-        end
-
-        local _tradeAcc = 0
-        RunService.RenderStepped:Connect(function(_dt)
-            if not MonitorEnabled then
-                return
-            end
-
-            if alreadyTeleported then
-                return
-            end
-
-            -- [PERF] เดิมทำงานทุกเฟรม → หน้าเทรดไม่ได้เปิดบ่อย
-            _tradeAcc = _tradeAcc + (_dt or 0)
-            if _tradeAcc < 0.5 then return end
-            _tradeAcc = 0
-            
-            local tradeOpen = false
-            pcall(function()
-                local trading = player.PlayerGui:FindFirstChild("Interface")
-                if trading then
-                    trading = trading:FindFirstChild("Trading")
-                    if trading then
-                        tradeOpen = trading.Visible == true
-                    end
-                end
-            end)
-            
-            if not tradeOpen then
-                if hasChecked then resetSessionState() end
-                return
-            end
-            
-            local panelOpen = isAddPanelOpen()
-            
-            if panelOpen then
-                if not panelWasOpen then
-                    panelWasOpen = true
-                    holderCheckCount = 0
-                end
-                
-                if not hasChecked then
-                    holderCheckCount = holderCheckCount + 1
-                    
-                    if isHolderFullyLoaded() then
-                        hasChecked = true
-                        local count = getInventoryCount()
-                        if count <= minScrolls then
-                            teleportToLobby()
-                        end
-                    elseif holderCheckCount >= MAX_HOLDER_CHECKS then
-                        hasChecked = true
-                    end
-                end
-            else
-                if panelWasOpen then
-                    panelWasOpen = false
-                    holderCheckCount = 0
-                end
-            end
-        end)
-    end)
-end
-
---]]
+-- 🗑️ [ตัดออก] 🗑️ บล็อกที่ถูก comment ทิ้งไว้อยู่แล้ว  (เดิม 190 บรรทัด)
 getgenv().scalemobile = false
 
 local CONFIG_PRESETS = {
@@ -3337,7 +1120,7 @@ if IsMainmenuLobby() then
 
     task.spawn(function()
         while true do
-            task.wait(1)   -- [PERF] เดิม 0.3
+            task.wait(0.3)
             pcall(function()
                 if IsJoinCommunityDialogVisible() then
                     if autoJoinEnabled then
@@ -6931,8 +4714,7 @@ if Tabs.AutoFarm then
         Callback=function(v)
             if syncingWeapon then return end
             if v then
-                task.wait(0.5)
-                
+                -- ⚡ [SPEED] เดิม task.wait(0.5) ตรงนี้ — ครึ่งวินาทีที่ไททันใช้วิ่งมาถึงตัวเราพอดี
                 if G.AutoThunderSpear then
                     if isThunderSpear() then
                         pcall(function()
@@ -7037,10 +4819,10 @@ if Tabs.AutoFarm then
     
     BladeTab:AddToggle("StartRejoin", {
         Text="Auto Retry", Default=false,
-        Callback=function(v) 
+        Callback=function(v)
             if syncingWeapon then return end
-            if v then task.wait(1) end
-            G.StartRejoin = v 
+            -- ⚡ [SPEED] เดิม task.wait(1) ตรงนี้ — ไม่มีเหตุผลต้องรอ แค่เซ็ตตัวแปร
+            G.StartRejoin = v
         end
     })
 
@@ -7157,7 +4939,7 @@ if Tabs.AutoFarm then
 
     task.spawn(function()
         while true do
-            task.wait(0.5)   -- [PERF] เดิม 0.1
+            task.wait(0.1)
             pcall(function()
                 local G = getgenv()
                 if G.AutoFarmBlade and not G.Farm then
@@ -7444,6 +5226,8 @@ task.spawn(function()
         dflt("FailedSafe", false)    dflt("FailedSafeDelay", 1200)
     dflt("FailedSafeActions", {"Teleport to Lobby"})
     dflt("SilentNotify", false)
+    -- ⬛ จอขาว / ปิดแชท (ค่าเริ่มต้น = เปิดทั้งหมด ตั้ง false ถ้าอยากปิดระบบ)
+    dflt("AntiLag", true)        dflt("Disable3D", true)      dflt("DisableChat", true)
 
     -- ═══ 🚪 MAIN MENU: เลือกสลอต + เข้า Lobby ด้วย remote ทันที ═══
     --     (วิธีเดิมของเรา — ไม่ต้องกดปุ่ม ไม่ต้องรอ UI)
@@ -7470,7 +5254,13 @@ task.spawn(function()
         end)
     end
 
-    task.wait(8)   -- รอ UI + ข้อมูลโหลดครบ (สำหรับงานที่เหลือ)
+    -- ⚡ [SPEED] เดิม task.wait(8) — เดาเวลาโหลดแบบมั่วๆ เสียฟรี 8 วินาที
+    --    ใหม่: รอ "ธงโหลดครบ" ตัวจริง ปกติได้ภายใน ~0.1-0.5 วิ
+    do
+        local t0 = tick()
+        while not getgenv().VenozScriptReady and (tick() - t0) < 15 do task.wait() end
+        print(string.format("[AUTO] 🚦 สคริปโหลดครบใน %.2f วิ → เริ่มสั่งงานได้", tick() - t0))
+    end
 
     -- ⚠️ LinoriaLib: Toggle อยู่ใน `Toggles` ส่วน Slider/Dropdown อยู่ใน `Options`
     --    (เดิมหาแต่ใน Options → เปิด toggle ไม่ติดเลยซักตัว)
@@ -7508,15 +5298,12 @@ task.spawn(function()
 
     local function has(n) return opt(n) ~= nil end
     local function setv(n, v)
+        -- ⚡ [SPEED] เดิมมี task.wait(0.2) ทุกครั้ง → เรียก 10 ครั้ง = เสียฟรี 2 วิ
+        --    SetValue เป็นการเซ็ตตัวแปร + เรียก callback ตรงๆ ไม่ต้องรอ UI วาด
         local o = opt(n)
         if not o then return false end
-        -- [SPEED] ตัด task.wait ออกทั้งหมด — SetValue เรียก callback แบบ synchronous
-        --         อยู่แล้ว ไม่ต้องรอเฟรม (เดิม 0.2 x 9 ครั้ง = เสียฟรี 1.8 วิ ทุกครั้งที่เข้าด่าน)
-        local ok = pcall(function() o:SetValue(v) end)
-        return ok
+        return (pcall(function() o:SetValue(v) end))
     end
-    getgenv().VenozSetOpt = setv   -- ให้ BRAIN เรียกสลับ toggle ได้ (ใช้ตอนสลับดาบ↔หอก)
-    getgenv().VenozHasOpt = has
     local function tset(list)   -- แปลง array → table สำหรับ multi-dropdown
         local t = {}
         if type(list) == "table" then for _, v in ipairs(list) do t[v] = true end end
@@ -7654,25 +5441,25 @@ task.spawn(function()
 
     -- ══════════════════ ⚔️ MISSION ══════════════════
     else
-        print("[AUTO] ⚔️ Mission — เปิดระบบฟาร์ม")
+        print("[AUTO] ⚔️ Mission — เปิดฟาร์มทันที (ไม่รออะไรทั้งนั้น)")
+
+        -- ⚡ [SPEED] เปิดฟาร์ม "เป็นอย่างแรกสุด" ก่อนตั้งค่าอื่นทุกตัว
+        --    เดิม: ตั้ง 10 ค่า (×0.2) + wait 0.5 = กว่าจะฟาร์ม ~3 วิ → ไททันวิ่งมาฆ่าก่อน
+        --    ใหม่: ยิง AutoFarmBlade ทันที แล้วค่อยตั้งค่าที่เหลือระหว่างที่บินอยู่
+        if not (VZ.AutoThunderSpear and has("AutoThunderSpearToggle")) and VZ.AutoFarm then
+            setv("HoverHeightSlider", VZ.HoverHeight)
+            setv("HoverSpeedSlider", VZ.HoverSpeed)
+            setv("FarmModeDropdown", VZ.FarmMode)
+            setv("AutoFarmBlade", true)
+            print("[AUTO] ⚡ ฟาร์มติดแล้ว → บินหาไททันได้เลย")
+        end
+
         if (tonumber(VZ.StopAtTitans) or 0) > 0 or (tonumber(VZ.SafetyTime) or 0) > 0 then
             warn(string.format("[AUTO] ⚠️ SafetyTime=%s / StopAtTitans=%s → บอทจะ 'หยุดตี' เมื่อไททันเหลือน้อย"
                 .. " (ตั้ง 0 ทั้งคู่ถ้าอยากให้ตีตลอด)",
                 tostring(VZ.SafetyTime), tostring(VZ.StopAtTitans)))
         end
-        -- ⚡ [SPEED] เปิดฟาร์มเป็นอย่างแรกสุด แล้วค่อยตั้งค่าที่เหลือตามหลัง
-        --    เดิมตั้งค่า 9 อย่างก่อนแล้วค่อยเปิด → บอทยืนเฉย 3-4 วิ
-        --    ค่าที่เหลือ (skip cutscene / failed safe) ตั้งทีหลังได้ ไม่กระทบ
-        if VZ.AutoFarm then
-            setv("HoverHeightSlider", VZ.HoverHeight)
-            setv("FarmModeDropdown", VZ.FarmMode)
-            setv("KillHitsSlider", VZ.HitCap)
-            setv("AutoFarmBlade", true)
-            getgenv().VenozMainFarmReady = true   -- บอก EARLY FARM ให้ถอย
-            print("[AUTO] ⚡ เปิดฟาร์มทันที (ไม่รอตั้งค่าอื่น)")
-        end
-
-        setv("HoverSpeedSlider", VZ.HoverSpeed)
+        setv("KillHitsSlider", VZ.HitCap)
         setv("SafetyTimeSlider", VZ.SafetyTime)
         setv("StopAtTitansLeftSlider", VZ.StopAtTitans)
 
@@ -7680,9 +5467,17 @@ task.spawn(function()
         if VZ.SkipForce    then setv("SkipForceToggle", true) end
         setv("AutoReloadBlade", false)   -- [CHICKEN] ปิดของ UI2 (path ถังแก๊สพัง) → ใช้ VENOZ BLADE SYSTEM แทน
         if VZ.AutoRetry    then setv("StartRejoin", true) end
-        -- 🗡️ ดาบล้วนเสมอ — ไม่ใช้หอกเป็นอาวุธเด็ดขาด (ถึงจะหาชิ้นส่วนครบแล้วก็ตาม)
-        setv("AutoThunderSpearToggle", false)
-        setv("AutoSpearQuestToggle", false)
+        if VZ.AutoSpearQuest and has("AutoSpearQuestToggle") then
+            setv("AutoSpearQuestToggle", true)
+        end
+
+        if VZ.AutoThunderSpear and has("AutoThunderSpearToggle") then
+            print("[AUTO] ⚡ ฟาร์มด้วย Thunder Spear")
+            setv("ThunderSpear_FarmMode", VZ.SpearFarmMode)
+            setv("ThunderSpear_HoverHeight", VZ.SpearHoverHeight)
+            setv("ThunderSpear_HoverSpeed", VZ.SpearHoverSpeed)
+            setv("AutoThunderSpearToggle", true)
+        end   -- (ฟาร์มดาบถูกเปิดไปแล้วด้านบนสุด — ไม่ต้องเปิดซ้ำ)
 
         if VZ.FailedSafe and has("CombinedActionToggle") then
             setv("CombinedActionDelaySlider", VZ.FailedSafeDelay)
@@ -7857,161 +5652,6 @@ task.spawn(function()
         local full = (mx > 0 and xp >= mx) or ((pct or 0) >= 100)
         return (lv > 0 and lv >= (100 + pr * 25) and full), pr
     end
-
-    -- ═══════════════════════════════════════════════════════════════
-    -- ⚡ THUNDER SPEAR QUESTLINE — ยกระบบเดิมของบอทไก่ตันมาทั้งชุด
-    -- ═══════════════════════════════════════════════════════════════
-    --   คนละเรื่องกับ AutoSpearQuest ของ UI2 (ที่เก็บกล่องในด่านเดียว)
-    --   ระบบนี้คือ "ตามเก็บชิ้นส่วนหอก 3 ชิ้น" ชิ้นละแมพ:
-    --     Outskirts → Handle | Utgard → Thruster | Forest → Base
-    --   เช็คจาก inventory ตรงๆ (แม่นสุด): มี item "Thunder Spear - <ชิ้น>" = ได้แล้ว
-    --   ⚠️ Handle ข้ามถาวร — เควส Escort พังฝั่งเกม (Questline.lua ไม่มี Update_Spear_Escort
-    --      ทดสอบ 12 remote pattern คืน nil หมด) ถ้าไม่ข้ามบอทจะวน Outskirts ไม่จบ
-    --      → นับว่า "ครบ" เมื่อได้ Thruster + Base
-    --   เงื่อนไขเริ่มทำ: จุติ >= ThunderSpearAtPrestige + level ตัน + XP เต็ม
-    --   ต้องทำ "ก่อนจุติ" เสมอ ไม่งั้นจุติแล้วหลุดสภาพตัน = ไม่ได้ทำ
-    -- ═══════════════════════════════════════════════════════════════
-    local TS_MAP_TO_PART = { Outskirts = "Handle", Utgard = "Thruster", Forest = "Base" }
-    local TS_ITEM = {
-        Handle   = "Thunder Spear - Handle",
-        Thruster = "Thunder Spear - Thruster",
-        Base     = "Thunder Spear - Base",
-    }
-    local TS_TAGS = { "Towers", "Escort", "Ice Burst Stones",
-        "Retrieve Missing Supplies", "Defend Missing Supplies" }
-
-    local function invHas(inv, itemName)
-        if type(inv) ~= "table" then return false end
-        for _, cat in pairs(inv) do          -- inventory แยกเป็นหมวด → ไล่ทุกหมวด
-            if type(cat) == "table" then
-                for name, amt in pairs(cat) do
-                    if name == itemName and (tonumber(amt) or 0) > 0 then return true end
-                end
-            end
-        end
-        return false
-    end
-    local function tsHasPart(part, inv) return invHas(inv, TS_ITEM[part] or "\0") end
-    local function tsAllDone(inv) return tsHasPart("Thruster", inv) and tsHasPart("Base", inv) end
-    local function tsNextMap(inv)
-        if not tsHasPart("Base", inv) then return "Forest" end
-        if not tsHasPart("Thruster", inv) then return "Utgard" end
-        return nil                            -- Handle: ข้าม (เควสพังฝั่งเกม)
-    end
-    local function tsQuests()
-        local sd = getSlot()
-        local out = {}
-        if sd and sd.Quests and type(sd.Quests.Spears) == "table" then
-            for _, q in pairs(sd.Quests.Spears) do
-                if type(q) == "table" then
-                    out[#out + 1] = { Tag = tostring(q.Tag or ""), Rewarded = q.Rewarded == true }
-                end
-            end
-        end
-        return out
-    end
-    local function tsClaimed(tag)
-        for _, q in ipairs(tsQuests()) do
-            if q.Tag == tag then return q.Rewarded end
-        end
-        return false
-    end
-    -- เคลมเฉพาะ tag ที่ยังไม่ Rewarded + cooldown 10 วิ (กันยิง remote รัว)
-    local function tsClaimAll()
-        local now = os.clock()
-        local last = tonumber(getgenv()._VZTSClaim) or 0
-        if now >= last and (now - last) < 10 then return false end
-        getgenv()._VZTSClaim = now
-        local rewarded = {}
-        for _, q in ipairs(tsQuests()) do
-            if q.Rewarded and q.Tag ~= "" then rewarded[q.Tag] = true end
-        end
-        local any = false
-        for _, tag in ipairs(TS_TAGS) do
-            if not rewarded[tag] then
-                local ok, res = pcall(function()
-                    return GETb:InvokeServer("Functions", "Quest", tag, "Spears")
-                end)
-                if ok and res then any = true print("[TS] 🎁 เคลม: " .. tag) end
-                task.wait(0.15 + math.random() * 0.1)
-            end
-        end
-        return any
-    end
-
-    -- คืน true = สร้างด่าน TS แล้ว → ให้ brain ข้ามการสร้าง Chapel รอบนี้
-    local function tryThunderSpear(pr, tan)
-        if VZ.AutoThunderSpearQuest ~= true then return false end
-        if (tonumber(pr) or 0) < (tonumber(VZ.ThunderSpearAtPrestige) or 2) then return false end
-        if not tan then return false end
-
-        tsClaimAll()
-        task.wait(0.3)
-        getSlot(true)
-        local sd = getSlot()
-        local inv = sd and sd.Inventory
-        if not inv then return false end
-
-        if tsAllDone(inv) then
-            if not getgenv()._VZTSDone then
-                getgenv()._VZTSDone = true
-                print("[TS] ⚡ ได้หอกครบแล้ว (Thruster + Base) → ไม่ต้องทำอีก")
-            end
-            return false
-        end
-
-        local nextMap = tsNextMap(inv)
-        if not nextMap then return false end
-
-        getgenv()._VZTSTry = getgenv()._VZTSTry or {}
-        local part = TS_MAP_TO_PART[nextMap]
-        getgenv()._VZTSTry[part] = (getgenv()._VZTSTry[part] or 0) + 1
-        local attempts = getgenv()._VZTSTry[part]
-
-        -- Outskirts: ถ้า Towers เคลมไปแล้ว = ไม่ต้องสร้างหอ → ใช้ Escort ตรงๆ
-        local obj = "Skirmish"
-        if nextMap == "Outskirts" and (tsClaimed("Towers") or attempts >= 2) then
-            obj = "Escort"
-        end
-
-        print(string.format("[TS] ⚡ ตันแล้ว (P%d) → ไปเก็บ %s ที่ %s (%s, ครั้งที่ %d)",
-            pr, tostring(part), nextMap, obj, attempts))
-        print(string.format("[TS]   Handle=%s Thruster=%s Base=%s",
-            tsHasPart("Handle", inv) and "✅" or "❌",
-            tsHasPart("Thruster", inv) and "✅" or "❌",
-            tsHasPart("Base", inv) and "✅" or "❌"))
-        getgenv().VenozAction = string.format("⚡ TS → %s (%s)", nextMap, obj)
-
-        pcall(function() GETb:InvokeServer("S_Missions", "Leave") end)
-        task.wait(1)
-        local mapData = { Name = nextMap, Type = "Missions",
-            Objective = obj, Difficulty = "Aberrant", Modifiers = {} }
-        local res
-        pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
-        if res == nil and obj ~= "Skirmish" then
-            print("[TS] ⚠️ " .. obj .. " สร้างไม่ได้ → ลอง Skirmish")
-            mapData.Objective = "Skirmish"
-            pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
-        end
-        if res == nil then
-            for _, d in ipairs({ "Hard", "Normal", "Easy" }) do
-                mapData.Difficulty = d
-                pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
-                if res ~= nil then break end
-                task.wait(0.5)
-            end
-        end
-        if res ~= nil then
-            latchDiff(mapData.Difficulty)
-            pcall(function() GETb:InvokeServer("S_Missions", "Modify", mapData.Difficulty) end)
-            pcall(function() GETb:InvokeServer("S_Missions", "Start") end)
-            print(string.format("[TS] ✅ เข้าด่าน %s (%s)", nextMap, mapData.Difficulty))
-            return true
-        end
-        warn("[TS] ⚠️ สร้างด่าน " .. nextMap .. " ไม่ได้ → กลับไปฟาร์ม Chapel")
-        return false
-    end
-
     -- 🖱️ ใช้คลิกเมาส์จริง (ปุ่มหน้าจบด่านไม่รับวิธี GuiService+Enter)
     local function clickBtn(btn)
         if not btn then return false end
@@ -8317,10 +5957,6 @@ task.spawn(function()
                     getgenv().VenozChoresDone = true
                 end
 
-                -- 3.5) ⚡ Thunder Spear questline
-                --      ⚠️ ต้องทำ "ก่อนจุติ" — จุติแล้วจะหลุดสภาพตัน = ไม่ได้ทำอีกยาว
-                if tryThunderSpear(pr, tan) then return end
-
                 -- 4) จุติ (ตัน + ยังไม่ถึงเป้า + ทองถึงเกณฑ์)
                 if tan and pr < VZ.PrestigeTarget then
                     local reqM = tonumber(VZ.GoldReq[pr + 1]) or 0
@@ -8352,11 +5988,7 @@ task.spawn(function()
                     local sellable = perkInfo()
                     local tan, pr = isTan()
                     local pT = perkTarget()
-                    -- ⚡ อยู่แมพ TS แล้วได้ชิ้นส่วนแล้ว → ต้อง LEAVE ไปทำแมพต่อไป
-                    --    (ถ้า RETRY จะวนเล่นแมพเดิมทั้งที่ของได้แล้ว — บั๊กที่เจอ)
-                    local tsLeave = (getgenv().VenozTSWantLeave == true)
-                    local wantLeave = tsLeave
-                        or (sellable >= pT) or (tan and pr < VZ.PrestigeTarget)
+                    local wantLeave = (sellable >= pT) or (tan and pr < VZ.PrestigeTarget)
                     if wantLeave then
                         getgenv().StartRejoin = false
                         local b = rewards:FindFirstChild("Main")
@@ -8364,14 +5996,9 @@ task.spawn(function()
                         b = b and b:FindFirstChild("Buttons")
                         local leave = b and (b:FindFirstChild("Leave_2") or b:FindFirstChild("Leave"))
                         if leave then
-                            if tsLeave then
-                                print("[TS] 🚪 LEAVE — ได้ชิ้นส่วนแล้ว ไปทำแมพต่อไป")
-                                setStatus("🚪 ออกจากด่าน → ไปเก็บชิ้นส่วนต่อไป")
-                            else
-                                print(string.format("[BRAIN] 🚪 LEAVE — perk=%d/%d ตัน=%s P%d",
-                                    sellable, pT, tostring(tan), pr))
-                                setStatus("🚪 ออกจากด่าน (ไปขาย perk / จุติ)")
-                            end
+                            print(string.format("[BRAIN] 🚪 LEAVE — perk=%d/%d ตัน=%s P%d",
+                                sellable, pT, tostring(tan), pr))
+                            setStatus("🚪 ออกจากด่าน (ไปขาย perk / จุติ)")
                             clickBtn(leave)
                             task.wait(5)
                         end
@@ -8558,514 +6185,6 @@ task.spawn(function()
     end
 end)
 
-
--- ═══════════════════════════════════════════════════════════════
--- 🎁 TS CLAIM — เคลมเควส Spears (ยกจากบอทเก่า + เพิ่มตัวกดปุ่มจริง)
--- ═══════════════════════════════════════════════════════════════
---   🐛 บั๊กที่เจอ: เควส Spears ทำเสร็จแล้ว (3/3 ขึ้นปุ่ม CLAIM) แต่ไม่มีใครกด
---      เพราะระบบเคลมเควสของ UI2 อยู่ใต้ day-cache (เคลมวันละครั้ง)
---      → Spears เพิ่งเสร็จทีหลัง = ตกรอบไปเลย ไม่ได้ชิ้นส่วน
---   ✅ แยกออกมาเป็นตัวของมันเอง ไม่ผูก day-cache — อยู่ lobby ก็เคลมทุกครั้ง
---      ยิงเฉพาะ tag ที่ยังไม่ Rewarded (ไม่เปลือง remote) + กดปุ่มใน UI เป็นตัวสำรอง
---   ⚠️ ตัวกดปุ่มใช้ "คลิกเมาส์จริง" (VenozPress) — ทดสอบแล้วว่าเกมนี้
---      ไม่รับ getconnections():Fire() (โค้ดเก่าใช้วิธีนั้น เลยน่าจะไม่เคยติด)
--- ═══════════════════════════════════════════════════════════════
-task.spawn(function()
-    local VZc = getgenv().VenozChicken or {}
-    if VZc.AutoThunderSpearQuest ~= true then return end
-    if not IsLobbyLobby() then return end          -- ร้านเควสเปิดได้แค่ที่ lobby
-
-    local TAGS = { "Towers", "Escort", "Ice Burst Stones",
-        "Retrieve Missing Supplies", "Defend Missing Supplies" }
-    local plrC = game:GetService("Players").LocalPlayer
-    local GETc = game:GetService("ReplicatedStorage")
-        :WaitForChild("Assets", 20):WaitForChild("Remotes", 20):WaitForChild("GET", 20)
-    if not GETc then return end
-
-    -- กดปุ่ม CLAIM ที่โผล่อยู่ใน UI (ทำงานเฉพาะตอนหน้าเควสเปิดอยู่)
-    local function clickClaimButtons()
-        local n = 0
-        pcall(function()
-            local pg = plrC:FindFirstChild("PlayerGui")
-            if not pg then return end
-            local function scan(root, depth)
-                if depth > 8 then return end
-                for _, ch in ipairs(root:GetChildren()) do
-                    if ch:IsA("TextButton") or ch:IsA("TextLabel") then
-                        local t = string.upper(tostring(ch.Text or ""))
-                        if t == "CLAIM" and ch.Visible
-                            and ch.AbsolutePosition.X > 10 and ch.AbsolutePosition.Y > 10 then
-                            local btn = ch
-                            if not btn:IsA("GuiButton") then
-                                local p = ch.Parent
-                                for _ = 1, 3 do
-                                    if not p then break end
-                                    if p:IsA("GuiButton") then btn = p break end
-                                    p = p.Parent
-                                end
-                            end
-                            if btn:IsA("GuiButton") and getgenv().VenozPress then
-                                getgenv().VenozPress(btn)   -- คลิกเมาส์จริง
-                                n = n + 1
-                                task.wait(0.25)
-                            end
-                        end
-                    end
-                    scan(ch, depth + 1)
-                end
-            end
-            scan(pg, 0)
-        end)
-        if n > 0 then print(string.format("[TS] 🖱️ กดปุ่ม CLAIM ใน UI %d ปุ่ม", n)) end
-        return n
-    end
-
-    local function pending()
-        local out = {}
-        pcall(function()
-            local d
-            local ok, r = pcall(function() return GETc:InvokeServer("Data", "Copy") end)
-            if ok and type(r) == "table" and r.Slots then d = r end
-            if not d then
-                ok, r = pcall(function() return GETc:InvokeServer("Functions", "Settings", "Blur", "Off") end)
-                if ok and type(r) == "table" and r.Slots then d = r end
-            end
-            local sd = d and d.Slots[d.Current_Slot]
-            local q = sd and sd.Quests and sd.Quests.Spears
-            if type(q) ~= "table" then return end
-            for _, v in pairs(q) do
-                if type(v) == "table" and v.Tag and v.Rewarded ~= true then
-                    out[tostring(v.Tag)] = true
-                end
-            end
-        end)
-        return out
-    end
-
-    task.wait(8)                                   -- รอข้อมูล slot โหลดก่อน
-    while true do
-        local todo = pending()
-        local list = {}
-        for _, tag in ipairs(TAGS) do
-            if todo[tag] then list[#list + 1] = tag end
-        end
-        if #list > 0 then
-            print("[TS] 🎁 เควส Spears ที่ยังไม่เคลม: " .. table.concat(list, ", "))
-            for _, tag in ipairs(list) do
-                local ok, res = pcall(function()
-                    return GETc:InvokeServer("Functions", "Quest", tag, "Spears")
-                end)
-                if ok and res then print("[TS] 🎁 เคลม: " .. tag) end
-                task.wait(0.2 + math.random() * 0.15)
-            end
-            task.wait(1)
-            clickClaimButtons()                    -- สำรอง: กดปุ่มถ้าหน้าเควสเปิดอยู่
-        end
-        task.wait(45)
-    end
-end)
-
--- ═══════════════════════════════════════════════════════════════
--- ⚡ TS MISSION — ระบบ "ในด่าน" ของบอทเก่า (ยกมาทั้งชุด)
--- ═══════════════════════════════════════════════════════════════
---   🐛 ที่ผ่านมา: brain สร้างด่าน TS ให้ถูกแล้ว แต่พอเข้าไป
---      มันฟันไททันจบด่านเฉยๆ ไม่ได้ทำ objective ของเควส → ไม่ได้ชิ้นส่วน
---   ✅ ตัวนี้คือส่วนที่ขาด — งานในด่านแยกตามแมพ:
---        Forest    (Base)     : ฆ่าไททันถึง margin → เก็บ crate ส่งวงเหลือง → ตีต่อ
---        Utgard    (Thruster) : ฆ่า Ice Burst 3 ตัว (ตีทุกตัวเพื่อ progress)
---        Outskirts (Handle)   : ฆ่าเหลือ 5 → สร้างหอ 3 หลัง → ตีต่อ
---   ⚠️ ตอนเก็บ crate ต้อง "ปิดฟาร์มดาบชั่วคราว" ไม่งั้นแย่งวาร์ปตัวละครกัน
---      (ระบบฟาร์มวาร์ปไปหัวไททัน / ตัวนี้วาร์ปไปกล่อง = ตีกันเละ)
---   ⚠️ ห้ามกด Leave กลางด่าน — เกมจะนับเป็น abandon แล้วเควสไม่ credit
---      ปล่อยให้ด่านจบเอง แล้ว Rewards UI โผล่ → ระบบ Retry/Leave จัดการต่อ
--- ═══════════════════════════════════════════════════════════════
-task.spawn(function()
-    -- ⚠️ ต้องรีเซ็ตทุกครั้งที่เข้าแมพใหม่ (getgenv ค้างข้ามการ teleport)
-    --    ไม่งั้นธง "อยากออก" จากแมพ TS จะติดค้างไปถึง Chapel = ออกทุกด่าน
-    getgenv().VenozTSWantLeave = false
-
-    local VZt = getgenv().VenozChicken or {}
-    if VZt.AutoThunderSpearQuest ~= true then return end
-
-    local TS_PLACE = {
-        Outskirts = { [13904207646] = true, [17373824844] = true },
-        Utgard    = { [15220308770] = true, [18182863694] = true },
-        Forest    = { [14638336319] = true, [17373828240] = true },
-    }
-    local TS_PART_OF = { Outskirts = "Handle", Utgard = "Thruster", Forest = "Base" }
-
-    local myMap
-    for name, ids in pairs(TS_PLACE) do
-        if ids[game.PlaceId] then myMap = name break end
-    end
-    if not myMap then return end   -- ไม่ใช่แมพ TS → เงียบไป
-
-    local part = TS_PART_OF[myMap]
-    getgenv().VenozTSMap = myMap
-    print(string.format("[TS] ⚡ อยู่ในแมพ %s → ภารกิจเก็บชิ้นส่วน %s", myMap, part))
-
-    local plrT = game:GetService("Players").LocalPlayer
-    local RS = game:GetService("ReplicatedStorage")
-
-    local function setFarm(on)
-        local setv = getgenv().VenozSetOpt
-        if type(setv) == "function" then pcall(function() setv("AutoFarmBlade", on) end) end
-    end
-    local function farmIsOn()
-        local t = (Toggles and Toggles.AutoFarmBlade) or (Options and Options.AutoFarmBlade)
-        return t and t.Value == true
-    end
-    -- กดปิดฟาร์มค้างไว้ (autopilot/ตัวอื่นอาจเปิดคืนระหว่างเราทำ objective)
-    local function holdFarmOff()
-        if farmIsOn() then setFarm(false) end
-    end
-    local function objGet(name)
-        local o = RS:FindFirstChild("Objectives")
-        return o and o:FindFirstChild(name)
-    end
-
-    -- วาร์ปไปแตะ hitbox (กล่อง / วงเหลือง / ฐานหอ)
-    local function touchHitbox(hitbox, holdTime)
-        holdTime = holdTime or 1.2
-        if not (hitbox and hitbox.Parent) then return false end
-        local hrp = plrT.Character and plrT.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then return false end
-        hrp.Anchored = false
-        hrp.CFrame = CFrame.new(hitbox.Position + Vector3.new(0, 5, 0))
-        task.wait(0.2)
-        local offs = {
-            Vector3.new(0, 0, 0), Vector3.new(2, 0, 0), Vector3.new(-2, 0, 0),
-            Vector3.new(0, 0, 2), Vector3.new(0, 0, -2), Vector3.new(0, -2, 0),
-        }
-        local i, endT = 1, os.clock() + holdTime
-        while os.clock() < endT and hrp.Parent do
-            hrp.CFrame = CFrame.new(hitbox.Position + offs[i])
-            if type(firetouchinterest) == "function" then
-                pcall(function()
-                    firetouchinterest(hrp, hitbox, 0)
-                    firetouchinterest(hrp, hitbox, 1)
-                end)
-            end
-            task.wait(0.15)
-            i = i % #offs + 1
-        end
-        return true
-    end
-
-    local function scanCrates()
-        local list = {}
-        local U = workspace:FindFirstChild("Unclimbable")
-        if not U then return list end
-        for _, m in ipairs(U:GetChildren()) do
-            if m.Name:find("^ThunderSpear_Supplies%d") or m.Name:find("^Supplies%d") then
-                local hb = m:FindFirstChild("Hitbox")
-                local spot = m:FindFirstChild("Spot")
-                if hb and not (spot and spot.Value) then   -- Spot มีค่า = กล่องถูกส่งไปแล้ว
-                    list[#list + 1] = { model = m, hitbox = hb, name = m.Name }
-                end
-            end
-        end
-        return list
-    end
-    local function findCircle()
-        local U = workspace:FindFirstChild("Unclimbable")
-        if not U then return nil end
-        for _, m in ipairs(U:GetChildren()) do
-            if m.Name == "Supplies_Circle" then return m:FindFirstChild("Hitbox") end
-        end
-        return nil
-    end
-    local function aliveTitans()
-        local f = workspace:FindFirstChild("Titans") or workspace:FindFirstChild("Enemies")
-        if not f then return 99 end
-        local n = 0
-        for _, t in ipairs(f:GetChildren()) do
-            local h = t:FindFirstChildWhichIsA("Humanoid")
-            if h and h.Health > 0 then n = n + 1 end
-        end
-        return n
-    end
-    local function buildTower(idx)
-        local wt = workspace:FindFirstChild("WatchTower_" .. idx)
-        local circle = wt and wt:FindFirstChild("Circle")
-        local hb = circle and circle:FindFirstChild("Hitbox")
-        if not hb then return false end
-        print(string.format("[TS] 🏗️ สร้างหอคอย #%d", idx))
-        getgenv().VenozAction = string.format("🏗️ สร้างหอ %d/3", idx)
-        local endT = os.clock() + 22
-        while os.clock() < endT do
-            local ch = plrT.Character
-            local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
-            local hum = ch and ch:FindFirstChildWhichIsA("Humanoid")
-            if hrp and hum and hum.Health > 0 then
-                hrp.Anchored = false
-                hrp.CFrame = CFrame.new(hb.Position)
-                task.wait(0.1)
-                hrp.Anchored = true       -- ต้อง anchor ค้าง ไม่งั้นหลุดวง
-            else
-                task.wait(1)
-            end
-            task.wait(2)
-        end
-        pcall(function()                   -- ปลด anchor เสมอ ไม่งั้นบอทลอยค้าง
-            local hrp = plrT.Character and plrT.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then hrp.Anchored = false end
-        end)
-        print(string.format("[TS] ✅ หอคอย #%d เสร็จ", idx))
-        return true
-    end
-
-    local state, delivered, visited, towerIdx = "INIT", 0, {}, 1
-    local iceSeen, waitCrate = 0, 0
-
-    -- ── เช็คชิ้นส่วนจาก inventory (แบบบอทเก่า) ──
-    local TS_ITEM2 = {
-        Handle   = "Thunder Spear - Handle",
-        Thruster = "Thunder Spear - Thruster",
-        Base     = "Thunder Spear - Base",
-    }
-    local GETts = RS:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-    local function ownedParts()
-        local out = {}
-        pcall(function()
-            local d = GETts:InvokeServer("Data", "Copy")
-            local sd = d and d.Slots and d.Slots[d.Current_Slot]
-            local inv = sd and sd.Inventory
-            if type(inv) ~= "table" then return end
-            for p, item in pairs(TS_ITEM2) do
-                for _, cat in pairs(inv) do
-                    if type(cat) == "table" then
-                        for name, amt in pairs(cat) do
-                            if name == item and (tonumber(amt) or 0) > 0 then out[p] = true end
-                        end
-                    end
-                end
-            end
-        end)
-        return out
-    end
-    local function logParts(o, prefix)
-        print(string.format("[TS]   %sHandle=%s Thruster=%s Base=%s", prefix or "",
-            o.Handle and "✅" or "❌", o.Thruster and "✅" or "❌", o.Base and "✅" or "❌"))
-    end
-
-    -- 🚪 ถ้าชิ้นส่วนของแมพนี้ "ได้มาแล้ว" → ไม่ต้องเล่นซ้ำ ออกไปทำแมพต่อไป
-    local function checkDoneAndFlag()
-        local o = ownedParts()
-        if o[part] then
-            if not getgenv().VenozTSWantLeave then
-                print("═══════════════════════════════════════════")
-                print(string.format("[TS] ⚡ ได้ %s แล้ว! (จาก %s)", part, myMap))
-                logParts(o)
-                if o.Thruster and o.Base then
-                    print("[TS] 🎉 ครบแล้ว (Thruster + Base) → กลับไปฟาร์ม Chapel")
-                else
-                    local nxt = (not o.Base) and "Forest" or ((not o.Thruster) and "Utgard" or "-")
-                    print("[TS] ➡️ ต่อไปทำ: " .. nxt)
-                end
-                print("🚪 LEAVE เพื่อไปทำแมพต่อไป")
-                print("═══════════════════════════════════════════")
-            end
-            getgenv().VenozTSWantLeave = true
-            getgenv().StartRejoin = false     -- กัน UI2 กด RETRY แข่ง
-            return true
-        end
-        return false
-    end
-
-    -- 🔒 เข้าแมพ TS = ไม่ใช่ด่านฟาร์มปกติ → ปิดฟาร์มทันที ทำ objective ก่อน
-    if myMap == "Forest" then setFarm(false) end
-
-    -- เช็คตั้งแต่เข้ามา: ถ้ามีของอยู่แล้ว = เข้าผิดแมพ → ออกเลย ไม่ต้องเสียเวลา
-    task.spawn(function()
-        task.wait(3)
-        if checkDoneAndFlag() then
-            print("[TS] ⏭️ แมพนี้ได้ของแล้วตั้งแต่แรก → ข้ามไปเลย")
-            setFarm(true)                     -- ฟาร์มไปพลางจนด่านจบ แล้วค่อย LEAVE
-        end
-        -- หลังจากนั้นเช็คทุก 20 วิ เผื่อได้ของกลางด่าน
-        while not getgenv().VenozTSWantLeave do
-            task.wait(20)
-            checkDoneAndFlag()
-        end
-    end)
-
-    while true do
-        task.wait(0.5)
-        local okRun, err = pcall(function()
-            -- ══ Forest → Base : เก็บกล่องส่งวงเหลือง ══
-            --   ⚠️ บอทเก่าใช้ "ฆ่าถึง req-5 ก่อนค่อยเก็บ" แต่ใช้กับตัวใหม่ไม่ได้
-            --      ตีตัวใหม่ one-shot เร็วมาก (43 ตัวใน 19 วิ) → ด่านจบก่อนถึงคิวเก็บกล่อง
-            --      ✅ กลับลำดับ: "เก็บกล่องให้เสร็จก่อน แล้วค่อยปล่อยฟาร์ม"
-            --         ระหว่างเก็บไม่ฆ่าเลย → ด่านจบไม่ได้ = ปลอดภัยกว่าเดิม
-            if myMap == "Forest" then
-                local slayO = objGet("Slay")
-                local slay = (slayO and slayO.Value) or 0
-                local req = (slayO and slayO:GetAttribute("Requirement")) or 40
-                local defending = objGet("Defend_Supplies") ~= nil
-
-                if state == "INIT" then
-                    state = "COLLECT"
-                    holdFarmOff()
-                    print("[TS] 📦 Forest → หยุดฟาร์ม เก็บกล่องก่อนเป็นอย่างแรก")
-                end
-
-                if defending and state ~= "KILL_ALL" then
-                    state = "KILL_ALL"
-                    setFarm(true)
-                    print("[TS] 🛡️ Defend_Supplies เริ่มแล้ว → กลับไปตี titan")
-                end
-
-                if state == "COLLECT" then
-                    holdFarmOff()          -- 🔒 กดค้างไว้ทุกรอบ กันโดนเปิดคืนระหว่างเก็บ
-                    local circle = findCircle()
-                    local avail = {}
-                    for _, c in ipairs(scanCrates()) do
-                        if not visited[c.model] then avail[#avail + 1] = c end
-                    end
-
-                    if not circle or #avail == 0 then
-                        -- แมพอาจยังโหลดไม่เสร็จ → รอถึง 30 วิ ค่อยยอมแพ้
-                        waitCrate = waitCrate + 1
-                        if delivered > 0 then
-                            print(string.format("[TS] ✅ ส่งกล่องครบ %d ใบ → เปิดฟาร์มตีต่อจนจบด่าน", delivered))
-                            state = "KILL_ALL"; setFarm(true)
-                            task.spawn(function()      -- เช็คว่าได้ของรึยังหลังส่งครบ
-                                task.wait(4); checkDoneAndFlag()
-                            end)
-                        elseif waitCrate > 30 then
-                            print("[TS] ⚠️ หากล่อง/วงเหลืองไม่เจอใน 30 วิ → ฟาร์มปกติแทน")
-                            state = "KILL_ALL"; setFarm(true)
-                        else
-                            getgenv().VenozAction = "📦 รอกล่องโหลด..."
-                        end
-                        return
-                    end
-
-                    waitCrate = 0
-                    local hrp = plrT.Character and plrT.Character:FindFirstChild("HumanoidRootPart")
-                    if not hrp then return end
-                    table.sort(avail, function(a, b)
-                        return (a.hitbox.Position - hrp.Position).Magnitude
-                             < (b.hitbox.Position - hrp.Position).Magnitude
-                    end)
-                    local t = avail[1]
-                    visited[t.model] = true
-                    delivered = delivered + 1
-                    print(string.format("[TS] 📦 [%d] เก็บ %s", delivered, t.name))
-                    getgenv().VenozAction = string.format("📦 เก็บกล่อง %d", delivered)
-                    touchHitbox(t.hitbox)
-                    task.wait(0.3)
-                    print(string.format("[TS] 🚚 [%d] ส่งวงเหลือง", delivered))
-                    getgenv().VenozAction = string.format("🚚 ส่งกล่อง %d", delivered)
-                    touchHitbox(circle)
-                    task.wait(0.3)
-                else
-                    getgenv().VenozAction = string.format("⚡ Forest — ตี titan (%d/%d)", slay, req)
-                end
-
-            -- ══ Utgard → Thruster : ฆ่า Ice Burst (ตีทุกตัวเพื่อ progress) ══
-            elseif myMap == "Utgard" then
-                local ib = objGet("Ice_Burst") or objGet("Ice Burst Stones")
-                local cur = (ib and ib.Value) or iceSeen
-                getgenv().VenozAction = string.format("❄️ Utgard — Ice Burst %s/3", tostring(cur))
-
-            -- ══ Outskirts → Handle : ฆ่าเหลือ 5 → สร้างหอ 3 หลัง ══
-            elseif myMap == "Outskirts" then
-                if state == "INIT" then
-                    local esc = false
-                    pcall(function()
-                        local o = workspace:GetAttribute("Objective")
-                        if o and string.upper(tostring(o)) == "ESCORT" then esc = true end
-                    end)
-                    state = esc and "KILL_ALL" or "KILL_TO_5"
-                    if esc then print("[TS] 🐎 Escort mode → ข้ามสร้างหอ") end
-                end
-                if state == "KILL_TO_5" then
-                    local n = aliveTitans()
-                    getgenv().VenozAction = string.format("⚡ ฆ่าเหลือ 5 (ตอนนี้ %d)", n)
-                    if n <= 5 then
-                        state = "BUILD_TOWERS"
-                        print("[TS] ✅ เหลือ 5 ตัว → เริ่มสร้างหอ")
-                    end
-                elseif state == "BUILD_TOWERS" then
-                    setFarm(false)                 -- 🔒 หยุดฟาร์มระหว่างสร้างหอ
-                    task.wait(0.3)
-                    if towerIdx <= 3 then
-                        buildTower(towerIdx)
-                        towerIdx = towerIdx + 1
-                    end
-                    if towerIdx > 3 then
-                        state = "KILL_ALL"
-                        setFarm(true)
-                        print("[TS] ✅ ครบ 3 หอ → กลับไปตี titan")
-                    end
-                end
-            end
-        end)
-        if not okRun then warn("[TS] ⛔ " .. tostring(err)) end
-    end
-end)
-
--- ═══════════════════════════════════════════════════════════════
--- 🗡️ BLADE-ONLY LOCK — บังคับใช้ดาบอย่างเดียว ไม่แตะหอก
--- ═══════════════════════════════════════════════════════════════
---   🐛 UI2 มี "ตัวเฝ้าอาวุธ" อยู่ข้างใน (บรรทัด ~6506):
---        ถ้าตรวจเจอว่าตัวละครเปลี่ยนไปถือ Thunder Spear
---        → ปิด AutoFarmBlade + เปิด AutoThunderSpearToggle ให้เองเงียบๆ
---        ไม่สนว่า config เราตั้ง AutoThunderSpear = false ไว้
---      อาการที่เจอ: บอทบินวนไปเรื่อยๆ ไม่ฟันไททันเลย เพราะมันสลับไปโหมดหอกแล้ว
---                   แต่ในมือถือดาบอยู่ / หรือกลับกัน
---   ✅ ตัวนี้เฝ้าไว้: เจอหอกถูกเปิดเมื่อไหร่ → ปิดหอก เปิดดาบกลับทันที
---   🔒 ล็อกถาวร ไม่มีสวิตช์ปิด — บอทตัวนี้ใช้ดาบอย่างเดียวตลอด
---      ถึงเก็บชิ้นส่วนหอกครบแล้วก็ยังฟาร์มด้วยดาบเหมือนเดิม
---      (AutoThunderSpearQuest = แค่ไปเก็บของ ไม่ได้เปลี่ยนอาวุธ)
--- ═══════════════════════════════════════════════════════════════
-task.spawn(function()
-    local VZb = getgenv().VenozChicken or {}
-
-    local function val(n)
-        local t = (Toggles and Toggles[n]) or (Options and Options[n])
-        return t and t.Value
-    end
-
-    local lastWarn = 0
-    print("[BLADE] 🔒 ล็อกโหมดดาบอย่างเดียว (กัน UI2 แอบสลับไปหอก)")
-
-    while true do
-        task.wait(3)
-        local setv = getgenv().VenozSetOpt
-        if type(setv) == "function" then
-            getgenv().AutoThunderSpear = false
-
-            -- หอกถูกเปิด → ปิดกลับ + เปิดดาบคืน (นี่คืออาการที่ UI2 ทำให้)
-            if val("AutoThunderSpearToggle") == true then
-                warn("[BLADE] 🔒 UI2 แอบเปิดหอก → ปิดหอก เปิดดาบกลับ")
-                pcall(function() setv("AutoThunderSpearToggle", false) end)
-                if VZb.AutoFarm ~= false then
-                    task.wait(0.5)
-                    pcall(function() setv("AutoFarmBlade", true) end)
-                end
-            end
-            if val("AutoSpearQuestToggle") == true then
-                pcall(function() setv("AutoSpearQuestToggle", false) end)
-            end
-
-            -- เตือนถ้าในมือถือหอกอยู่จริง (ดาบจะฟาร์มไม่ได้ ต้องแก้ loadout ในเกม)
-            if IsIngameLobby() and (os.time() - lastWarn) > 120 then
-                local w = getgenv().GetDetectedWeapon
-                if type(w) == "function" then
-                    local okW, cur = pcall(w)
-                    if okW and cur == "Thunder Spear" then
-                        lastWarn = os.time()
-                        warn("[BLADE] ⚠️ ตอนนี้ถือ Thunder Spear อยู่ → ดาบฟาร์มไม่ได้"
-                            .. " (ไปเปลี่ยน loadout ในเกมให้ใส่ดาบ)")
-                    end
-                end
-            end
-        end
-    end
-end)
 
 -- ═══════════════════════════════════════════════════════════════
 -- 🧪 VENOZ BOOST SYSTEM v3 — อ้างอิงโครงสร้างข้อมูลจริงของเกม
@@ -9577,7 +6696,7 @@ task.spawn(function()
             updateMissionInfo()
             checkProtectHQ()
         end)
-        task.wait(0.5)   -- [PERF] เดิมทุกเฟรม ทั้งที่ข้างในมี guard 5 วิอยู่แล้ว
+        task.wait()
     end
 end)
 
@@ -10545,7 +7664,7 @@ end
 -- ===== สร้าง loop ตรวจสอบสถานะ (เร็วขึ้น) =====
 task.spawn(function()
     while true do
-        task.wait(0.05)   -- [SPEED] ตัวนี้คือตัว "ติดเครื่อง" ฟาร์ม ต้องไว (เดิม 0.03)
+        task.wait(0.03)
         local G = getgenv()
         if G.AutoFarmBlade then
             if not G.Farm then
@@ -10573,7 +7692,7 @@ end)
 
 task.spawn(function()
     while true do
-        task.wait(2)   -- [PERF] ระบบหอกไม่ได้ใช้ → เดิม 0.03
+        task.wait(0.03)
         local G = getgenv()
         if G.AutoThunderSpear then
             if not G.SpearFarm then
@@ -10601,7 +7720,7 @@ end)
 
 -- ===== loop เช็คและสร้างใหม่ =====
 task.spawn(function()
-    while task.wait(0.1) do   -- [SPEED] ตัวสร้าง FarmConn ต้องไว ไม่งั้นเริ่มฟาร์มช้า
+    while task.wait(0.1) do
         local G = getgenv()
         if G.AutoFarmBlade and (not FarmConn or not FarmConn.Connected) then
             CreateFarmLoop()
@@ -10610,7 +7729,7 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    while task.wait(2) do   -- [PERF] ระบบหอกไม่ได้ใช้ → เดิม 0.1
+    while task.wait(0.1) do
         local G = getgenv()
         if G.AutoThunderSpear and (not SpearFarmConn or not SpearFarmConn.Connected) then
             CreateSpearFarmLoop()
@@ -10875,7 +7994,7 @@ CreateSpearFarmLoop()
 
 task.spawn(function()
     while true do
-        task.wait(2)   -- [PERF] ระบบหอกไม่ได้ใช้ → เดิม 0.1
+        task.wait(0.1)
         local G = getgenv()
         if G.AutoThunderSpear then
             if not G.SpearFarm then
@@ -10902,145 +8021,111 @@ task.spawn(function()
 end)
 
 
+-- ═══════════════════════════════════════════════════════════════
+-- 🔁 RETRY — กดครั้งเดียว หลังรอให้ทุกอย่างนิ่ง 3 วิ
+-- ═══════════════════════════════════════════════════════════════
+--  ⚠️ RETRY เป็นปุ่ม TOGGLE (บอทเก่าจดเตือนไว้แล้ว)
+--     กดซ้ำเร็วเกิน = ครั้งที่ 2 ไปยกเลิกครั้งที่ 1 → "กดแล้วไม่ติด"
+--     และ 15 ครั้ง/22 วิ = สัญญาณผิดธรรมชาติ → เสี่ยง shadow-ban
+--  ✅ กติกาใหม่: Rewards โผล่ → รอ 3 วิ → กด 1 ครั้ง → จบ ไม่กดซ้ำอีกเลย
+--     กันค้าง: ถ้ากดแล้วผ่านไป 25 วิยังค้างหน้าเดิม → กด LEAVE 1 ครั้ง
+--     (LEAVE ปลอดภัยกว่า เพราะกลับ lobby แล้ว AutoMission พาเข้าด่านใหม่เอง)
+-- ═══════════════════════════════════════════════════════════════
 if Tabs.AutoFarm then
     task.spawn(function()
-        local cooldown = 2.5
-        local lastClick = 0
-        local hasNotifiedThisRound = false
-        local rewardDetectedTime = 0
-        local waitingForRetry = false
-        local retryAttempts = 0
-        -- ⬆️ เดิม 3 แต่กดครั้งเดียวแล้วเลิก (waitingForRetry=false ทันที) → พลาดทีนึงคือค้างยาว
-        --    ตอนนี้กดซ้ำทุก 1.5 วิ จนกว่าปุ่มจะขึ้น STARTING หรือหน้าจอปิด
-        local maxAttempts = 15
-        local lastPress = 0
+        local SETTLE = 3      -- รอกี่วิหลังหน้า Rewards โผล่ ค่อยกด
+        local GIVEUP = 25     -- กดแล้วยังค้างกี่วิ → ออกจากด่านแทน
+
+        local shownAt, pressedAt, closedAt = 0, 0, 0
+        local pressed, bailed = false, false
+        local LastState = nil
 
         local function IsActuallyVisible(gui)
             if not gui or not gui.Visible then return false end
             local current = gui.Parent
             while current and current ~= game do
                 if current:IsA("GuiObject") and not current.Visible then return false end
+                if current:IsA("ScreenGui") and not current.Enabled then return false end
                 current = current.Parent
             end
             return true
         end
-        
-        local LastState = nil
-        
+
+        local function reset()
+            LastState = nil
+            shownAt, pressedAt, closedAt = 0, 0, 0
+            pressed, bailed = false, false
+        end
+
         while true do
-            task.wait(0.5)   -- [PERF] เดิม 0.2
-            
-            if not getgenv().StartRejoin then
-                LastState = nil
-                hasNotifiedThisRound = false
-                waitingForRetry = false
-                rewardDetectedTime = 0
-                retryAttempts = 0
-                continue
-            end
-            
+            task.wait(0.3)
+
+            if not getgenv().StartRejoin then reset() continue end
+
             local player = game:GetService("Players").LocalPlayer
-            local VIM = game:GetService("VirtualInputManager")
-            local GS = game:GetService("GuiService")
-            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-            
+            if not player then reset() continue end
+
             local interface = player.PlayerGui:FindFirstChild("Interface")
-            if not interface then
-                LastState = nil
-                hasNotifiedThisRound = false
-                waitingForRetry = false
-                rewardDetectedTime = 0
-                retryAttempts = 0
-                continue
-            end
-            
+            if not interface then reset() continue end
+
             local rewards = interface:FindFirstChild("Rewards")
-            if not rewards then
-                LastState = nil
-                hasNotifiedThisRound = false
-                waitingForRetry = false
-                rewardDetectedTime = 0
-                retryAttempts = 0
-                continue
-            end
-            
-            local retry = rewards.Main.Info.Main.Buttons.Retry
-            if not retry then
-                LastState = nil
-                hasNotifiedThisRound = false
-                waitingForRetry = false
-                rewardDetectedTime = 0
-                retryAttempts = 0
-                continue
-            end
-            
-            local currentState = IsActuallyVisible(retry) and "open" or "close"
-            
+            if not rewards then reset() continue end
+
+            local ok, retry = pcall(function()
+                return rewards.Main.Info.Main.Buttons.Retry
+            end)
+            if not ok or not retry then reset() continue end
+
+            local isOpen = IsActuallyVisible(retry)
+            local currentState = isOpen and "open" or "close"
+
+            -- 🆕 หน้า Rewards เพิ่งโผล่ → เริ่มจับเวลา
+            --    ⚠️ ถ้าปุ่มแค่ "กระพริบ" (ปิดแวบเดียวแล้วเปิดใหม่) ห้ามรีเซ็ตนาฬิกา
+            --       ไม่งั้นตัวนับ 3 วิจะถูกรีตลอด = ไม่ได้กดสักที = ค้างยาว
+            --       นับเป็นด่านใหม่ต่อเมื่อปิดไปแล้วเกิน 5 วิเท่านั้น
             if currentState == "open" and LastState ~= "open" then
-                rewardDetectedTime = tick()
-                waitingForRetry = true
-                retryAttempts = 0
+                local freshRound = (shownAt == 0) or (closedAt > 0 and tick() - closedAt > 5)
+                if freshRound then
+                    shownAt   = tick()
+                    pressedAt = 0
+                    pressed   = false
+                    bailed    = false
+                    print("[RETRY] 👀 เจอหน้าจบด่าน → รอ " .. SETTLE .. " วิให้นิ่งก่อนค่อยกด")
+                end
+            elseif currentState == "close" and LastState == "open" then
+                closedAt = tick()
             end
-            
             LastState = currentState
-            
-            if not waitingForRetry then continue end
-            
-            if tick() - rewardDetectedTime >= 2.5 then
-                if retryAttempts >= maxAttempts then
-                    -- 🚪 กด RETRY ไม่ติดจริงๆ → ออกจากด่านแทน จะได้ไม่ค้างหน้าจบด่านตลอดกาล
-                    warn("[RETRY] ⛔ กดไม่ติด " .. retryAttempts .. " ครั้ง → ออกจากด่านแทน (กัน bot ค้าง)")
-                    local lv = retry.Parent:FindFirstChild("Leave_2")
-                        or retry.Parent:FindFirstChild("Leave")
-                    if lv then VenozPress(lv) end
-                    waitingForRetry = false
-                    retryAttempts = 0
-                    task.wait(5)
-                    continue
-                end
-                
-                if not IsActuallyVisible(retry) then
-                    waitingForRetry = false
-                    retryAttempts = 0
-                    continue
-                end
-                
-                local allVisible = true
-                local obj = retry
-                while obj and obj ~= player.PlayerGui do
-                    if obj:IsA("GuiObject") and not obj.Visible then allVisible = false break end
-                    if obj:IsA("ScreenGui") and not obj.Enabled then allVisible = false break end
-                    obj = obj.Parent
-                end
-                if not allVisible then
-                    waitingForRetry = false
-                    continue
-                end
-                
-                -- ✅ โหวตติดแล้ว → เลิกกด
-                local txt = VenozBtnText(retry)
-                if txt:find("STARTING") or txt:find("1/1") then
-                    if retryAttempts > 0 then
-                        print("[RETRY] ✅ ติดแล้ว → " .. txt)
-                    end
-                    waitingForRetry = false
-                    retryAttempts = 0
-                    continue
-                end
 
-                -- เว้นจังหวะระหว่างกดแต่ละครั้ง
-                if tick() - lastPress < 1.5 then continue end
-                lastPress = tick()
-                retryAttempts = retryAttempts + 1
+            if not isOpen then continue end
 
-                -- 🖱️ คลิกเมาส์จริง (วิธีเดิม GuiService+Enter ปุ่มนี้ไม่รับ)
+            -- ✅ ติดแล้ว → เลิกยุ่ง
+            local txt = VenozBtnText(retry)
+            if txt:find("STARTING") or txt:find("1/1") then
+                if pressed then print("[RETRY] ✅ ติดแล้ว → " .. txt) end
+                pressed = true
+                continue
+            end
+
+            if not pressed then
+                -- ⏳ ยังไม่ครบ 3 วิ → รอ (ห้ามกดเร็ว ปุ่มมันเป็น toggle)
+                if tick() - shownAt < SETTLE then continue end
+
+                pressed   = true
+                pressedAt = tick()
                 VenozPress(retry)
+                print("[RETRY] 🔁 กด RETRY ครั้งเดียว (" .. txt .. ")")
+            else
+                -- 🚪 กดไปแล้วแต่ยังค้าง → ออกจากด่านแทน (ไม่กด RETRY ซ้ำ)
+                if bailed then continue end
+                if pressedAt == 0 or tick() - pressedAt < GIVEUP then continue end
 
-                if retryAttempts == 1 then
-                    print("[RETRY] 🔁 กด RETRY (" .. txt .. ")")
-                elseif retryAttempts % 4 == 0 then
-                    warn(string.format("[RETRY] ⚠️ กดแล้ว %d ครั้งยังไม่ติด (%s)", retryAttempts, txt))
-                end
+                bailed = true
+                warn("[RETRY] ⛔ กดแล้วไม่ติดใน " .. GIVEUP .. " วิ → ออกจากด่านแทน (กันค้าง)")
+                local lv = retry.Parent:FindFirstChild("Leave_2")
+                    or retry.Parent:FindFirstChild("Leave")
+                if lv then VenozPress(lv) end
+                task.wait(5)
             end
         end
     end)
@@ -11230,647 +8315,7 @@ task.spawn(function()
         task.wait(0.1)
     end
 end)
-if Tabs.Webhook then
-    local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Discord Webhook")
-    
-    local webhookURL = ""
-    local webhookEnabled = false
-    local hasSentWebhook = false
-    local lastMissionState = ""
-    local webhookMode = "All Data"
-    local webhookPingMode = "None"
-    
-    local gamesPlayed = 0
-    local gamesPlayedPath = "TownShip/games_played.txt"
-    
-    if isfile(gamesPlayedPath) then
-        gamesPlayed = tonumber(readfile(gamesPlayedPath)) or 0
-    else
-        writefile(gamesPlayedPath, "0")
-    end
-    
-    local function incrementGamesPlayed()
-        gamesPlayed = gamesPlayed + 1
-        writefile(gamesPlayedPath, tostring(gamesPlayed))
-    end
-    
-    local ItemsModule = nil
-    local IconToNameMap = {}
-    
-    local function loadItemsModule()
-        local success, module = pcall(function()
-            return require(game:GetService("ReplicatedStorage").Modules.Storage.Items)
-        end)
-        if success and type(module) == "table" then
-            ItemsModule = module
-            for itemName, itemData in pairs(module) do
-                if type(itemData) == "table" and itemData.Image then
-                    local img = tostring(itemData.Image)
-                    local assetId = img:match("rbxassetid://(%d+)") or img:match("^(%d+)$")
-                    if assetId then
-                        IconToNameMap[assetId] = itemName
-                    end
-                end
-            end
-            return true
-        end
-        return false
-    end
-    
-    task.spawn(function()
-        task.wait(1)
-        loadItemsModule()
-    end)
-    
-    local function findUIElements()
-        local player = game:GetService("Players").LocalPlayer
-        local playerGui = player:FindFirstChild("PlayerGui")
-        if not playerGui then return nil, nil end
-        local interface = playerGui:FindFirstChild("Interface")
-        if not interface then return nil, nil end
-        local rewards = interface:FindFirstChild("Rewards")
-        if not rewards then return nil, nil end
-        local main = rewards:FindFirstChild("Main")
-        if not main then return nil, nil end
-        local info = main:FindFirstChild("Info")
-        if not info then return nil, nil end
-        local mainInfo = info:FindFirstChild("Main")
-        if not mainInfo then return nil, nil end
-        local statsFrame = mainInfo:FindFirstChild("Stats")
-        local itemsFrame = mainInfo:FindFirstChild("Items")
-        return statsFrame, itemsFrame
-    end
-    
-    local function waitForServerData(maxWait)
-        local start = tick()
-        local lastData = nil
-        local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-        while tick() - start < maxWait do
-            local success, data = pcall(function()
-                return GET:InvokeServer("Data", "Copy")
-            end)
-            if success and data and data.Slots then
-                local slot = data.Slots[data.Current_Slot or "A"]
-                if slot and slot.Currency and slot.Progression then
-                    if (slot.Currency.Gold or 0) > 0 or (slot.Currency.Gems or 0) > 0 or (slot.Progression.Level or 0) > 0 then
-                        lastData = data
-                        break
-                    end
-                end
-                lastData = data
-            end
-            task.wait(0.3)
-        end
-        return lastData
-    end
-    
-    local function waitForUIElements(maxWait)
-        local start = tick()
-        local statsFrame, itemsFrame = nil, nil
-        while tick() - start < maxWait do
-            statsFrame, itemsFrame = findUIElements()
-            local hasStat = false
-            local hasItem = false
-            if statsFrame then
-                for _, v in ipairs(statsFrame:GetChildren()) do
-                    if v:IsA("Frame") and v:FindFirstChild("Amount") then
-                        local amount = v.Amount.Text
-                        if amount and amount ~= "0" and amount ~= "" then
-                            hasStat = true
-                            break
-                        end
-                    end
-                end
-            end
-            if itemsFrame then
-                for _, v in ipairs(itemsFrame:GetChildren()) do
-                    if v:IsA("Frame") and v:FindFirstChild("Main") then
-                        local inner = v.Main:FindFirstChild("Inner")
-                        if inner and inner.Quantity and inner.Quantity.Text ~= "0" and inner.Quantity.Text ~= "" then
-                            hasItem = true
-                            break
-                        end
-                    end
-                end
-            end
-            if hasStat or hasItem then break end
-            task.wait(0.2)
-        end
-        return findUIElements()
-    end
-    
-    -- ===== ฟังก์ชันจัดรูปแบบตัวเลข (ตัดทศนิยม) =====
-    local function formatNumberWithComma(num)
-        if type(num) == "string" then
-            local clean = num:gsub("[^%d.]", "")
-            num = tonumber(clean) or 0
-        end
-        if type(num) ~= "number" then return tostring(num) end
-        num = math.floor(num)  -- ตัดทศนิยมทิ้ง
-        local str = tostring(num)
-        local formatted = ""
-        local len = #str
-        for i = 1, len do
-            formatted = formatted .. str:sub(i, i)
-            if (len - i) % 3 == 0 and i < len then
-                formatted = formatted .. ","
-            end
-        end
-        return formatted
-    end
-    
-    -- ===== ฟังก์ชันดึงข้อมูล Reward แบบเรียลไทม์ =====
-    local function getRealTimeRewardData()
-        local success, result = pcall(function()
-            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-            return GET:InvokeServer("S_Rewards", "Get")
-        end)
-        if not success or not result then return nil end
-        if type(result) == "table" then
-            if result.Obtained or result.Stats then
-                return result
-            end
-            if #result > 0 and type(result[1]) == "table" then
-                return result[1]
-            end
-        end
-        return nil
-    end
-    
-    -- ===== ฟังก์ชันส่ง Reward Webhook =====
-    local function sendRewardWebhook()
-        if webhookURL == "" then return end
-        incrementGamesPlayed()
-        
-        if not ItemsModule or #IconToNameMap == 0 then
-            loadItemsModule()
-        end
-        
-        local player = game:GetService("Players").LocalPlayer
-        local executor = identifyexecutor and identifyexecutor() or "Unknown"
-        
-        local totalData = { Level = 1, Gold = 0, Gems = 0 }
-        pcall(function()
-            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-            local mapData = GET:InvokeServer("Data", "Copy")
-            local slotIndex = player:GetAttribute("Slot") or "A"
-            if mapData and mapData.Slots and mapData.Slots[slotIndex] then
-                local slot = mapData.Slots[slotIndex]
-                if slot.Currency then
-                    totalData.Gold = slot.Currency.Gold or 0
-                    totalData.Gems = slot.Currency.Gems or 0
-                end
-                if slot.Progression then
-                    totalData.Level = slot.Progression.Level or 1
-                end
-            end
-        end)
-        
-        local rewardData = getRealTimeRewardData()
-        
-        if not rewardData then
-            -- Fallback: ใช้ข้อมูลจาก UI
-            local statsFrame, _ = findUIElements()
-            local stats = {}
-            if statsFrame then
-                for _, v in ipairs(statsFrame:GetChildren()) do
-                    if v:IsA("Frame") and v:FindFirstChild("Stat") and v:FindFirstChild("Amount") then
-                        local statName = string.gsub(v.Name, "_", " ")
-                        stats[statName] = v.Amount.Text
-                    end
-                end
-            end
-            
-            local rewardsUI = getAllRewards()
-            local kills = stats["Kills"] or 0
-            local crits = stats["Crits"] or 0
-            local damage = stats["Damage"] or "0"
-            local damageNum = tonumber(damage:gsub("[^%d.]", "")) or 0
-            
-            local xp, gold, gems, shards = 0, 0, 0, 0
-            for _, item in ipairs(rewardsUI) do
-                if item.name == "XP" then xp = tonumber(item.qty:match("%d+")) or 0 end
-                if item.name == "Gold" then gold = tonumber(item.qty:match("%d+")) or 0 end
-                if item.name == "Gems" then gems = tonumber(item.qty:match("%d+")) or 0 end
-                if item.name == "Shards" then shards = tonumber(item.qty:match("%d+")) or 0 end
-            end
-            
-            local perksList = "None"
-            local isCompleted, isClaimed = true, true
-            local statusTitle = "COMPLETED ✅"
-            local color = 0x00ff00
-            
-            local pingContent = nil
-            if webhookPingMode == "Everyone" then
-                pingContent = "@everyone"
-            elseif webhookPingMode == "Here" then
-                pingContent = "@here"
-            end
-            
-            local payload = {
-                content = pingContent,
-                embeds = {{
-                    title = string.format("[%s] %s", statusTitle, player.Name),
-                    color = color,
-                    fields = {
-                        { name = "STATS", value = string.format("Kills: %s\nCrits: %s\nDamage: %s", kills, crits, formatNumberWithComma(damageNum)), inline = false },
-                        { name = "REWARDS", value = string.format("XP: %s\nGold: %s\nGems: %s\nShards: %s", formatNumberWithComma(xp), formatNumberWithComma(gold), formatNumberWithComma(gems), formatNumberWithComma(shards)), inline = false },
-                        { name = "PERKS", value = perksList, inline = false },
-                        { name = "INFO", value = string.format("User: %s\nExecutor: %s\nGames Played: %d\nGold: %s\nGems: %s", player.Name, executor, gamesPlayed, formatNumberWithComma(totalData.Gold), formatNumberWithComma(totalData.Gems)), inline = false }
-                    },
-                    footer = { text = "TownShip • " .. os.date("%Y-%m-%d %H:%M:%S") },
-                    timestamp = DateTime.now():ToIsoDate()
-                }}
-            }
-            pcall(function()
-                request({ Url = webhookURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = game:GetService("HttpService"):JSONEncode(payload) })
-            end)
-            return
-        end
-        
-        -- ===== ใช้ข้อมูลจาก S_Rewards Get =====
-        local kills = rewardData.Stats and rewardData.Stats.Kills or 0
-        local crits = rewardData.Stats and rewardData.Stats.Crits or 0
-        local damage = rewardData.Stats and rewardData.Stats.Damage or 0
-        
-        local xp = rewardData.Obtained and rewardData.Obtained.XP or 0
-        local gold = rewardData.Obtained and rewardData.Obtained.Gold or 0
-        local gems = rewardData.Obtained and rewardData.Obtained.Gems or 0
-        local shards = rewardData.Obtained and rewardData.Obtained.Shards or 0
-        
-        local perksList = "None"
-        if rewardData.Obtained and rewardData.Obtained.Perks and #rewardData.Obtained.Perks > 0 then
-            perksList = "• " .. table.concat(rewardData.Obtained.Perks, "\n• ")
-        end
-        
-        local isCompleted = rewardData.Completed or false
-        local isClaimed = rewardData.Claimed or false
-        local statusTitle = "IN PROGRESS"
-        local color = 0xffaa00
-        if isCompleted and isClaimed then
-            statusTitle = "COMPLETED ✅"
-            color = 0x00ff00
-        elseif isCompleted and not isClaimed then
-            statusTitle = "COMPLETED ⏳"
-            color = 0x00aaff
-        end
-        
-        local pingContent = nil
-        if webhookPingMode == "Everyone" then
-            pingContent = "@everyone"
-        elseif webhookPingMode == "Here" then
-            pingContent = "@here"
-        end
-        
-        local payload = {
-            content = pingContent,
-            embeds = {{
-                title = string.format("[%s] %s", statusTitle, player.Name),
-                color = color,
-                fields = {
-                    { name = "STATS", value = string.format("Kills: %s\nCrits: %s\nDamage: %s", kills, crits, formatNumberWithComma(damage)), inline = false },
-                    { name = "REWARDS", value = string.format("XP: %s\nGold: %s\nGems: %s\nShards: %s", formatNumberWithComma(xp), formatNumberWithComma(gold), formatNumberWithComma(gems), formatNumberWithComma(shards)), inline = false },
-                    { name = "PERKS", value = perksList, inline = false },
-                    { name = "INFO", value = string.format("User: %s\nExecutor: %s\nGames Played: %d\nGold: %s\nGems: %s", player.Name, executor, gamesPlayed, formatNumberWithComma(totalData.Gold), formatNumberWithComma(totalData.Gems)), inline = false }
-                },
-                footer = { text = "TownShip • " .. os.date("%Y-%m-%d %H:%M:%S") },
-                timestamp = DateTime.now():ToIsoDate()
-            }}
-        }
-        
-        pcall(function()
-            request({ 
-                Url = webhookURL, 
-                Method = "POST", 
-                Headers = { ["Content-Type"] = "application/json" }, 
-                Body = game:GetService("HttpService"):JSONEncode(payload) 
-            })
-            print("📤 Webhook sent successfully!")
-        end)
-    end
-    
-    -- ===== ฟังก์ชัน getAllRewards (ใช้ในกรณี fallback) =====
-    local function getAllRewards()
-        local player = game:GetService("Players").LocalPlayer
-        local mainInfo = player.PlayerGui.Interface.Rewards.Main.Info.Main
-        local rewardsList = {}
-        
-        local function extractFromFrame(frame)
-            local qtyText = nil
-            local itemName = nil
-            local isRare = false
-            
-            local mainObj = frame:FindFirstChild("Main")
-            local inner = mainObj and mainObj:FindFirstChild("Inner")
-            if inner then
-                local qtyObj = inner:FindFirstChild("Quantity")
-                if qtyObj and qtyObj:IsA("TextLabel") then
-                    qtyText = qtyObj.Text
-                    local num = tonumber(qtyText:match("%d+"))
-                    if num and num > 0 then
-                        local icon = inner:FindFirstChild("Icon")
-                        if icon and icon:IsA("ImageLabel") and icon.Image then
-                            local assetId = tostring(icon.Image):match("rbxassetid://(%d+)") or tostring(icon.Image):match("^(%d+)$")
-                            if assetId and IconToNameMap[assetId] then
-                                itemName = IconToNameMap[assetId]
-                            end
-                        end
-                        if not itemName then
-                            local title = inner:FindFirstChild("Title")
-                            if title and title:IsA("TextLabel") and title.Text ~= "" then
-                                itemName = title.Text
-                            else
-                                local nameObj = inner:FindFirstChild("Name")
-                                if nameObj and nameObj:IsA("TextLabel") and nameObj.Text ~= "" then
-                                    itemName = nameObj.Text
-                                end
-                            end
-                        end
-                        local rarity = inner:FindFirstChild("Rarity")
-                        if rarity and rarity.BackgroundColor3 == Color3.fromRGB(255, 0, 0) then
-                            isRare = true
-                        end
-                    end
-                end
-            else
-                local nameLabel = frame:FindFirstChild("Name") or frame:FindFirstChild("Title")
-                local amountLabel = frame:FindFirstChild("Amount") or frame:FindFirstChild("Quantity")
-                if nameLabel and nameLabel:IsA("TextLabel") and amountLabel and amountLabel:IsA("TextLabel") then
-                    local num = tonumber(amountLabel.Text:match("%d+"))
-                    if num and num > 0 then
-                        qtyText = amountLabel.Text
-                        itemName = nameLabel.Text
-                    end
-                end
-            end
-            
-            if itemName and qtyText then
-                table.insert(rewardsList, { name = itemName, qty = qtyText, rare = isRare })
-                return true
-            end
-            return false
-        end
-        
-        local function scanAll(obj)
-            for _, child in ipairs(obj:GetChildren()) do
-                if child:IsA("Frame") then
-                    if extractFromFrame(child) then
-                        -- found
-                    else
-                        scanAll(child)
-                    end
-                end
-            end
-        end
-        scanAll(mainInfo)
-        return rewardsList
-    end
-    
-    -- ===== ฟังก์ชันอื่นๆ (ส่ง All Data, Mission ฯลฯ) =====
-    local filters = {
-        Currency = true,
-        Progression = true,
-        Loadout = true,
-        Inventory = true,
-        Cosmetics = true,
-    }
-    
-    local function fmt(n)
-        if type(n) ~= "number" then return tostring(n) end
-        if n >= 1e9 then return string.format("%.2fB", n/1e9)
-        elseif n >= 1e6 then return string.format("%.2fM", n/1e6)
-        elseif n >= 1e3 then return string.format("%.1fK", n/1e3)
-        else return tostring(n) end
-    end
-    
-    local function getItems(tbl, prefix)
-        if not tbl then return nil end
-        local items = {}
-        for name, qty in pairs(tbl) do
-            table.insert(items, {name = name, qty = qty})
-        end
-        table.sort(items, function(a, b)
-            return string.lower(a.name) < string.lower(b.name)
-        end)
-        local lines = {}
-        for _, item in ipairs(items) do
-            table.insert(lines, (prefix or "• ") .. item.name .. ": x" .. tostring(item.qty))
-        end
-        return #lines > 0 and table.concat(lines, "\n") or nil, #lines
-    end
-    
-    local function getMissionState()
-        local ok, state = pcall(function()
-            return game:GetService("Players").LocalPlayer.PlayerGui.Interface.Rewards.Main.Info.State.Text
-        end)
-        return ok and state or ""
-    end
-    
-    local function formatModifiersText(modifiers)
-        local order = {
-            "No Perks", "No Skills", "No Memories", "Nightmare", "Oddball",
-            "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"
-        }
-        if not modifiers or type(modifiers) ~= "table" then return "None" end
-        local modList = {}
-        for k, v in pairs(modifiers) do
-            if type(k) == "number" then modList[#modList+1] = tostring(v)
-            elseif type(v) == "boolean" and v then modList[#modList+1] = tostring(k)
-            elseif type(v) == "string" then modList[#modList+1] = v end
-        end
-        local sortedMods = {}
-        for _, modName in ipairs(order) do
-            for _, m in ipairs(modList) do
-                if m == modName then table.insert(sortedMods, m) break end
-            end
-        end
-        for _, m in ipairs(modList) do
-            local found = false
-            for _, ordered in ipairs(order) do if m == ordered then found = true break end end
-            if not found then table.insert(sortedMods, m) end
-        end
-        if #sortedMods == 0 then return "None" end
-        return "- " .. table.concat(sortedMods, "\n- ")
-    end
-    
-    local function sendMissionEndWebhook(missionState)
-        if webhookURL == "" then return end
-        
-        local serverData = waitForServerData(3)
-        if not serverData or not serverData.Slots then
-            task.wait(0.5)
-            serverData = waitForServerData(1)
-        end
-        waitForUIElements(2)
-        local player = game:GetService("Players").LocalPlayer
-        if not serverData then
-            pcall(function()
-                local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-                serverData = GET:InvokeServer("Data", "Copy")
-            end)
-        end
-        if not serverData or not serverData.Slots then return end
-        local slot = serverData.Slots[serverData.Current_Slot or "A"]
-        if not slot then return end
-        local fields = {}
-        if serverData.Map then
-            local modsText = formatModifiersText(serverData.Map.Modifiers)
-            local mapValue = string.format("Map: %s\nDifficulty: %s\nObjective: %s\n\nModifiers:\n%s",
-                serverData.Map.Map or "Unknown",
-                serverData.Map.Difficulty or "Unknown",
-                serverData.Map.Objective or "Unknown",
-                modsText)
-            table.insert(fields, {name = "Mission Info", value = mapValue, inline = false})
-        end
-        if filters.Currency then
-            table.insert(fields, {name = "Currency", value = string.format("Gold: %s\nGems: %s\nCanes: %s\nShards: %s",
-                fmt(slot.Currency and slot.Currency.Gold or 0),
-                fmt(slot.Currency and slot.Currency.Gems or 0),
-                fmt(slot.Currency and slot.Currency.Canes or 0),
-                fmt(slot.Currency and slot.Currency.Shards or 0)), inline = true})
-        end
-        if filters.Progression then
-            table.insert(fields, {name = "Progression", value = string.format("Level: %s\nPrestige: %s\nXP: %s/%s",
-                slot.Progression and slot.Progression.Level or 0,
-                slot.Progression and slot.Progression.Prestige or 0,
-                fmt(slot.Progression and slot.Progression.XP or 0),
-                fmt(slot.Progression and slot.Progression.Max_XP or 0)), inline = true})
-        end
-        if filters.Loadout then
-            table.insert(fields, {name = "Loadout", value = string.format("Weapon: %s\nSlot: %s\nSpins: %s",
-                slot.Weapon or "?",
-                serverData.Current_Slot or "A",
-                fmt(slot.Total_Spins or 0)), inline = true})
-        end
-        if filters.Inventory and slot.Inventory and slot.Inventory.Items then
-            local text, count = getItems(slot.Inventory.Items, "• ")
-            if text then table.insert(fields, {name = "Inventory ("..count.." items)", value = ""..text.."", inline = false}) end
-        end
-        if filters.Cosmetics and slot.Inventory and slot.Inventory.Cosmetics then
-            local text, count = getItems(slot.Inventory.Cosmetics, "• ")
-            if text then table.insert(fields, {name = "Cosmetics ("..count.." items)", value = ""..text.."", inline = false}) end
-        end
-        local isCompleted = missionState and (missionState:find("COMPLETED") or missionState:find("FINISHED"))
-        local color = isCompleted and 65280 or 16711680
-        local body = game:GetService("HttpService"):JSONEncode({
-            embeds = {{
-                title = (missionState or "All Data") .. " - " .. player.Name,
-                color = color,
-                fields = fields,
-                footer = {text = os.date("%Y-%m-%d %H:%M:%S")}
-            }}
-        })
-        pcall(function()
-            request({Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body})
-        end)
-    end
-    
-    -- ===== เชื่อมต่อ Event เมื่อ Rewards เปิด =====
-    task.spawn(function()
-        local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-        local rewards = playerGui.Interface.Rewards
-        rewards:GetPropertyChangedSignal("Visible"):Connect(function()
-            if not rewards.Visible then
-                hasSentWebhook = false
-                lastMissionState = ""
-                return
-            end
-            if not webhookEnabled then return end
-            if hasSentWebhook then return end
-            if webhookURL == "" then return end
-            task.wait(2.5)
-            if webhookMode == "Reward Webhook" then
-                sendRewardWebhook()
-                hasSentWebhook = true
-            else
-                local missionState = getMissionState()
-                if missionState == lastMissionState and missionState ~= "" then return end
-                lastMissionState = missionState
-                sendMissionEndWebhook(missionState)
-                hasSentWebhook = true
-            end
-        end)
-    end)
-    
-    -- ===== UI Components =====
-    WebhookGroup:AddInput("WebhookURL", {
-        Default = "", Numeric = false, Finished = true,
-        Text = "Discord Webhook URL",
-        Placeholder = "https://discord.com/api/webhooks/...",
-        Callback = function(v) webhookURL = v end
-    })
-    
-    WebhookGroup:AddDivider()
-    
-    WebhookGroup:AddDropdown("WebhookMode", {
-        Text = "Webhook Type",
-        Values = {"All Data", "Reward Webhook"},
-        Default = "All Data",
-        Multi = false,
-        Callback = function(v) webhookMode = v end
-    })
-    
-    WebhookGroup:AddDropdown("WebhookPingMode", {
-        Text = "Ping Mode (For Special Drops)",
-        Values = {"None", "@here", "@everyone"},
-        Default = "None",
-        Multi = false,
-        Callback = function(v)
-            webhookPingMode = v
-        end
-    })
-    
-    WebhookGroup:AddDivider()
-    
-    local filterDropdown = WebhookGroup:AddDropdown("WebhookFilters", {
-        Values = {"Currency", "Progression", "Loadout", "Inventory", "Cosmetics"},
-        Default = {"Currency", "Progression", "Loadout", "Inventory", "Cosmetics"},
-        Multi = true,
-        Text = "Report Only for All Data ",
-        Callback = function(v)
-            filters.Currency = v["Currency"] or false
-            filters.Progression = v["Progression"] or false
-            filters.Loadout = v["Loadout"] or false
-            filters.Inventory = v["Inventory"] or false
-            filters.Cosmetics = v["Cosmetics"] or false
-        end
-    })
-    
-    WebhookGroup:AddDivider()
-    
-    WebhookGroup:AddToggle("WebhookToggle", {
-        Text = "Enable Auto Webhook",
-        Default = false,
-        Callback = function(v)
-            webhookEnabled = v
-            if not v then 
-                hasSentWebhook = false
-                lastMissionState = ""
-            end
-        end
-    })
-    
-    WebhookGroup:AddButton("Test Send", function()
-        if webhookURL == "" then return end
-        local testBody = game:GetService("HttpService"):JSONEncode({
-            content = "Test from TownShip!",
-            embeds = {{
-                title = "Webhook Working!",
-                color = 65280,
-                fields = {
-                    {name = "Mode", value = webhookMode, inline = true},
-                    {name = "Ping Mode", value = webhookPingMode, inline = true},
-                    {name = "Test Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true}
-                },
-                footer = {text = "TownShip Webhook Test"}
-            }}
-        })
-        pcall(function()
-            request({Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = testBody})
-            Library:Notify("Test webhook sent!", 2)
-        end)
-    end)
-end
+-- 🗑️ [ตัดออก] 📡 Discord Webhook — ไม่ได้ใช้ (เราใช้ Horst)  (เดิม 641 บรรทัด)
 if IsIngameLobby() and Tabs.Webhook then
     local descGroup = Tabs.Webhook:AddRightGroupbox("Set Description")
 
@@ -12095,7 +8540,7 @@ if Tabs.AutoFarm then
         local hasClicked = false
 
         while true do
-            task.wait(0.5)   -- [PERF] เดิม 0.1
+            task.wait(0.1)
 
             if not skipEnabled then
                 detectedTime = 0
@@ -12262,3 +8707,9 @@ if Tabs.AutoFarm then
         end
     })
 end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🚦 โหลดครบแล้ว — ปลด auto-pilot ให้เริ่มสั่งงานได้
+-- ═══════════════════════════════════════════════════════════════
+getgenv().VenozScriptReady = true
+print("[VENOZ] 🚦 โหลดสคริปครบทุกบรรทัดแล้ว → auto-pilot เริ่มทำงาน")
