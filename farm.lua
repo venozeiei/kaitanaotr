@@ -283,6 +283,100 @@ task.spawn(function()
 end)
 
 
+-- ═══════════════════════════════════════════════════════════════
+-- ⚡ EARLY FARM — ฆ่าไททันตั้งแต่หน้าโหลด ไม่รอ GUI / ไม่รอข้อมูล
+-- ═══════════════════════════════════════════════════════════════
+--   🐛 บรรทัดถัดจากนี้คือประตูที่บล็อกทั้งไฟล์:
+--        repeat task.wait() until game:IsLoaded()
+--        repeat task.wait() until PlayerGui:FindFirstChild("Interface")
+--      = ต้องรอ GUI + ป้ายบนหัวโหลดครบก่อน สคริป 11,000 บรรทัดถึงจะเริ่มทำงาน
+--      นั่นแหละคือ 3-4 วิที่เห็นบอทยืนเฉย
+--   ✅ ตัวนี้วางไว้ "ก่อนประตู" → รันตั้งแต่เฟรมแรกที่ execute
+--      รอแค่ 3 อย่าง: POST remote / โฟลเดอร์ Titans / HumanoidRootPart
+--      ไม่แตะ GUI เลย → เจอไททันเมื่อไหร่ วาร์ปไปฟันทันที
+--   ⚠️ ใช้ remote ชุดเดียวกับ UI2 เป๊ะ (Attacks/Slash + Hitboxes/Register 99999, 0)
+--      → โปรไฟล์การยิงเหมือนเดิมทุกประการ ไม่กระทบเรื่อง shadow ban
+--   พอระบบฟาร์มหลักติดเครื่อง ตัวนี้จะปิดตัวเองทันที
+--   ปิด: getgenv().VenozEarlyFarm = false
+-- ═══════════════════════════════════════════════════════════════
+getgenv().VenozMainFarmReady = false   -- ⚠️ ต้องรีเซ็ต! getgenv ค้างข้าม teleport
+if getgenv().VenozEarlyFarm ~= false then
+    task.spawn(function()
+        if game.PlaceId == 13379208636 or game.PlaceId == 14916516914 then return end
+
+        local Players = game:GetService("Players")
+        local RS = game:GetService("ReplicatedStorage")
+        local plr = Players.LocalPlayer
+        if not plr then return end
+
+        -- รอแค่ remote (ไม่แตะ PlayerGui/Interface เลย)
+        local POST
+        for _ = 1, 200 do
+            local ok = pcall(function()
+                POST = RS:FindFirstChild("Assets")
+                    and RS.Assets:FindFirstChild("Remotes")
+                    and RS.Assets.Remotes:FindFirstChild("POST")
+            end)
+            if ok and POST then break end
+            task.wait(0.05)
+        end
+        if not POST then return end
+
+        local function nape(t)
+            local hb = t:FindFirstChild("Hitboxes")
+            local hit = hb and hb:FindFirstChild("Hit")
+            local n = hit and hit:FindFirstChild("Nape")
+            if n and n:IsA("BasePart") then return n end
+            return nil
+        end
+
+        local hits, t0 = 0, os.clock()
+        print("[EARLY] ⚡ เริ่มล่าไททันตั้งแต่หน้าโหลด (ไม่รอ GUI)")
+
+        while os.clock() - t0 < 90 do
+            task.wait(0.05)
+            -- ระบบฟาร์มหลักติดเครื่องแล้ว → ถอยให้มันทำงาน
+            if getgenv().VenozMainFarmReady == true then break end
+
+            local ok = pcall(function()
+                local ch = plr.Character
+                local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+                local hum = ch and ch:FindFirstChildWhichIsA("Humanoid")
+                if not (hrp and hum and hum.Health > 0) then return end
+
+                local folder = workspace:FindFirstChild("Titans")
+                if not folder then return end
+
+                -- หาไททันเป้าหมายที่ใกล้ที่สุด
+                local best, bestD, bestNape = nil, math.huge, nil
+                for _, t in ipairs(folder:GetChildren()) do
+                    local h = t:FindFirstChildWhichIsA("Humanoid")
+                    if h and h.Health > 0 then
+                        local n = nape(t)
+                        if n then
+                            local d = (n.Position - hrp.Position).Magnitude
+                            if d < bestD then best, bestD, bestNape = t, d, n end
+                        end
+                    end
+                end
+                if not bestNape then return end
+
+                -- วาร์ปไปเหนือคอแล้วฟันทันที (ชุดเดียวกับ UI2 เป๊ะ)
+                hrp.CFrame = CFrame.new(bestNape.Position + Vector3.new(0, 3, 0))
+                pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
+                pcall(function() POST:FireServer("Attacks", "Slash", true) end)
+                pcall(function() POST:FireServer("Hitboxes", "Register", bestNape, 99999, 0) end)
+                hits = hits + 1
+                if hits == 1 then print("[EARLY] ⚔️ ฟันตัวแรกแล้ว (ก่อน GUI โหลดเสร็จ)") end
+            end)
+            if not ok then task.wait(0.2) end
+        end
+        if hits > 0 then
+            print(string.format("[EARLY] ✅ ส่งไม้ต่อให้ระบบหลัก (ฟันไป %d ครั้ง)", hits))
+        end
+    end)
+end
+
 repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
@@ -7574,6 +7668,7 @@ task.spawn(function()
             setv("FarmModeDropdown", VZ.FarmMode)
             setv("KillHitsSlider", VZ.HitCap)
             setv("AutoFarmBlade", true)
+            getgenv().VenozMainFarmReady = true   -- บอก EARLY FARM ให้ถอย
             print("[AUTO] ⚡ เปิดฟาร์มทันที (ไม่รอตั้งค่าอื่น)")
         end
 
