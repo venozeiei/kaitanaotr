@@ -27,6 +27,8 @@ getgenv().VenozLite = getgenv().VenozLite or {
     FPSCap            = 30,     -- 30 = ลื่นพอให้ตัวนิ่ง | 20 = เบาขึ้น | 0 = ไม่ตั้ง
     SpawnShield       = true,   -- 🛡️ ยกตัวลอยตอนเข้าด่าน จนระบบฟาร์มเริ่ม
     SpawnShieldHeight = 120,    -- ยกสูงกี่ studs (เท่ากับ HoverHeight = ดูกลมกลืน)
+    SpawnShieldSeconds = 10,    -- ⏱️ ยกค้างกี่วิ "นับจากตัวละครเกิด" แล้วปล่อยให้ฟาร์มทำงาน
+                                --    น้อยไป = ไททันตีทัน | มากไป = เริ่มฟาร์มช้า | 8-12 กำลังดี
     -- ⚠️ ไม่มี "ลบแมพ" ให้เลย — ลบแมพทำให้ด่านไม่สรุปผล Rewards ไม่โผล่ บอทค้างทุกจอ
 }
 
@@ -116,39 +118,47 @@ task.spawn(function()
     getgenv().VenozShieldOn = true
 
     local H = tonumber(getgenv().VenozShieldH) or 120
-    local holdY, lastChar, conn, lifted = nil, nil, nil, false
+    -- ⏱️ ยกค้างกี่วิ "นับจากตัวละครเกิด" แล้วปล่อยให้ระบบฟาร์มทำงาน
+    local HOLD = tonumber(getgenv().VenozShieldSec) or 10
+    local holdY, lastChar, conn, lifted, bornAt = nil, nil, nil, false, nil
     local t0 = os.clock()
     local function stop()
         if conn then pcall(function() conn:Disconnect() end) conn = nil end
         getgenv().VenozShieldOn = false
-        if lifted then print("[SHIELD] ✅ ระบบฟาร์มเริ่มแล้ว → ปล่อยตัวละคร") end
+        if lifted then print("[SHIELD] ✅ ครบเวลา → ปล่อยให้ระบบฟาร์มคุมต่อ") end
     end
+    -- ⚠️ ห้ามใช้ getgenv().Farm เป็นสัญญาณปล่อย!
+    --    getgenv ค้างข้าม teleport → พอเข้าด่านใหม่ Farm ยังเป็น true จากด่านก่อน
+    --    = เกราะหยุดตั้งแต่ Heartbeat แรก ไม่เคยยกสักครั้ง (บั๊กที่เจอ)
+    --    ใช้ "เวลาตั้งแต่ตัวละครเกิด" แทน — ชัดเจน ไม่มีทางเพี้ยน
     conn = RunService.Heartbeat:Connect(function()
-        if getgenv().Farm == true then stop() return end
         if os.clock() - t0 > 180 then stop() return end
         local ch = plr.Character
         local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
         local hum = ch and ch:FindFirstChildWhichIsA("Humanoid")
-        if hrp and hum and hum.Health > 0 then
-            if ch ~= lastChar then lastChar, holdY = ch, nil end
-            if not holdY then
-                holdY = hrp.Position.Y + H
-                if not lifted then
-                    lifted = true
-                    print("[SHIELD] 🛡️ ยกตัวทันทีที่เกิด (" .. H .. " studs)")
-                end
-            end
-            hrp.CFrame = CFrame.new(hrp.Position.X, holdY, hrp.Position.Z)
-            pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
-        else
-            holdY = nil
+        if not (hrp and hum and hum.Health > 0) then
+            holdY, bornAt = nil, nil
+            return
         end
+        if ch ~= lastChar then lastChar, holdY, bornAt = ch, nil, nil end
+        if not bornAt then bornAt = os.clock() end
+        if os.clock() - bornAt >= HOLD then stop() return end   -- ครบเวลา → ปล่อย
+        if not holdY then
+            holdY = hrp.Position.Y + H
+            if not lifted then
+                lifted = true
+                print(string.format("[SHIELD] 🛡️ ยกตัว %d studs ค้าง %d วิ", H, HOLD))
+            end
+        end
+        hrp.CFrame = CFrame.new(hrp.Position.X, holdY, hrp.Position.Z)
+        pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
     end)
 end)
 ]==]
 
     if VL.SpawnShield then
         getgenv().VenozShieldH = tonumber(VL.SpawnShieldHeight) or 120
+        getgenv().VenozShieldSec = tonumber(VL.SpawnShieldSeconds) or 10
         -- รันทันทีในเพลสนี้ (เผื่อ execute ตอนอยู่ในด่านอยู่แล้ว)
         if inMission then pcall(function() loadstring(SHIELD_SRC)() end) end
         -- 🔑 คิวไว้ให้เพลสถัดไป — รันตั้งแต่หน้าโหลด ก่อนสคริปหลักเสร็จ
@@ -157,6 +167,7 @@ end)
                 or (syn and syn.queue_on_teleport)
             if q then
                 q("getgenv().VenozShieldH=" .. tostring(getgenv().VenozShieldH)
+                    .. "\ngetgenv().VenozShieldSec=" .. tostring(getgenv().VenozShieldSec)
                     .. "\n" .. SHIELD_SRC)
                 print("[LITE] 📦 คิวเกราะไว้ให้ด่านถัดไปแล้ว (รันตั้งแต่หน้าโหลด)")
             else
