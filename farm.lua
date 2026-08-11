@@ -25,7 +25,10 @@ getgenv().VenozLite = getgenv().VenozLite or {
     LowGraphic        = true,   -- ลด quality + ปิดเงา/หมอก/PostEffect
     KillEffects       = true,   -- ปิด particle/trail/beam + หยุดเสียง (ทุก 60 วิ)
     FPSCap            = 30,     -- 30 = ลื่นพอให้ตัวนิ่ง | 20 = เบาขึ้น | 0 = ไม่ตั้ง
-    SpawnShield       = true,   -- 🛡️ ยกตัวลอยตอนเข้าด่าน จนระบบฟาร์มเริ่ม
+    SpawnShield       = false,  -- 🛡️ ยกตัวลอยตอนเข้าด่าน
+                                --    ⚠️ ปิดไว้! เปิดแล้วบอทจะ "ลอยรอ" ตามวินาทีที่ตั้ง
+                                --       = เริ่มฆ่าไททันช้าลง ซึ่งตรงข้ามกับที่ต้องการ
+                                --       เปิดเฉพาะตอนเจอปัญหาตายตอนโหลดจริงๆ
     SpawnShieldHeight = 120,    -- ยกสูงกี่ studs (เท่ากับ HoverHeight = ดูกลมกลืน)
     SpawnShieldSeconds = 10,    -- ⏱️ ยกค้างกี่วิ "นับจากตัวละครเกิด" แล้วปล่อยให้ฟาร์มทำงาน
                                 --    น้อยไป = ไททันตีทัน | มากไป = เริ่มฟาร์มช้า | 8-12 กำลังดี
@@ -7413,8 +7416,9 @@ task.spawn(function()
     local function setv(n, v)
         local o = opt(n)
         if not o then return false end
+        -- [SPEED] ตัด task.wait ออกทั้งหมด — SetValue เรียก callback แบบ synchronous
+        --         อยู่แล้ว ไม่ต้องรอเฟรม (เดิม 0.2 x 9 ครั้ง = เสียฟรี 1.8 วิ ทุกครั้งที่เข้าด่าน)
         local ok = pcall(function() o:SetValue(v) end)
-        task.wait(0.2)
         return ok
     end
     getgenv().VenozSetOpt = setv   -- ให้ BRAIN เรียกสลับ toggle ได้ (ใช้ตอนสลับดาบ↔หอก)
@@ -7562,7 +7566,18 @@ task.spawn(function()
                 .. " (ตั้ง 0 ทั้งคู่ถ้าอยากให้ตีตลอด)",
                 tostring(VZ.SafetyTime), tostring(VZ.StopAtTitans)))
         end
-        setv("KillHitsSlider", VZ.HitCap)
+        -- ⚡ [SPEED] เปิดฟาร์มเป็นอย่างแรกสุด แล้วค่อยตั้งค่าที่เหลือตามหลัง
+        --    เดิมตั้งค่า 9 อย่างก่อนแล้วค่อยเปิด → บอทยืนเฉย 3-4 วิ
+        --    ค่าที่เหลือ (skip cutscene / failed safe) ตั้งทีหลังได้ ไม่กระทบ
+        if VZ.AutoFarm then
+            setv("HoverHeightSlider", VZ.HoverHeight)
+            setv("FarmModeDropdown", VZ.FarmMode)
+            setv("KillHitsSlider", VZ.HitCap)
+            setv("AutoFarmBlade", true)
+            print("[AUTO] ⚡ เปิดฟาร์มทันที (ไม่รอตั้งค่าอื่น)")
+        end
+
+        setv("HoverSpeedSlider", VZ.HoverSpeed)
         setv("SafetyTimeSlider", VZ.SafetyTime)
         setv("StopAtTitansLeftSlider", VZ.StopAtTitans)
 
@@ -7573,14 +7588,6 @@ task.spawn(function()
         -- 🗡️ ดาบล้วนเสมอ — ไม่ใช้หอกเป็นอาวุธเด็ดขาด (ถึงจะหาชิ้นส่วนครบแล้วก็ตาม)
         setv("AutoThunderSpearToggle", false)
         setv("AutoSpearQuestToggle", false)
-
-        if VZ.AutoFarm then
-            setv("HoverHeightSlider", VZ.HoverHeight)
-            setv("HoverSpeedSlider", VZ.HoverSpeed)
-            setv("FarmModeDropdown", VZ.FarmMode)
-            task.wait(0.5)
-            setv("AutoFarmBlade", true)
-        end
 
         if VZ.FailedSafe and has("CombinedActionToggle") then
             setv("CombinedActionDelaySlider", VZ.FailedSafeDelay)
@@ -10443,7 +10450,7 @@ end
 -- ===== สร้าง loop ตรวจสอบสถานะ (เร็วขึ้น) =====
 task.spawn(function()
     while true do
-        task.wait(0.25)   -- [PERF] เดิม 0.03 = 33 ครั้ง/วิ
+        task.wait(0.05)   -- [SPEED] ตัวนี้คือตัว "ติดเครื่อง" ฟาร์ม ต้องไว (เดิม 0.03)
         local G = getgenv()
         if G.AutoFarmBlade then
             if not G.Farm then
@@ -10499,7 +10506,7 @@ end)
 
 -- ===== loop เช็คและสร้างใหม่ =====
 task.spawn(function()
-    while task.wait(0.5) do   -- [PERF] เดิม 0.1
+    while task.wait(0.1) do   -- [SPEED] ตัวสร้าง FarmConn ต้องไว ไม่งั้นเริ่มฟาร์มช้า
         local G = getgenv()
         if G.AutoFarmBlade and (not FarmConn or not FarmConn.Connected) then
             CreateFarmLoop()
