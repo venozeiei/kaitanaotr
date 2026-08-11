@@ -94,35 +94,77 @@ do
         if not ok then warn("[LITE] " .. tostring(err)) end
     end
 
-    -- ── 🛡️ SPAWN SHIELD: ยกตัวลอยตอนเข้าด่าน จนระบบฟาร์มเริ่มทำงาน ──
-    if inMission and VL.SpawnShield then
-        task.spawn(function()
-            local H = tonumber(VL.SpawnShieldHeight) or 120
-            local plrS = PlrsL.LocalPlayer
-            local holdY, lastChar, lifted = nil, nil, false
-            local t0 = os.clock()
-            while os.clock() - t0 < 180 do          -- กันค้าง: อย่างมาก 3 นาที
-                task.wait(0.15)
-                if getgenv().Farm == true then break end     -- ฟาร์มเริ่มแล้ว → ปล่อยทันที
-                local ch = plrS.Character
-                local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
-                local hum = ch and ch:FindFirstChildWhichIsA("Humanoid")
-                if hrp and hum and hum.Health > 0 then
-                    if ch ~= lastChar then lastChar, holdY = ch, nil end
-                    if not holdY then
-                        holdY = hrp.Position.Y + H
-                        if not lifted then
-                            lifted = true
-                            print(string.format("[LITE] 🛡️ ลอยรอที่ %d studs จนระบบฟาร์มเริ่ม", H))
-                        end
-                    end
-                    hrp.CFrame = CFrame.new(hrp.Position.X, holdY, hrp.Position.Z)
-                    pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
+    -- ═══════════════════════════════════════════════════════════
+    -- 🛡️ INSTANT SHIELD — ยกตัวตั้งแต่ "เฟรมแรก" ที่ตัวละครเกิด
+    -- ═══════════════════════════════════════════════════════════
+    --   🐛 ปัญหาเดิม: executor รันสคริป "หลังโหลดเสร็จ" → ไททันได้จังหวะฟาดก่อน
+    --   ✅ แก้ 2 ชั้น:
+    --      1) ใช้ Heartbeat แทน task.wait — จับตัวละครได้ทันทีที่เกิด ไม่มีช่องว่าง
+    --      2) queue_on_teleport — คิวเกราะไว้ให้ "เพลสถัดไป"
+    --         พอ teleport ปุ๊บ เกราะรันตั้งแต่เฟรมแรกของหน้าโหลดเลย
+    --         ไม่ต้องรอสคริปหลัก 11,000 บรรทัดโหลดจบก่อน
+    --   ⚠️ client ล้วน ไม่มี remote
+    -- ═══════════════════════════════════════════════════════════
+    local SHIELD_SRC = [==[
+task.spawn(function()
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local plr = Players.LocalPlayer
+    if not plr then return end
+    if game.PlaceId == 13379208636 or game.PlaceId == 14916516914 then return end
+    if getgenv().VenozShieldOn then return end
+    getgenv().VenozShieldOn = true
+
+    local H = tonumber(getgenv().VenozShieldH) or 120
+    local holdY, lastChar, conn, lifted = nil, nil, nil, false
+    local t0 = os.clock()
+    local function stop()
+        if conn then pcall(function() conn:Disconnect() end) conn = nil end
+        getgenv().VenozShieldOn = false
+        if lifted then print("[SHIELD] ✅ ระบบฟาร์มเริ่มแล้ว → ปล่อยตัวละคร") end
+    end
+    conn = RunService.Heartbeat:Connect(function()
+        if getgenv().Farm == true then stop() return end
+        if os.clock() - t0 > 180 then stop() return end
+        local ch = plr.Character
+        local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+        local hum = ch and ch:FindFirstChildWhichIsA("Humanoid")
+        if hrp and hum and hum.Health > 0 then
+            if ch ~= lastChar then lastChar, holdY = ch, nil end
+            if not holdY then
+                holdY = hrp.Position.Y + H
+                if not lifted then
+                    lifted = true
+                    print("[SHIELD] 🛡️ ยกตัวทันทีที่เกิด (" .. H .. " studs)")
                 end
             end
-            if lifted then print("[LITE] ✅ ระบบฟาร์มเริ่มแล้ว → ปล่อยตัวละคร") end
+            hrp.CFrame = CFrame.new(hrp.Position.X, holdY, hrp.Position.Z)
+            pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
+        else
+            holdY = nil
+        end
+    end)
+end)
+]==]
+
+    if VL.SpawnShield then
+        getgenv().VenozShieldH = tonumber(VL.SpawnShieldHeight) or 120
+        -- รันทันทีในเพลสนี้ (เผื่อ execute ตอนอยู่ในด่านอยู่แล้ว)
+        if inMission then pcall(function() loadstring(SHIELD_SRC)() end) end
+        -- 🔑 คิวไว้ให้เพลสถัดไป — รันตั้งแต่หน้าโหลด ก่อนสคริปหลักเสร็จ
+        pcall(function()
+            local q = queue_on_teleport or queueonteleport
+                or (syn and syn.queue_on_teleport)
+            if q then
+                q("getgenv().VenozShieldH=" .. tostring(getgenv().VenozShieldH)
+                    .. "\n" .. SHIELD_SRC)
+                print("[LITE] 📦 คิวเกราะไว้ให้ด่านถัดไปแล้ว (รันตั้งแต่หน้าโหลด)")
+            else
+                warn("[LITE] ⚠️ executor ไม่มี queue_on_teleport → เกราะจะเริ่มช้ากว่าปกติเล็กน้อย")
+            end
         end)
     end
+
 end
 
 
