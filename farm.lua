@@ -12,17 +12,20 @@
 --   4️⃣ ⬛ANTI-LAG : ปิด render 3D ทุกที่ + กราฟิกต่ำสุด + ปิด particle/เสียง
 --   5️⃣ 🔇CHAT  : ปิดช่องแชทถาวร (CoreGui + TextChatService + ScreenGui เก่า)
 --   6️⃣ ⏳LOAD  : ไม่ปิด render ตอนหน้า LOADING ยังอยู่ + ค้างเกิน 30 วิซ่อนทิ้ง
+--   7️⃣ ⚙️UPGRADE: _VZChoreWait ค้างข้าม teleport → brain ไม่รองาน lobby
+--                 = ดาบไม่เคยถูกอัพตั้งแต่รอบ 2 (ฟาร์มช้าเพราะดาบพังบ่อย)
 --  ถ้าไม่เห็น 4 บรรทัดนี้ใน F9 = ยังรันโค้ดตัวเก่าอยู่ ให้ paste ไฟล์ใหม่ทับ
 -- ═══════════════════════════════════════════════════════════════
 print("═══════════════════════════════════════════════")
-print("🛡️ VENOZ NO-SB — BUILD v4.2")
+print("🛡️ VENOZ NO-SB — BUILD v4.3")
 print("   🔁 RETRY กดครั้งเดียว (รอนิ่ง 3 วิก่อนกด)")
 print("   ⚡ เข้าด่าน = ฟาร์มทันที ไม่รอโหลดอะไรทั้งนั้น")
 print("   ⬛ จอว่างทุกที่ (Main Menu + Lobby + ในด่าน) + ปิดแชทถาวร")
 print("   ⏳ แก้ค้างจอ LOADING ตอนกดออกจากด่าน")
+print("   ⚙️ แก้บั๊ก: อัพเกรดดาบไม่ทำงานตั้งแต่รอบที่ 2 เป็นต้นไป")
 print("   🗑️ ตัดโค้ดไม่ใช้ทิ้ง 2,749 บรรทัด")
 print("═══════════════════════════════════════════════")
-getgenv().VenozBuild = "v4.2-nosb"
+getgenv().VenozBuild = "v4.3-nosb"
 
 -- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
 task.spawn(function()
@@ -241,6 +244,11 @@ end
 --   ⚠️ ต้องเซ็ต false ทุกครั้งที่รัน เพราะ getgenv ค้างข้ามการ teleport
 getgenv().VenozScriptReady = false
 getgenv().VenozPressing    = 0   -- ⚠️ ต้องรีเซ็ตด้วย ไม่งั้นค้างข้าม teleport = ปิดจอไม่ลง
+-- 🐛 [FIX] ตัวนับ "รองาน lobby" ก็ค้างข้าม teleport เหมือนกัน
+--    เดิมไม่มีใครรีเซ็ต → เข้า lobby รอบที่ 2 ค่านี้เต็ม (>12) อยู่แล้ว
+--    → brain เลยข้ามการรอทันที = อัพดาบ/สกิล ยังไม่ทันเริ่มก็โดนลากเข้าด่านแล้ว
+--    = ดาบไม่เคยถูกอัพเลยตั้งแต่รอบที่ 2 เป็นต้นไป (ฟาร์มช้าเพราะดาบพังบ่อย)
+getgenv()._VZChoreWait     = 0
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -2966,6 +2974,7 @@ if IsLobbyLobby() then
                 getgenv().UpgradeRunning = true
                 task.spawn(function()
                     local _pgB, _stB = -1, 0   -- [CHICKEN]
+                    local _nUp, _g0 = 0, getGoldAmount()   -- [CHICKEN] ไว้ log ให้เห็นว่าทำจริง
                     while getgenv().AutoUpgradeBlade do
                         local ready = isUpgradeReady()
                         local gold = getGoldAmount()
@@ -2973,6 +2982,10 @@ if IsLobbyLobby() then
 
                         if ready and gold >= 1000 then
                             batchUpgradeBlade()
+                            _nUp = _nUp + 1
+                            if _nUp == 1 then
+                                print(string.format("[UPGRADE] ⚙️ เริ่มอัพดาบ — ทอง %d", gold))
+                            end
                             -- [CHICKEN] ทองไม่ลด 5 ครั้งติด = ตัน → ปิดเอง (เดิมยิงวนฟรีตลอด)
                             if _pgB >= 0 and gold >= _pgB then
                                 _stB = _stB + 1
@@ -2992,6 +3005,8 @@ if IsLobbyLobby() then
                             task.wait(2)
                         end
                     end
+                    print(string.format("[UPGRADE] ✅ อัพดาบจบ — ยิงไป %d ครั้ง | ใช้ทอง %s",
+                        _nUp, tostring(math.max(0, _g0 - getGoldAmount()))))
                     getgenv().UpgradeRunning = false
                 end)
             end
@@ -5441,6 +5456,7 @@ task.spawn(function()
     elseif IsLobbyLobby() then
         print("[AUTO] 🏠 Lobby — เริ่มลำดับงาน")
         getgenv().VenozChoresDone = false     -- brain ต้องรอจนกว่าจะเสร็จ
+        getgenv()._VZChoreWait    = 0         -- 🐛 [FIX] เริ่มนับใหม่ทุกครั้งที่เข้า lobby
         setv("ClaimDelaySlider", VZ.ClaimDelay)
 
         local dc = dayCache()
@@ -6055,11 +6071,12 @@ task.spawn(function()
                 --      (ขาย perk ทำไปแล้วข้างบน — ไม่ต้องรอ เพราะสำคัญและเร็ว)
                 if not getgenv().VenozChoresDone then
                     getgenv()._VZChoreWait = (getgenv()._VZChoreWait or 0) + 1
-                    if getgenv()._VZChoreWait <= 12 then       -- รอสูงสุด ~96 วิ
+                    if getgenv()._VZChoreWait <= 20 then       -- รอสูงสุด ~160 วิ
+                                                              -- (อัพดาบอย่างเดียวกินได้ถึง 120 วิ)
                         setStatus("⏳ กำลังเก็บงาน lobby (เควส/อัพเกรด/สกิล)...")
                         return
                     end
-                    warn("[BRAIN] ⚠️ งาน lobby ไม่จบใน 96 วิ → ไปต่อเลย")
+                    warn("[BRAIN] ⚠️ งาน lobby ไม่จบใน 160 วิ → ไปต่อเลย")
                     getgenv().VenozChoresDone = true
                 end
 
