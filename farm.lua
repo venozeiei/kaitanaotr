@@ -18,17 +18,22 @@
 --  ถ้าไม่เห็น 4 บรรทัดนี้ใน F9 = ยังรันโค้ดตัวเก่าอยู่ ให้ paste ไฟล์ใหม่ทับ
 -- ═══════════════════════════════════════════════════════════════
 print("═══════════════════════════════════════════════")
-print("🛡️ VENOZ NO-SB — BUILD v5.5")
+print("🛡️ VENOZ NO-SB — BUILD v7.1")
 print("   🔁 RETRY กดครั้งเดียว (รอนิ่ง 3 วิก่อนกด)")
 print("   ⚡ เข้าด่าน = ฟาร์มทันที ไม่รอโหลดอะไรทั้งนั้น")
 print("   ⬛ จอว่างทุกที่ (Main Menu + Lobby + ในด่าน) + ปิดแชทถาวร")
 print("   ⏳ แก้ค้างจอ LOADING ตอนกดออกจากด่าน")
-print("   🐛 คืน batchUpgradeBlade() ที่ผมเผลอลบทิ้ง = ตัวจริงที่ทำให้อัพไม่ได้")
+print("   🐛 TS: แก้ objective ด่าน — Forest=Guard, Utgard=Defend (เดิม Skirmish = ไม่มีกล่อง)")
+print("   🐛 TS: Forest ต้องตีถึง req-5 ก่อน กล่องถึงจะ spawn (ยกลำดับบอทเก่ามา)")
+print("   🐛 TS: สมองบอทไม่เคยรู้จักธง TS → จบด่านแล้วกด RETRY ซ้ำ (แก้แล้ว)")
+print("   👑 แก้ GoldReq ไม่มีผล — UI2 มีระบบจุติของตัวเองชิงจุติก่อน (ปิดแล้ว)")
+print("   🚪 TS: แมพ TS เล่นรอบเดียวแล้วออกเสมอ ไม่ RETRY ซ้ำ")
+print("   🔍 เช็คให้เลยว่าคอนฟิกส่งถึงสคริปจริงไหม (ดูบรรทัด [CONFIG])")
 print("   🛡️ ใช้ remote ทั้งหมดเหมือนเดิม แต่ทุกจุดมีด่านเช็คก่อนยิง")
 print("   🔇 ปิดเคลมเควส/achievement/สกิล เป็นค่าเริ่มต้น (ตัดไป 281 call)")
 print("   🗑️ ตัดโค้ดไม่ใช้ทิ้ง 2,749 บรรทัด")
 print("═══════════════════════════════════════════════")
-getgenv().VenozBuild = "v5.5-nosb"
+getgenv().VenozBuild = "v7.1-nosb"
 
 -- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
 task.spawn(function()
@@ -253,6 +258,7 @@ getgenv().VenozPressing    = 0   -- ⚠️ ต้องรีเซ็ตด้�
 --    = ดาบไม่เคยถูกอัพเลยตั้งแต่รอบที่ 2 เป็นต้นไป (ฟาร์มช้าเพราะดาบพังบ่อย)
 getgenv()._VZChoreWait     = 0
 getgenv()._VZLastUpgradeT  = nil   -- คูลดาวน์อัพดาบ ก็ต้องรีเซ็ตเหมือนกัน
+getgenv()._VZTSWhy         = nil   -- เหตุผลที่ยังไม่ทำหอก (ไว้กัน log ซ้ำ)
 getgenv()._VZUpgFailGold   = nil
 getgenv()._VZUpgSet        = nil
 
@@ -316,6 +322,33 @@ getgenv().SafeFire = SafeFire
 -- ═══════════════════════════════════════════════════════════════
 getgenv().VenozChicken = getgenv().VenozChicken or {}
 local VZC = getgenv().VenozChicken
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🔍 CONFIG CHECK — พิสูจน์ว่า "คอนฟิกที่ paste ไว้ ส่งถึงสคริปจริงไหม"
+-- ═══════════════════════════════════════════════════════════════
+--   ทำไมต้องมี: ตัวโหลดบางแบบ (เช่นระบบกันโค้ดที่ obfuscate หนักๆ)
+--   อาจ sandbox environment จน getgenv() ที่เรา paste ไว้ "ไม่ถึง" สคริป
+--   → สคริปจะตกไปใช้ค่า default แทน โดยที่เราไม่รู้ตัวเลย
+--   ถ้าบรรทัดข้างล่างขึ้น "ไม่พบคอนฟิก" = คอนฟิกไม่ถึง ต้องแก้วิธีโหลด
+-- ═══════════════════════════════════════════════════════════════
+do
+    local n = 0
+    for _ in pairs(VZC) do n = n + 1 end
+    local function yn(v, dflt)
+        if v == nil then return "(default:" .. tostring(dflt) .. ")" end
+        return tostring(v)
+    end
+    if n <= 8 then
+        warn("[CONFIG] ⚠️ ไม่พบคอนฟิก! (getgenv().VenozChicken มีแค่ " .. n .. " คีย์)")
+        warn("[CONFIG]    = คอนฟิกที่ paste ไว้ 'ส่งไม่ถึงสคริป' → กำลังใช้ค่า default ล้วน")
+        warn("[CONFIG]    ถ้าโหลดผ่านระบบกันโค้ด ให้ลองโหลดแบบธรรมดาแทน")
+    else
+        print("[CONFIG] ✅ อ่านคอนฟิกได้ " .. n .. " คีย์")
+    end
+    print(string.format("[CONFIG] 🛡️ ค่าที่มีผลกับความเสี่ยงโดนแบน: Quest=%s Achieve=%s Skills=%s Upgrade=%s",
+        yn(VZC.AutoQuest, false), yn(VZC.AutoAchieve, false),
+        yn(VZC.AutoSkills, false), yn(VZC.AutoUpgrade, true)))
+end
 if VZC.Enabled == nil then VZC.Enabled = true end
 VZC.AttackInterval = tonumber(VZC.AttackInterval) or 1
 VZC.HitCap         = tonumber(VZC.HitCap)         or 3
@@ -459,6 +492,22 @@ local function Venoz3DIsOn()
     return (not ok) or v
 end
 getgenv().Venoz3D = Venoz3D
+
+-- ═══════════════════════════════════════════════════════════════
+-- ⏳ VENOZ STAGGER — หน่วงสุ่มก่อน teleport (กระจายโหลด 40 จอ)
+-- ═══════════════════════════════════════════════════════════════
+--   เปิดหลายจอแล้ววาปพร้อมกัน = Roblox error 769 / 529
+--   และ 40 บัญชีที่จังหวะตรงกันเป๊ะก็ดูผิดธรรมชาติด้วย
+--   TeleportStagger = 0 ในคอนฟิก → ปิดระบบนี้
+local function VenozStagger(tag)
+    local sec = tonumber((getgenv().VenozChicken or {}).TeleportStagger)
+    if sec == nil then sec = 8 end
+    if sec <= 0 then return end
+    local d = math.random() * sec
+    print(string.format("[STAGGER] ⏳ รอ %.1f วิ ก่อน %s (กระจายโหลด)", d, tostring(tag or "teleport")))
+    task.wait(d)
+end
+getgenv().VenozStagger = VenozStagger
 
 local function VenozPress(btn)
     if not (btn and btn.Parent and btn:IsA("GuiObject")) then return false end
@@ -5606,15 +5655,43 @@ task.spawn(function()
         end
 
         if VZ.AutoPrestige and has("PrestigeToggle") then
-            print("[AUTO] 👑 เปิดจุติอัตโนมัติ")
+            -- 🐛 [FIX] เดิมเปิดระบบจุติของ UI2 ด้วย ทั้งที่สมองบอทก็มีของตัวเอง
+            --    = มี "2 ระบบจุติ" วิ่งพร้อมกัน แล้ว UI2 ชิงจุติก่อนเสมอ
+            --    เพราะ canPrestige() ของ UI2 เขียนไว้ว่า:
+            --        if getgenv().ForceGoldRequirement then ...เช็คทอง... end
+            --        return true          ← ForceGold = false → ผ่านเลย ไม่สนทอง
+            --    ผลคือ GoldReq ที่ตั้งไว้ 350M ไม่มีผลอะไรเลย จุติทันทีที่เลเวลตัน
+            --
+            --    ✅ Brain เปิดอยู่ → ให้ Brain คุมคนเดียว ไม่เปิดของ UI2
+            --       (Brain เช็ค GoldReq + จัดการ talent ครบกว่าอยู่แล้ว)
             setv("BoostDropdown", VZ.PrestigeBoost)
             setv("PrestigeCooldownSlider", VZ.PrestigeCooldown)
+
+            -- ซิงค์เลขทองเข้า slider ของ UI2 + บังคับเปิด ForceGold ไว้เสมอ
+            -- (เผื่อ toggle ของ UI2 ถูกเปิดจากที่อื่น อย่างน้อยมันจะยังเคารพเกณฑ์ทอง)
             local gk = {"GoldReq_0to1","GoldReq_1to2","GoldReq_2to3","GoldReq_3to4","GoldReq_4to5"}
             for i, name in ipairs(gk) do
                 if VZ.GoldReq[i] then setv(name, VZ.GoldReq[i]) end
             end
-            if VZ.ForceGold then setv("ForceGoldToggle", true) end
-            setv("PrestigeToggle", true)
+            setv("ForceGoldToggle", true)
+            getgenv().ForceGoldRequirement = true
+            pcall(function()
+                for i, v in ipairs(VZ.GoldReq or {}) do
+                    if getgenv().PrestigeGoldRequirement then
+                        getgenv().PrestigeGoldRequirement[i] = tonumber(v) or 0
+                    end
+                end
+            end)
+
+            if VZ.Brain == false then
+                print("[AUTO] 👑 เปิดจุติอัตโนมัติ (ใช้ระบบของ UI2 เพราะ Brain ปิดอยู่)")
+                setv("PrestigeToggle", true)
+            else
+                print(string.format("[AUTO] 👑 จุติให้ Brain คุมคนเดียว — ต้องมีทองถึงเกณฑ์ก่อน (%s)",
+                    table.concat(VZ.GoldReq or {}, "/") .. "M"))
+                setv("PrestigeToggle", false)
+                getgenv().PrestigeEnabled = false
+            end
         end
 
         if VZ.AutoRaid and has("AutoRaidToggle") then
@@ -5874,6 +5951,204 @@ task.spawn(function()
         local full = (mx > 0 and xp >= mx) or ((pct or 0) >= 100)
         return (lv > 0 and lv >= (100 + pr * 25) and full), pr
     end
+    -- ═══════════════════════════════════════════════════════════════
+    -- ⚡ THUNDER SPEAR QUESTLINE — ยกระบบเดิมของบอทไก่ตันมาทั้งชุด
+    -- ═══════════════════════════════════════════════════════════════
+    --   คนละเรื่องกับ AutoSpearQuest ของ UI2 (ที่เก็บกล่องในด่านเดียว)
+    --   ระบบนี้คือ "ตามเก็บชิ้นส่วนหอก 3 ชิ้น" ชิ้นละแมพ:
+    --     Outskirts → Handle | Utgard → Thruster | Forest → Base
+    --   เช็คจาก inventory ตรงๆ (แม่นสุด): มี item "Thunder Spear - <ชิ้น>" = ได้แล้ว
+    --   ⚠️ Handle ข้ามถาวร — เควส Escort พังฝั่งเกม (Questline.lua ไม่มี Update_Spear_Escort
+    --      ทดสอบ 12 remote pattern คืน nil หมด) ถ้าไม่ข้ามบอทจะวน Outskirts ไม่จบ
+    --      → นับว่า "ครบ" เมื่อได้ Thruster + Base
+    --   เงื่อนไขเริ่มทำ: จุติ >= ThunderSpearAtPrestige + level ตัน + XP เต็ม
+    --   ต้องทำ "ก่อนจุติ" เสมอ ไม่งั้นจุติแล้วหลุดสภาพตัน = ไม่ได้ทำ
+    -- ═══════════════════════════════════════════════════════════════
+    local TS_MAP_TO_PART = { Outskirts = "Handle", Utgard = "Thruster", Forest = "Base" }
+    local TS_ITEM = {
+        Handle   = "Thunder Spear - Handle",
+        Thruster = "Thunder Spear - Thruster",
+        Base     = "Thunder Spear - Base",
+    }
+    local TS_TAGS = { "Towers", "Escort", "Ice Burst Stones",
+        "Retrieve Missing Supplies", "Defend Missing Supplies" }
+
+    local function invHas(inv, itemName)
+        if type(inv) ~= "table" then return false end
+        for _, cat in pairs(inv) do          -- inventory แยกเป็นหมวด → ไล่ทุกหมวด
+            if type(cat) == "table" then
+                for name, amt in pairs(cat) do
+                    if name == itemName and (tonumber(amt) or 0) > 0 then return true end
+                end
+            end
+        end
+        return false
+    end
+    local function tsHasPart(part, inv) return invHas(inv, TS_ITEM[part] or "\0") end
+    local function tsAllDone(inv) return tsHasPart("Thruster", inv) and tsHasPart("Base", inv) end
+    local function tsNextMap(inv)
+        if not tsHasPart("Base", inv) then return "Forest" end
+        if not tsHasPart("Thruster", inv) then return "Utgard" end
+        return nil                            -- Handle: ข้าม (เควสพังฝั่งเกม)
+    end
+    local function tsQuests()
+        local sd = getSlot()
+        local out = {}
+        if sd and sd.Quests and type(sd.Quests.Spears) == "table" then
+            for _, q in pairs(sd.Quests.Spears) do
+                if type(q) == "table" then
+                    out[#out + 1] = { Tag = tostring(q.Tag or ""), Rewarded = q.Rewarded == true }
+                end
+            end
+        end
+        return out
+    end
+    local function tsClaimed(tag)
+        for _, q in ipairs(tsQuests()) do
+            if q.Tag == tag then return q.Rewarded end
+        end
+        return false
+    end
+    -- เคลมเฉพาะ tag ที่ยังไม่ Rewarded + cooldown 10 วิ (กันยิง remote รัว)
+    local function tsClaimAll()
+        local now = os.clock()
+        local last = tonumber(getgenv()._VZTSClaim) or 0
+        if now >= last and (now - last) < 10 then return false end
+        getgenv()._VZTSClaim = now
+        local rewarded = {}
+        for _, q in ipairs(tsQuests()) do
+            if q.Rewarded and q.Tag ~= "" then rewarded[q.Tag] = true end
+        end
+        local any = false
+        for _, tag in ipairs(TS_TAGS) do
+            if not rewarded[tag] then
+                local ok, res = pcall(function()
+                    return GETb:InvokeServer("Functions", "Quest", tag, "Spears")
+                end)
+                if ok and res then any = true print("[TS] 🎁 เคลม: " .. tag) end
+                task.wait(0.15 + math.random() * 0.1)
+            end
+        end
+        return any
+    end
+
+    -- คืน true = สร้างด่าน TS แล้ว → ให้ brain ข้ามการสร้าง Chapel รอบนี้
+    local function tryThunderSpear(pr, tan)
+        if VZ.AutoThunderSpearQuest ~= true then return false end
+
+        local prN   = tonumber(pr) or 0
+        local minP  = tonumber(VZ.ThunderSpearAtPrestige) or 2
+        local target = tonumber(VZ.PrestigeTarget) or 5
+
+        if prN < minP then
+            if getgenv()._VZTSWhy ~= "prestige" then
+                getgenv()._VZTSWhy = "prestige"
+                print(string.format("[TS] ⏸️ ยังไม่ทำหอก — จุติ P.%d ยังไม่ถึง P.%d ที่ตั้งไว้", prN, minP))
+            end
+            return false
+        end
+
+        -- ⭐ กติกา "ต้องรอเลเวลตันไหม" — อิงว่าจุติตอนนี้ "เท่ากับ" หรือ "เกิน" ค่าที่ตั้งไว้
+        --    • จุติ == ที่ตั้งไว้  → รอตันก่อน  (เพิ่งมาถึงจุดนั้น ยังเก็บ XP ต่อได้)
+        --    • จุติ >  ที่ตั้งไว้  → ลุยเลย     (เลยจุดที่สั่งไว้แล้ว ไม่ต้องรออะไรอีก)
+        --    ตัวอย่าง:
+        --      ตั้ง 5 + ตอนนี้ P.5  → รอตัน 225 ก่อน
+        --      ตั้ง 4 + ตอนนี้ P.5  → ทำหอกทันที ไม่สนเลเวล
+        --      ตั้ง 4 + ตอนนี้ P.4  → รอตันก่อน
+        local needCap = (prN <= minP)
+        if VZ.ThunderSpearNeedCap ~= nil then needCap = (VZ.ThunderSpearNeedCap == true) end
+
+        if needCap and not tan then
+            if getgenv()._VZTSWhy ~= "cap" then
+                getgenv()._VZTSWhy = "cap"
+                print(string.format("[TS] ⏸️ ยังไม่ทำหอก — จุติ P.%d เท่ากับที่ตั้งไว้พอดี → รอเลเวลตันก่อน"
+                    .. " (ถ้าอยากให้ทำเลย ตั้ง ThunderSpearAtPrestige ต่ำกว่านี้)", prN))
+            end
+            return false
+        end
+
+        if getgenv()._VZTSWhy ~= "go" then
+            getgenv()._VZTSWhy = "go"
+            print(string.format("[TS] ▶️ เงื่อนไขครบ → เริ่มหาชิ้นส่วนหอก (จุติ P.%d | ตั้งไว้ P.%d | ตัน=%s | ต้องรอตัน=%s)",
+                prN, minP, tostring(tan), tostring(needCap)))
+        end
+
+        tsClaimAll()
+        task.wait(0.3)
+        getSlot(true)
+        local sd = getSlot()
+        local inv = sd and sd.Inventory
+        if not inv then return false end
+
+        if tsAllDone(inv) then
+            if not getgenv()._VZTSDone then
+                getgenv()._VZTSDone = true
+                print("[TS] ⚡ ได้หอกครบแล้ว (Thruster + Base) → ไม่ต้องทำอีก")
+            end
+            return false
+        end
+
+        local nextMap = tsNextMap(inv)
+        if not nextMap then return false end
+
+        getgenv()._VZTSTry = getgenv()._VZTSTry or {}
+        local part = TS_MAP_TO_PART[nextMap]
+        getgenv()._VZTSTry[part] = (getgenv()._VZTSTry[part] or 0) + 1
+        local attempts = getgenv()._VZTSTry[part]
+
+        -- Outskirts: ถ้า Towers เคลมไปแล้ว = ไม่ต้องสร้างหอ → ใช้ Escort ตรงๆ
+        -- ⚠️ [กลับของเดิม] ผมเคยเดาว่าต้องใช้ objective เฉพาะของแต่ละแมพ
+        --    (Forest = "Guard", Utgard = "Defend") — ทดสอบแล้ว **ผิด**
+        --    "Guard" ของ Forest คือภารกิจ "Guard Annie [0/5]" คนละเรื่องกับกล่องเสบียง
+        --    ✅ ของจริงคือ Skirmish — ยืนยันจากหน้าเควสของเจ้าของบอทเอง:
+        --       RETRIEVE MISSING SUPPLIES ขึ้น CLAIMED 3/3 และ ICE BURST STONES 3/3
+        --       = สองเควสนี้ทำสำเร็จมาแล้วด้วย Skirmish
+        --    กล่องเสบียง/Ice Burst เป็น "เหตุการณ์ที่โผล่ระหว่างด่าน" ไม่ใช่ objective หลัก
+        --    → เจอก็เก็บ ไม่เจอก็ปล่อยด่านจบไป แล้วเข้าใหม่รอบหน้า
+        -- ✅ Skirmish ล้วน — ยืนยันโดยเจ้าของบอท
+        --    (ถอดสาขา Escort ทิ้งด้วย: tsNextMap คืนแค่ Forest/Utgard เท่านั้น
+        --     Outskirts ถูกข้ามถาวรอยู่แล้ว → โค้ดนั้นไม่มีวันทำงาน)
+        local obj = "Skirmish"
+
+        print(string.format("[TS] ⚡ ตันแล้ว (P%d) → ไปเก็บ %s ที่ %s (%s, ครั้งที่ %d)",
+            pr, tostring(part), nextMap, obj, attempts))
+        print(string.format("[TS]   Handle=%s Thruster=%s Base=%s",
+            tsHasPart("Handle", inv) and "✅" or "❌",
+            tsHasPart("Thruster", inv) and "✅" or "❌",
+            tsHasPart("Base", inv) and "✅" or "❌"))
+        getgenv().VenozAction = string.format("⚡ TS → %s (%s)", nextMap, obj)
+
+        pcall(function() GETb:InvokeServer("S_Missions", "Leave") end)
+        task.wait(1)
+        local mapData = { Name = nextMap, Type = "Missions",
+            Objective = obj, Difficulty = "Aberrant", Modifiers = {} }
+        local res
+        pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
+        if res == nil and obj ~= "Skirmish" then
+            print("[TS] ⚠️ " .. obj .. " สร้างไม่ได้ → ลอง Skirmish")
+            mapData.Objective = "Skirmish"
+            pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
+        end
+        if res == nil then
+            for _, d in ipairs({ "Hard", "Normal", "Easy" }) do
+                mapData.Difficulty = d
+                pcall(function() res = GETb:InvokeServer("S_Missions", "Create", mapData) end)
+                if res ~= nil then break end
+                task.wait(0.5)
+            end
+        end
+        if res ~= nil then
+            latchDiff(mapData.Difficulty)
+            pcall(function() GETb:InvokeServer("S_Missions", "Modify", mapData.Difficulty) end)
+            VenozStagger("เข้าด่าน TS")
+            pcall(function() GETb:InvokeServer("S_Missions", "Start") end)
+            print(string.format("[TS] ✅ เข้าด่าน %s (%s)", nextMap, mapData.Difficulty))
+            return true
+        end
+        warn("[TS] ⚠️ สร้างด่าน " .. nextMap .. " ไม่ได้ → กลับไปฟาร์ม Chapel")
+        return false
+    end
+
     -- 🖱️ ใช้คลิกเมาส์จริง (ปุ่มหน้าจบด่านไม่รับวิธี GuiService+Enter)
     local function clickBtn(btn)
         if not btn then return false end
@@ -6180,6 +6455,10 @@ task.spawn(function()
                     getgenv().VenozChoresDone = true
                 end
 
+                -- 3.6) ⚡ Thunder Spear questline
+                --      ⚠️ ต้องทำ "ก่อนจุติ" — จุติแล้วจะหลุดสภาพตัน = ไม่ได้ทำอีกยาว
+                if tryThunderSpear(pr, tan) then return end
+
                 -- 4) จุติ (ตัน + ยังไม่ถึงเป้า + ทองถึงเกณฑ์)
                 if tan and pr < VZ.PrestigeTarget then
                     local reqM = tonumber(VZ.GoldReq[pr + 1]) or 0
@@ -6211,7 +6490,13 @@ task.spawn(function()
                     local sellable = perkInfo()
                     local tan, pr = isTan()
                     local pT = perkTarget()
-                    local wantLeave = (sellable >= pT) or (tan and pr < VZ.PrestigeTarget)
+                    -- 🐛 [FIX] เดิมไม่เคยเช็คธงของระบบ TS เลย
+                    --    → จบด่าน TS ปุ๊บ สมองบอทตัดสินจาก perk/จุติ แล้วสั่ง RETRY
+                    --      = วนเล่นแมพ TS ซ้ำไม่จบ ทั้งที่งานเสร็จแล้ว
+                    local tsLeave = (getgenv().VenozTSWantLeave == true)
+                    local wantLeave = tsLeave
+                        or (sellable >= pT) or (tan and pr < VZ.PrestigeTarget)
+                    if tsLeave then setStatus("🚪 ออกจากแมพ TS (งานเสร็จแล้ว)") end
                     if wantLeave then
                         getgenv().StartRejoin = false
                         local b = rewards:FindFirstChild("Main")
@@ -8930,6 +9215,677 @@ if Tabs.AutoFarm then
         end
     })
 end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🎁 TS CLAIM — เคลมเควส Spears (ยกจากบอทเก่า + เพิ่มตัวกดปุ่มจริง)
+-- ═══════════════════════════════════════════════════════════════
+--   🐛 บั๊กที่เจอ: เควส Spears ทำเสร็จแล้ว (3/3 ขึ้นปุ่ม CLAIM) แต่ไม่มีใครกด
+--      เพราะระบบเคลมเควสของ UI2 อยู่ใต้ day-cache (เคลมวันละครั้ง)
+--      → Spears เพิ่งเสร็จทีหลัง = ตกรอบไปเลย ไม่ได้ชิ้นส่วน
+--   ✅ แยกออกมาเป็นตัวของมันเอง ไม่ผูก day-cache — อยู่ lobby ก็เคลมทุกครั้ง
+--      ยิงเฉพาะ tag ที่ยังไม่ Rewarded (ไม่เปลือง remote) + กดปุ่มใน UI เป็นตัวสำรอง
+--   ⚠️ ตัวกดปุ่มใช้ "คลิกเมาส์จริง" (VenozPress) — ทดสอบแล้วว่าเกมนี้
+--      ไม่รับ getconnections():Fire() (โค้ดเก่าใช้วิธีนั้น เลยน่าจะไม่เคยติด)
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    local VZc = getgenv().VenozChicken or {}
+    if VZc.AutoThunderSpearQuest ~= true then return end
+    if not IsLobbyLobby() then return end          -- ร้านเควสเปิดได้แค่ที่ lobby
+
+    local TAGS = { "Towers", "Escort", "Ice Burst Stones",
+        "Retrieve Missing Supplies", "Defend Missing Supplies" }
+    local plrC = game:GetService("Players").LocalPlayer
+    local GETc = game:GetService("ReplicatedStorage")
+        :WaitForChild("Assets", 20):WaitForChild("Remotes", 20):WaitForChild("GET", 20)
+    if not GETc then return end
+
+    -- ═══════════════════════════════════════════════════════
+    -- 🚦 ประตูด่านแรก: ยังไม่ถึงจุติเป้า + ยังไม่ตัน = ไม่ทำอะไรเลย
+    --    เดิมเริ่มยิงตั้งแต่จุติ 0 ทั้งที่จะใช้จริงตอนจุติ 5 → เปลืองเปล่าทั้งวัน
+    --    ⚠️ ตอนรอ "ไม่ยิง remote สักตัว" — อ่านจาก attribute + ข้อมูลที่ระบบอื่น
+    --       ดึงมาอยู่แล้ว (getgenv().VenozRaw) เท่านั้น
+    -- ═══════════════════════════════════════════════════════
+    local minP = tonumber(VZc.ThunderSpearAtPrestige) or 2
+    local function gateOK()
+        local pr = tonumber(plrC:GetAttribute("Prestige"))
+        local lv = tonumber(plrC:GetAttribute("Level"))
+        local xp = tonumber(plrC:GetAttribute("XP"))
+        local mx = tonumber(plrC:GetAttribute("Max_XP"))
+        local shared = getgenv().VenozRaw
+        if type(shared) == "table" and type(shared.Slots) == "table" then
+            local sd = shared.Slots[shared.Current_Slot]
+            local pg = sd and sd.Progression
+            if pg then
+                pr = tonumber(pg.Prestige) or pr
+                lv = tonumber(pg.Level)    or lv
+                xp = tonumber(pg.XP)       or xp
+                mx = tonumber(pg.Max_XP)   or mx
+            end
+        end
+        pr, lv = pr or 0, lv or 0
+        if pr < minP then return false, pr, lv end
+
+        -- 🐛 [FIX] เดิมบังคับ "ตัน + XP เต็ม" ถึงจะยอมเคลม
+        --    → จอ P.5 Lv.137/225 ทำเควสเสร็จ ออกจากด่านมาแล้ว แต่ไม่มีใครกดรับให้
+        --      เพราะด่านนี้ยังไม่ตัน = เควสค้างเป็น "ทำครบแต่ไม่ได้ของ" ตลอดกาล
+        --    ✅ ใช้กติกาเดียวกับตอนตัดสินใจไปทำหอก:
+        --         จุติ == ที่ตั้งไว้ → ต้องตันก่อน
+        --         จุติ >  ที่ตั้งไว้ → เคลมได้เลย
+        --    เหตุผล: ถ้าเควสทำครบแล้ว การไม่กดรับไม่ได้ช่วยอะไรเลย มีแต่เสียของ
+        local needCap = (pr <= minP)
+        local VZg = getgenv().VenozChicken or {}
+        if VZg.ThunderSpearNeedCap ~= nil then needCap = (VZg.ThunderSpearNeedCap == true) end
+        if not needCap then return true, pr, lv end
+
+        local capped = lv >= (100 + pr * 25)
+        local full = (mx and mx > 0 and xp and xp >= mx) or false
+        return (capped and full), pr, lv
+    end
+
+    do
+        local ok, pr, lv = gateOK()
+        if not ok then
+            print(string.format("[TS] 💤 ยังไม่ถึงเงื่อนไข (P%d Lv%d / ต้อง P%d + ตัน) → ยังไม่ยิงอะไรเลย",
+                pr, lv, minP))
+        end
+        while not gateOK() do task.wait(30) end     -- รอเฉยๆ ไม่มี remote
+        print("[TS] 🎯 ถึงเงื่อนไขแล้ว → เริ่มระบบเคลมเควส Spears")
+    end
+
+    -- กดปุ่ม CLAIM ที่โผล่อยู่ใน UI (ทำงานเฉพาะตอนหน้าเควสเปิดอยู่)
+    local function clickClaimButtons()
+        local n = 0
+        pcall(function()
+            local pg = plrC:FindFirstChild("PlayerGui")
+            if not pg then return end
+            local function scan(root, depth)
+                if depth > 8 then return end
+                for _, ch in ipairs(root:GetChildren()) do
+                    if ch:IsA("TextButton") or ch:IsA("TextLabel") then
+                        local t = string.upper(tostring(ch.Text or ""))
+                        if t == "CLAIM" and ch.Visible
+                            and ch.AbsolutePosition.X > 10 and ch.AbsolutePosition.Y > 10 then
+                            local btn = ch
+                            if not btn:IsA("GuiButton") then
+                                local p = ch.Parent
+                                for _ = 1, 3 do
+                                    if not p then break end
+                                    if p:IsA("GuiButton") then btn = p break end
+                                    p = p.Parent
+                                end
+                            end
+                            if btn:IsA("GuiButton") and getgenv().VenozPress then
+                                getgenv().VenozPress(btn)   -- คลิกเมาส์จริง
+                                n = n + 1
+                                task.wait(0.25)
+                            end
+                        end
+                    end
+                    scan(ch, depth + 1)
+                end
+            end
+            scan(pg, 0)
+        end)
+        if n > 0 then print(string.format("[TS] 🖱️ กดปุ่ม CLAIM ใน UI %d ปุ่ม", n)) end
+        return n
+    end
+
+    local function pending()
+        local out = {}
+        pcall(function()
+            local d
+            local ok, r = pcall(function() return GETc:InvokeServer("Data", "Copy") end)
+            if ok and type(r) == "table" and r.Slots then d = r end
+            if not d then
+                ok, r = pcall(function() return GETc:InvokeServer("Functions", "Settings", "Blur", "Off") end)
+                if ok and type(r) == "table" and r.Slots then d = r end
+            end
+            local sd = d and d.Slots[d.Current_Slot]
+            local q = sd and sd.Quests and sd.Quests.Spears
+            if type(q) ~= "table" then return end
+            for _, v in pairs(q) do
+                if type(v) == "table" and v.Tag and v.Rewarded ~= true then
+                    -- ✅ เคลมเฉพาะอันที่ "ทำครบแล้วจริง" (Current >= Requirement)
+                    --    เควสที่ยังไม่ครบ ยิงไปก็คืน nil เปล่าๆ = รอยเท้าบอทชัดๆ
+                    local cur = tonumber(v.Current) or 0
+                    local req = tonumber(v.Requirement) or tonumber(v.Required) or 0
+                    if req <= 0 or cur >= req then
+                        out[tostring(v.Tag)] = true
+                    end
+                end
+            end
+        end)
+        return out
+    end
+
+    -- ═══════════════════════════════════════════════════════
+    -- 🛡️ ANTI-BAN: tag ไหนยิงแล้วไม่ผ่าน = เลิกยิงถาวร
+    --    (Towers ต้องไปทำที่ Outskirts ซึ่งเราข้าม / Escort ในเกม LOCKED
+    --     → 2 ตัวนี้ไม่มีวันเคลมได้ ถ้าไม่กันไว้จะยิงซ้ำทุกรอบตลอดกาล)
+    -- ═══════════════════════════════════════════════════════
+    local dead, tries = {}, {}
+    local MAX_TRY = 2                              -- ยิงพลาด 2 ครั้ง = เลิกสนใจ tag นั้น
+
+    task.wait(15)                                  -- รอข้อมูล slot โหลดก่อน
+    while true do
+        -- เช็คประตูทุกรอบ — ถ้าหลุดเงื่อนไข (เช่นจุติต่อแล้วยังไม่ตัน) หยุดยิงทันที
+        if not gateOK() then
+            task.wait(60)
+            continue
+        end
+        local todo = pending()
+        local list = {}
+        for _, tag in ipairs(TAGS) do
+            if todo[tag] and not dead[tag] then list[#list + 1] = tag end
+        end
+        if #list > 0 then
+            print("[TS] 🎁 เควส Spears ที่ทำครบแล้ว: " .. table.concat(list, ", "))
+            for _, tag in ipairs(list) do
+                local ok, res = pcall(function()
+                    return GETc:InvokeServer("Functions", "Quest", tag, "Spears")
+                end)
+                if ok and res then
+                    print("[TS] 🎁 เคลม: " .. tag)
+                    tries[tag] = nil
+                else
+                    tries[tag] = (tries[tag] or 0) + 1
+                    if tries[tag] >= MAX_TRY then
+                        dead[tag] = true
+                        warn("[TS] 🛑 " .. tag .. " เคลมไม่ผ่าน " .. MAX_TRY
+                            .. " ครั้ง → เลิกยิงถาวร (กันรอยเท้าบอท)")
+                    end
+                end
+                task.wait(0.4 + math.random() * 0.3)
+            end
+            task.wait(1)
+            clickClaimButtons()                    -- สำรอง: กดปุ่มถ้าหน้าเควสเปิดอยู่
+        end
+        -- ⏱️ เดิม 45 วิ = ยิงซ้ำเยอะเกินไป → 5 นาที (เควสเสร็จตอนจบด่าน ไม่ต้องรีบ)
+        task.wait(300)
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- ⚡ TS MISSION — ระบบ "ในด่าน" ของบอทเก่า (ยกมาทั้งชุด)
+-- ═══════════════════════════════════════════════════════════════
+--   🐛 ที่ผ่านมา: brain สร้างด่าน TS ให้ถูกแล้ว แต่พอเข้าไป
+--      มันฟันไททันจบด่านเฉยๆ ไม่ได้ทำ objective ของเควส → ไม่ได้ชิ้นส่วน
+--   ✅ ตัวนี้คือส่วนที่ขาด — งานในด่านแยกตามแมพ:
+--        Forest    (Base)     : ฆ่าไททันถึง margin → เก็บ crate ส่งวงเหลือง → ตีต่อ
+--        Utgard    (Thruster) : ฆ่า Ice Burst 3 ตัว (ตีทุกตัวเพื่อ progress)
+--        Outskirts (Handle)   : ฆ่าเหลือ 5 → สร้างหอ 3 หลัง → ตีต่อ
+--   ⚠️ ตอนเก็บ crate ต้อง "ปิดฟาร์มดาบชั่วคราว" ไม่งั้นแย่งวาร์ปตัวละครกัน
+--      (ระบบฟาร์มวาร์ปไปหัวไททัน / ตัวนี้วาร์ปไปกล่อง = ตีกันเละ)
+--   ⚠️ ห้ามกด Leave กลางด่าน — เกมจะนับเป็น abandon แล้วเควสไม่ credit
+--      ปล่อยให้ด่านจบเอง แล้ว Rewards UI โผล่ → ระบบ Retry/Leave จัดการต่อ
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+    -- ⚠️ ต้องรีเซ็ตทุกครั้งที่เข้าแมพใหม่ (getgenv ค้างข้ามการ teleport)
+    --    ไม่งั้นธง "อยากออก" จากแมพ TS จะติดค้างไปถึง Chapel = ออกทุกด่าน
+    getgenv().VenozTSWantLeave = false
+    getgenv()._VZTSQChk = nil       -- cache เช็คเควส ต้องเริ่มใหม่ทุกแมพ
+    getgenv()._VZTSQHit = nil
+
+    local VZt = getgenv().VenozChicken or {}
+    if VZt.AutoThunderSpearQuest ~= true then return end
+
+    local TS_PLACE = {
+        Outskirts = { [13904207646] = true, [17373824844] = true },
+        Utgard    = { [15220308770] = true, [18182863694] = true },
+        Forest    = { [14638336319] = true, [17373828240] = true },
+    }
+    local TS_PART_OF = { Outskirts = "Handle", Utgard = "Thruster", Forest = "Base" }
+
+    local myMap
+    for name, ids in pairs(TS_PLACE) do
+        if ids[game.PlaceId] then myMap = name break end
+    end
+    if not myMap then return end   -- ไม่ใช่แมพ TS → เงียบไป
+
+    local part = TS_PART_OF[myMap]
+    local GETs = game:GetService("ReplicatedStorage"):WaitForChild("Assets")
+        :WaitForChild("Remotes"):WaitForChild("GET")
+    getgenv().VenozTSMap = myMap
+    print(string.format("[TS] ⚡ อยู่ในแมพ %s → ภารกิจเก็บชิ้นส่วน %s", myMap, part))
+
+    local plrT = game:GetService("Players").LocalPlayer
+    local RS = game:GetService("ReplicatedStorage")
+
+    local function setFarm(on)
+        local setv = getgenv().VenozSetOpt
+        if type(setv) == "function" then pcall(function() setv("AutoFarmBlade", on) end) end
+    end
+    local function farmIsOn()
+        local t = (Toggles and Toggles.AutoFarmBlade) or (Options and Options.AutoFarmBlade)
+        return t and t.Value == true
+    end
+    -- กดปิดฟาร์มค้างไว้ (autopilot/ตัวอื่นอาจเปิดคืนระหว่างเราทำ objective)
+    local function holdFarmOff()
+        if farmIsOn() then setFarm(false) end
+    end
+    local function objGet(name)
+        local o = RS:FindFirstChild("Objectives")
+        return o and o:FindFirstChild(name)
+    end
+
+    -- วาร์ปไปแตะ hitbox (กล่อง / วงเหลือง / ฐานหอ)
+    local function touchHitbox(hitbox, holdTime)
+        holdTime = holdTime or 1.2
+        if not (hitbox and hitbox.Parent) then return false end
+        local hrp = plrT.Character and plrT.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return false end
+        hrp.Anchored = false
+        hrp.CFrame = CFrame.new(hitbox.Position + Vector3.new(0, 5, 0))
+        task.wait(0.2)
+        local offs = {
+            Vector3.new(0, 0, 0), Vector3.new(2, 0, 0), Vector3.new(-2, 0, 0),
+            Vector3.new(0, 0, 2), Vector3.new(0, 0, -2), Vector3.new(0, -2, 0),
+        }
+        local i, endT = 1, os.clock() + holdTime
+        while os.clock() < endT and hrp.Parent do
+            hrp.CFrame = CFrame.new(hitbox.Position + offs[i])
+            if type(firetouchinterest) == "function" then
+                pcall(function()
+                    firetouchinterest(hrp, hitbox, 0)
+                    firetouchinterest(hrp, hitbox, 1)
+                end)
+            end
+            task.wait(0.15)
+            i = i % #offs + 1
+        end
+        return true
+    end
+
+    local function scanCrates()
+        local list = {}
+        local U = workspace:FindFirstChild("Unclimbable")
+        if not U then return list end
+        for _, m in ipairs(U:GetChildren()) do
+            if m.Name:find("^ThunderSpear_Supplies%d") or m.Name:find("^Supplies%d") then
+                local hb = m:FindFirstChild("Hitbox")
+                local spot = m:FindFirstChild("Spot")
+                if hb and not (spot and spot.Value) then   -- Spot มีค่า = กล่องถูกส่งไปแล้ว
+                    list[#list + 1] = { model = m, hitbox = hb, name = m.Name }
+                end
+            end
+        end
+        return list
+    end
+    local function findCircle()
+        local U = workspace:FindFirstChild("Unclimbable")
+        if not U then return nil end
+        for _, m in ipairs(U:GetChildren()) do
+            if m.Name == "Supplies_Circle" then return m:FindFirstChild("Hitbox") end
+        end
+        return nil
+    end
+    local function aliveTitans()
+        local f = workspace:FindFirstChild("Titans") or workspace:FindFirstChild("Enemies")
+        if not f then return 99 end
+        local n = 0
+        for _, t in ipairs(f:GetChildren()) do
+            local h = t:FindFirstChildWhichIsA("Humanoid")
+            if h and h.Health > 0 then n = n + 1 end
+        end
+        return n
+    end
+    local function buildTower(idx)
+        local wt = workspace:FindFirstChild("WatchTower_" .. idx)
+        local circle = wt and wt:FindFirstChild("Circle")
+        local hb = circle and circle:FindFirstChild("Hitbox")
+        if not hb then return false end
+        print(string.format("[TS] 🏗️ สร้างหอคอย #%d", idx))
+        getgenv().VenozAction = string.format("🏗️ สร้างหอ %d/3", idx)
+        local endT = os.clock() + 22
+        while os.clock() < endT do
+            local ch = plrT.Character
+            local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+            local hum = ch and ch:FindFirstChildWhichIsA("Humanoid")
+            if hrp and hum and hum.Health > 0 then
+                hrp.Anchored = false
+                hrp.CFrame = CFrame.new(hb.Position)
+                task.wait(0.1)
+                hrp.Anchored = true       -- ต้อง anchor ค้าง ไม่งั้นหลุดวง
+            else
+                task.wait(1)
+            end
+            task.wait(2)
+        end
+        pcall(function()                   -- ปลด anchor เสมอ ไม่งั้นบอทลอยค้าง
+            local hrp = plrT.Character and plrT.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp.Anchored = false end
+        end)
+        print(string.format("[TS] ✅ หอคอย #%d เสร็จ", idx))
+        return true
+    end
+
+    local state, delivered, visited, towerIdx = "INIT", 0, {}, 1
+    local iceSeen, waitCrate = 0, 0
+
+    -- ── เช็คชิ้นส่วนจาก inventory (แบบบอทเก่า) ──
+    local TS_ITEM2 = {
+        Handle   = "Thunder Spear - Handle",
+        Thruster = "Thunder Spear - Thruster",
+        Base     = "Thunder Spear - Base",
+    }
+    local GETts = RS:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+    local function ownedParts()
+        local out = {}
+        pcall(function()
+            local d = GETts:InvokeServer("Data", "Copy")
+            local sd = d and d.Slots and d.Slots[d.Current_Slot]
+            local inv = sd and sd.Inventory
+            if type(inv) ~= "table" then return end
+            for p, item in pairs(TS_ITEM2) do
+                for _, cat in pairs(inv) do
+                    if type(cat) == "table" then
+                        for name, amt in pairs(cat) do
+                            if name == item and (tonumber(amt) or 0) > 0 then out[p] = true end
+                        end
+                    end
+                end
+            end
+        end)
+        return out
+    end
+    local function logParts(o, prefix)
+        print(string.format("[TS]   %sHandle=%s Thruster=%s Base=%s", prefix or "",
+            o.Handle and "✅" or "❌", o.Thruster and "✅" or "❌", o.Base and "✅" or "❌"))
+    end
+
+    -- 🚪 ถ้าชิ้นส่วนของแมพนี้ "ได้มาแล้ว" → ไม่ต้องเล่นซ้ำ ออกไปทำแมพต่อไป
+    -- ═══════════════════════════════════════════════════════════
+    -- ✅ เช็ค "เควสสำเร็จแล้วหรือยัง" — สำเร็จปุ๊บออกไปรับของเลย
+    -- ═══════════════════════════════════════════════════════════
+    --   ต่างจาก ownedParts() ตรงที่:
+    --     ownedParts  = "ของอยู่ในกระเป๋าแล้ว"  (ต้องเคลมก่อนถึงจะมี)
+    --     questDone   = "ทำครบแล้ว รอกดรับ"     ← อันนี้แหละที่ควรใช้ตัดสินใจออก
+    --   ไม่งั้นบอทจะยืนฟาร์มต่อจนด่านจบทั้งที่งานเสร็จไปแล้ว เสียเวลาเปล่า
+    --   💤 อ่านทุก 30 วิเท่านั้น (1 call) — ไม่ยิงถี่
+    local function tsQuestDone()
+        local now = os.clock()
+        local last = tonumber(getgenv()._VZTSQChk) or -999
+        if (now - last) < 30 then return getgenv()._VZTSQHit == true end
+        getgenv()._VZTSQChk = now
+
+        local hit, ready = false, nil
+        pcall(function()
+            local d
+            local ok, r = pcall(function() return GETs:InvokeServer("Data", "Copy") end)
+            if ok and type(r) == "table" and r.Slots then d = r end
+            if not d then
+                ok, r = pcall(function()
+                    return GETs:InvokeServer("Functions", "Settings", "Blur", "Off")
+                end)
+                if ok and type(r) == "table" and r.Slots then d = r end
+            end
+            local sd = d and d.Slots[d.Current_Slot]
+            local q  = sd and sd.Quests and sd.Quests.Spears
+            if type(q) ~= "table" then return end
+            for _, v in pairs(q) do
+                if type(v) == "table" and v.Tag and v.Rewarded ~= true then
+                    local cur = tonumber(v.Current) or 0
+                    local req = tonumber(v.Requirement) or tonumber(v.Required) or 0
+                    if req > 0 and cur >= req then
+                        hit, ready = true, tostring(v.Tag)
+                        return
+                    end
+                end
+            end
+        end)
+        getgenv()._VZTSQHit = hit
+        if hit and not getgenv().VenozTSWantLeave then
+            print(string.format("[TS] ✅ เควส \"%s\" ทำครบแล้ว → จบด่านแล้วจะ LEAVE (ไม่ RETRY)",
+                tostring(ready)))
+        end
+        return hit
+    end
+
+    local function checkDoneAndFlag()
+        -- ① เควสครบแล้ว รอกดรับ → ออกเลย (ไม่ต้องรอให้ของเข้ากระเป๋า)
+        if tsQuestDone() then
+            getgenv().VenozTSWantLeave = true
+            getgenv().StartRejoin = false
+            return true
+        end
+        -- ② ของเข้ากระเป๋าแล้วจริงๆ
+        --    ⚠️ ระหว่างอยู่ในด่าน "กดรับเควสไม่ได้" (ร้านเควสเปิดได้แค่ที่ lobby)
+        --       → ปกติเงื่อนไขนี้จะไม่ติดกลางด่านหรอก มันมีไว้ดักกรณีเดียวคือ
+        --         "เข้ามาผิดแมพ ทั้งที่มีชิ้นส่วนนี้อยู่แล้ว" → จะได้ออกไว ไม่เสียเวลา
+        --       ตัวที่ใช้ตัดสินใจจริงกลางด่านคือ ① tsQuestDone() ข้างบน
+        local o = ownedParts()
+        if o[part] then
+            if not getgenv().VenozTSWantLeave then
+                print("═══════════════════════════════════════════")
+                print(string.format("[TS] ⚡ ได้ %s แล้ว! (จาก %s)", part, myMap))
+                logParts(o)
+                if o.Thruster and o.Base then
+                    print("[TS] 🎉 ครบแล้ว (Thruster + Base) → กลับไปฟาร์ม Chapel")
+                else
+                    local nxt = (not o.Base) and "Forest" or ((not o.Thruster) and "Utgard" or "-")
+                    print("[TS] ➡️ ต่อไปทำ: " .. nxt)
+                end
+                print("🚪 LEAVE เพื่อไปทำแมพต่อไป")
+                print("═══════════════════════════════════════════")
+            end
+            getgenv().VenozTSWantLeave = true
+            getgenv().StartRejoin = false     -- กัน UI2 กด RETRY แข่ง
+            return true
+        end
+        return false
+    end
+
+    -- 🔒 เข้าแมพ TS = ไม่ใช่ด่านฟาร์มปกติ → ปิดฟาร์มทันที ทำ objective ก่อน
+    if myMap == "Forest" then setFarm(false) end
+
+    -- ═══════════════════════════════════════════════════════════
+    -- 🚪 กติกาเหล็ก: อยู่แมพ TS = "เล่นรอบเดียวแล้วออก" เสมอ
+    -- ═══════════════════════════════════════════════════════════
+    --   💡 เจ้าของบอทชี้จุดสำคัญ: เราตีไททันตายหมดเร็วมาก
+    --      ด่านจบก่อนที่ตัวเช็ค objective จะทันเห็น 3/3 ด้วยซ้ำ
+    --      → จะไปพึ่งการ "จับจังหวะนับให้ทัน" ไม่ได้
+    --   ✅ เลยเปลี่ยนเป็นกฎตายตัว: พอหน้าจบด่านโผล่ในแมพ TS = ออกเสมอ
+    --      ไม่ RETRY ซ้ำแมพเดิมเด็ดขาด (เควสได้ credit ตั้งแต่ด่านจบแล้ว)
+    --      ถ้ายังไม่ครบจริง สมองบอทที่ lobby จะส่งกลับมาเองรอบหน้า
+    task.spawn(function()
+        while not getgenv().VenozTSWantLeave do
+            task.wait(1)
+            local up = false
+            pcall(function()
+                local rw = plrT.PlayerGui.Interface:FindFirstChild("Rewards")
+                up = (rw and rw.Visible) or false
+            end)
+            if up then
+                print("═══════════════════════════════════════════")
+                print("[TS] 🏁 ด่าน TS จบแล้ว → ออกทันที (แมพ TS เล่นรอบเดียวพอ)")
+                print("🚪 ไม่ RETRY ซ้ำ — ไปกดรับที่ lobby เลย")
+                print("═══════════════════════════════════════════")
+                getgenv().VenozTSWantLeave = true
+                getgenv().StartRejoin = false
+                break
+            end
+        end
+    end)
+
+    -- เช็คตั้งแต่เข้ามา: ถ้ามีของอยู่แล้ว = เข้าผิดแมพ → ออกเลย ไม่ต้องเสียเวลา
+    task.spawn(function()
+        task.wait(3)
+        if checkDoneAndFlag() then
+            print("[TS] ⏭️ แมพนี้ได้ของแล้วตั้งแต่แรก → ข้ามไปเลย")
+            setFarm(true)                     -- ฟาร์มไปพลางจนด่านจบ แล้วค่อย LEAVE
+        end
+        -- หลังจากนั้นเช็คทุก 15 วิ — ทั้ง "ของเข้ากระเป๋า" และ "เควสครบรอกดรับ"
+        --   (ตัวเช็คเควสมี cache 30 วิในตัวเอง → ยิงจริงแค่ทุก 30 วิ ไม่ถี่)
+        while not getgenv().VenozTSWantLeave do
+            task.wait(15)
+            checkDoneAndFlag()
+        end
+    end)
+
+    while true do
+        task.wait(0.5)
+        local okRun, err = pcall(function()
+            -- ══ Forest → Base : เก็บกล่องส่งวงเหลือง ══
+            --   ⚠️ บอทเก่าใช้ "ฆ่าถึง req-5 ก่อนค่อยเก็บ" แต่ใช้กับตัวใหม่ไม่ได้
+            --      ตีตัวใหม่ one-shot เร็วมาก (43 ตัวใน 19 วิ) → ด่านจบก่อนถึงคิวเก็บกล่อง
+            --      ✅ กลับลำดับ: "เก็บกล่องให้เสร็จก่อน แล้วค่อยปล่อยฟาร์ม"
+            --         ระหว่างเก็บไม่ฆ่าเลย → ด่านจบไม่ได้ = ปลอดภัยกว่าเดิม
+            if myMap == "Forest" then
+                local slayO = objGet("Slay")
+                local slay = (slayO and slayO.Value) or 0
+                local req = (slayO and slayO:GetAttribute("Requirement")) or 40
+                local defending = objGet("Defend_Supplies") ~= nil
+
+                -- 🐛 [FIX] ผมเคยกลับลำดับเป็น "เก็บกล่องก่อน แล้วค่อยฟาร์ม"
+                --    → ผลคือค้างที่ "📦 รอกล่องโหลด..." ตลอด เพราะ
+                --      **กล่องยังไม่ spawn ตอนเพิ่งเข้าด่าน**
+                --    ✅ บอทเก่าทำถูกแล้ว: ฆ่าให้ถึง (req - 5) ก่อน กล่องถึงจะโผล่
+                --       KILL_TO_MARGIN → COLLECT → KILL_ALL
+                if state == "INIT" then
+                    state = "KILL_TO_MARGIN"
+                    setFarm(true)          -- ต้องฟาร์มก่อน ไม่ใช่ปิด
+                    print(string.format("[TS] ⚔️ Forest → ตีให้ถึง %d/%d ก่อน กล่องถึงจะโผล่",
+                        math.max(0, req - 5), req))
+                end
+
+                if state == "KILL_TO_MARGIN" then
+                    local safeMax = req - 5
+                    getgenv().VenozAction = string.format("⚡ ตีให้ถึง %d/%d", slay, safeMax)
+                    if slay >= safeMax then
+                        state = "COLLECT"
+                        holdFarmOff()
+                        print("[TS] ✅ ถึงเป้าแล้ว → หยุดตี ไปเก็บกล่อง")
+                    end
+                    return                 -- ยังไม่ถึง → ตีต่อ ไม่ต้องทำอย่างอื่น
+                end
+
+                if defending and state ~= "KILL_ALL" then
+                    state = "KILL_ALL"
+                    setFarm(true)
+                    print("[TS] 🛡️ Defend_Supplies เริ่มแล้ว → กลับไปตี titan")
+                end
+
+                if state == "COLLECT" then
+                    holdFarmOff()          -- 🔒 กดค้างไว้ทุกรอบ กันโดนเปิดคืนระหว่างเก็บ
+                    local circle = findCircle()
+                    local avail = {}
+                    for _, c in ipairs(scanCrates()) do
+                        if not visited[c.model] then avail[#avail + 1] = c end
+                    end
+
+                    if not circle or #avail == 0 then
+                        -- แมพอาจยังโหลดไม่เสร็จ → รอถึง 30 วิ ค่อยยอมแพ้
+                        waitCrate = waitCrate + 1
+                        if delivered > 0 then
+                            -- 💡 เจ้าของบอทยืนยันกติกา Forest:
+                            --    ส่งกล่องครบแล้ว → ถ้า "ป้าย Defend ไม่โผล่" = จบงานแล้ว ออกได้เลย
+                            --    ถ้าโผล่ = ยังมีเฟส 2 ให้ป้องกัน ต้องอยู่ตีต่อ
+                            print(string.format("[TS] ✅ ส่งกล่องครบ %d ใบ → รอดูว่ามีเฟสป้องกันต่อไหม", delivered))
+                            state = "KILL_ALL"; setFarm(true)
+                            task.spawn(function()
+                                -- รอ 8 วิให้เกมตัดสินใจว่าจะขึ้นเฟส Defend หรือไม่
+                                local t0 = tick()
+                                local sawDefend = false
+                                while tick() - t0 < 8 do
+                                    if objGet("Defend_Supplies") then sawDefend = true break end
+                                    task.wait(0.5)
+                                end
+                                -- ⚠️ บอทเก่าเตือนไว้: "ห้ามกด LEAVE กลางด่าน"
+                                --    เกมจะนับเป็น abandon → เควส Spears ไม่ credit
+                                --    → แค่ตั้งธงไว้ พอ Rewards โผล่ค่อยกด LEAVE
+                                if sawDefend then
+                                    print("[TS] 🛡️ มีเฟสป้องกันต่อ → อยู่ตีจนจบด่าน")
+                                else
+                                    print("[TS] ✅ ไม่มีเฟสป้องกัน → ตีจนด่านจบแล้วค่อยออก")
+                                end
+                                getgenv().VenozTSWantLeave = true   -- จบด่านแล้ว LEAVE (ไม่ RETRY)
+                                checkDoneAndFlag()
+                            end)
+                        elseif waitCrate > 30 then
+                            print("[TS] ⚠️ หากล่อง/วงเหลืองไม่เจอใน 30 วิ → ฟาร์มปกติแทน")
+                            state = "KILL_ALL"; setFarm(true)
+                        else
+                            getgenv().VenozAction = "📦 รอกล่องโหลด..."
+                        end
+                        return
+                    end
+
+                    waitCrate = 0
+                    local hrp = plrT.Character and plrT.Character:FindFirstChild("HumanoidRootPart")
+                    if not hrp then return end
+                    table.sort(avail, function(a, b)
+                        return (a.hitbox.Position - hrp.Position).Magnitude
+                             < (b.hitbox.Position - hrp.Position).Magnitude
+                    end)
+                    local t = avail[1]
+                    visited[t.model] = true
+                    delivered = delivered + 1
+                    print(string.format("[TS] 📦 [%d] เก็บ %s", delivered, t.name))
+                    getgenv().VenozAction = string.format("📦 เก็บกล่อง %d", delivered)
+                    touchHitbox(t.hitbox)
+                    task.wait(0.3)
+                    print(string.format("[TS] 🚚 [%d] ส่งวงเหลือง", delivered))
+                    getgenv().VenozAction = string.format("🚚 ส่งกล่อง %d", delivered)
+                    touchHitbox(circle)
+                    task.wait(0.3)
+                else
+                    getgenv().VenozAction = string.format("⚡ Forest — ตี titan (%d/%d)", slay, req)
+                end
+
+            -- ══ Utgard → Thruster : ฆ่า Ice Burst 3 ลูก ══
+            --   💡 เจ้าของบอทยืนยัน: ครบ 3/3 เมื่อไหร่ = เควสสำเร็จทันที
+            --      เล่นรอบเดียวพอ ไม่ต้องอยู่ต่อจนด่านจบ → กดออกไปกดรับได้เลย
+            elseif myMap == "Utgard" then
+                local ib = objGet("Ice_Burst") or objGet("Ice Burst Stones")
+                local cur = tonumber((ib and ib.Value)) or tonumber(iceSeen) or 0
+                local need = tonumber(ib and ib:GetAttribute("Requirement")) or 3
+                getgenv().VenozAction = string.format("❄️ Utgard — Ice Burst %d/%d", cur, need)
+
+                -- ⚠️ ครบแล้วก็ "ห้ามกด LEAVE กลางด่าน" (บอทเก่าเตือนไว้ชัด)
+                --    เกมนับเป็น abandon → เควส Ice Burst ไม่ credit
+                --    แค่ตั้งธงไว้ พอด่านจบ Rewards โผล่ ค่อยกด LEAVE แทน RETRY
+                if cur >= need and not getgenv().VenozTSWantLeave then
+                    print(string.format("[TS] ❄️ Ice Burst ครบ %d/%d → ตีต่อจนด่านจบ แล้วค่อยออก",
+                        cur, need))
+                    getgenv().VenozTSWantLeave = true
+                end
+
+            -- ══ Outskirts → Handle : ฆ่าเหลือ 5 → สร้างหอ 3 หลัง ══
+            elseif myMap == "Outskirts" then
+                if state == "INIT" then
+                    local esc = false
+                    pcall(function()
+                        local o = workspace:GetAttribute("Objective")
+                        if o and string.upper(tostring(o)) == "ESCORT" then esc = true end
+                    end)
+                    state = esc and "KILL_ALL" or "KILL_TO_5"
+                    if esc then print("[TS] 🐎 Escort mode → ข้ามสร้างหอ") end
+                end
+                if state == "KILL_TO_5" then
+                    local n = aliveTitans()
+                    getgenv().VenozAction = string.format("⚡ ฆ่าเหลือ 5 (ตอนนี้ %d)", n)
+                    if n <= 5 then
+                        state = "BUILD_TOWERS"
+                        print("[TS] ✅ เหลือ 5 ตัว → เริ่มสร้างหอ")
+                    end
+                elseif state == "BUILD_TOWERS" then
+                    setFarm(false)                 -- 🔒 หยุดฟาร์มระหว่างสร้างหอ
+                    task.wait(0.3)
+                    if towerIdx <= 3 then
+                        buildTower(towerIdx)
+                        towerIdx = towerIdx + 1
+                    end
+                    if towerIdx > 3 then
+                        state = "KILL_ALL"
+                        setFarm(true)
+                        print("[TS] ✅ ครบ 3 หอ → กลับไปตี titan")
+                    end
+                end
+            end
+        end)
+        if not okRun then warn("[TS] ⛔ " .. tostring(err)) end
+    end
+end)
 
 -- ═══════════════════════════════════════════════════════════════
 -- 🚦 โหลดครบแล้ว — ปลด auto-pilot ให้เริ่มสั่งงานได้
