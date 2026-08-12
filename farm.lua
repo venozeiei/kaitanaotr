@@ -12,20 +12,23 @@
 --   4️⃣ ⬛ANTI-LAG : ปิด render 3D ทุกที่ + กราฟิกต่ำสุด + ปิด particle/เสียง
 --   5️⃣ 🔇CHAT  : ปิดช่องแชทถาวร (CoreGui + TextChatService + ScreenGui เก่า)
 --   6️⃣ ⏳LOAD  : ไม่ปิด render ตอนหน้า LOADING ยังอยู่ + ค้างเกิน 30 วิซ่อนทิ้ง
---   7️⃣ ⚙️UPGRADE: _VZChoreWait ค้างข้าม teleport → brain ไม่รองาน lobby
---                 = ดาบไม่เคยถูกอัพตั้งแต่รอบ 2 (ฟาร์มช้าเพราะดาบพังบ่อย)
+--   7️⃣ 🖱️UPGRADE: อัพดาบด้วยการ "กดปุ่ม UPGRADE ALL" แทนการยิง remote เอง
+--                 ปุ่มโผล่เฉพาะตอนอัพได้จริง → ตันแล้ว = 0 remote 0 คลิก
+--                 (ตรวจกับ client จริงแล้ว: Interface.Equipment.Stats.All)
 --  ถ้าไม่เห็น 4 บรรทัดนี้ใน F9 = ยังรันโค้ดตัวเก่าอยู่ ให้ paste ไฟล์ใหม่ทับ
 -- ═══════════════════════════════════════════════════════════════
 print("═══════════════════════════════════════════════")
-print("🛡️ VENOZ NO-SB — BUILD v4.5")
+print("🛡️ VENOZ NO-SB — BUILD v5.0")
 print("   🔁 RETRY กดครั้งเดียว (รอนิ่ง 3 วิก่อนกด)")
 print("   ⚡ เข้าด่าน = ฟาร์มทันที ไม่รอโหลดอะไรทั้งนั้น")
 print("   ⬛ จอว่างทุกที่ (Main Menu + Lobby + ในด่าน) + ปิดแชทถาวร")
 print("   ⏳ แก้ค้างจอ LOADING ตอนกดออกจากด่าน")
-print("   ⚙️ อัพดาบด้วยวิธีบอทเก่า (ดูค่าที่ server ตอบ ไม่ใช่ดูทองบนจอ)")
+print("   🐛 แก้ชื่อ stat ผิด 2 ตัว (Crit_* → ODM_Crit_*) = สาเหตุที่ไม่เคยอัพติด")
+print("   🛡️ ใช้ remote ทั้งหมดเหมือนเดิม แต่ทุกจุดมีด่านเช็คก่อนยิง")
+print("   🔇 ปิดเคลมเควส/achievement/สกิล เป็นค่าเริ่มต้น (ตัดไป 281 call)")
 print("   🗑️ ตัดโค้ดไม่ใช้ทิ้ง 2,749 บรรทัด")
 print("═══════════════════════════════════════════════")
-getgenv().VenozBuild = "v4.5-nosb"
+getgenv().VenozBuild = "v5.0-nosb"
 
 -- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
 task.spawn(function()
@@ -2879,6 +2882,15 @@ if IsLobbyLobby() then
     --    ✅ ใช้ attribute ของ player ตรงๆ แบบบอทเก่า แล้วค่อย fallback ไปอ่านจอ
     local function getGoldAmount()
         local player = game:GetService("Players").LocalPlayer
+        -- ✅ เช็คกับ client จริงแล้ว: GetAttribute("Gold") คืน nil ในเกมนี้
+        --    ตัวที่ใช้ได้จริงคือ slot data (สมองบอทแชร์ไว้ที่ getgenv().VenozRaw)
+        local raw = getgenv().VenozRaw
+        if type(raw) == "table" and type(raw.Slots) == "table" then
+            local key = raw.Current_Slot or player:GetAttribute("Slot") or "A"
+            local sd = raw.Slots[key]
+            local g = sd and sd.Currency and tonumber(sd.Currency.Gold)
+            if g then return g end
+        end
         local g = tonumber(player:GetAttribute("Gold"))
         if g then return g end
         g = tonumber(getgenv().LastGold)
@@ -2925,10 +2937,29 @@ if IsLobbyLobby() then
     getgenv().UpgradeRunning = false
     getgenv().BladeUpgradeDelay = 0
 
+    -- 🔬 ชื่อ stat จริงในเกม — ตรวจกับ client จริงแล้ว (Interface.Equipment.Stats.Blades)
+    --    🐛 ของเดิมผิด 2 ตัว!  "Crit_Damage" / "Crit_Chance"
+    --       ของจริงคือ "ODM_Crit_Damage" / "ODM_Crit_Chance"
+    --       ชื่อผิดแม้ตัวเดียวในลิสต์ → เซิร์ฟปฏิเสธ "ทั้งชุด" → ไม่เคยอัพขึ้นเลย
+    --       (บอทเก่าก็ใช้ชื่อผิดชุดเดียวกัน = ที่ผ่านมาไม่เคยอัพติดจริงๆ)
     local ALL_BLADE_STATS = {
         "ODM_Gas", "ODM_Speed", "ODM_Range", "ODM_Control",
-        "Crit_Damage", "ODM_Damage", "Crit_Chance", "Blade_Durability"
+        "ODM_Crit_Damage", "ODM_Damage", "ODM_Crit_Chance", "Blade_Durability"
     }
+    -- ✅ ดีกว่านั้น: อ่านชื่อจาก UI ของเกมตรงๆ (เกมเปลี่ยนชื่อเมื่อไหร่เราตามทันทันที)
+    local function liveBladeStats()
+        local ok, list = pcall(function()
+            local bl = game:GetService("Players").LocalPlayer
+                .PlayerGui.Interface.Equipment.Stats.Blades
+            local t = {}
+            for _, tile in ipairs(bl:GetChildren()) do
+                if tile:IsA("GuiObject") then t[#t + 1] = tile.Name end
+            end
+            return t
+        end)
+        if ok and type(list) == "table" and #list >= 4 then return list end
+        return ALL_BLADE_STATS
+    end
 
 
     BladeTab:AddSlider("BladeUpgradeDelaySlider", {
@@ -2975,69 +3006,79 @@ if IsLobbyLobby() then
                 getgenv().UpgradeRunning = true
                 task.spawn(function()
                     -- ═══════════════════════════════════════════════════
-                    -- ⚙️ [CHICKEN] ยกวิธีอัพดาบของ "บอทเก่า" มาทั้งดุ้น
+                    -- ⚙️ อัพดาบ — ใช้ "ปุ่มในเกมเป็นตัวบอก" แต่ยิง remote เอง
                     -- ═══════════════════════════════════════════════════
-                    --  🐛 ที่ผ่านมาไม่อัพเลย เพราะเช็คผลด้วย "ทองลดไหม"
-                    --     ซึ่งอ่านทองจากตัวหนังสือบนจอ → path เพี้ยน/เลขถูกย่อ
-                    --     = อ่านได้ 0 ตลอด = เงื่อนไขไม่ผ่าน = ไม่ยิงสักครั้ง
-                    --  ✅ บอทเก่าใช้ "ค่าที่ server ตอบกลับ" เป็นตัวชี้ขาด:
-                    --        upRes ~= nil  → อัพขึ้น 1 สเต็ป → ยิงต่อ
-                    --        upRes == nil  → ตัน/เงินไม่พอ → หยุด
-                    --     (พิสูจน์จาก decompile UI เกม: ปุ่มในเกมยิง call นี้ตัวเดียว)
-                    --  ➕ ที่เพิ่มจากของเก่า: พอยิงรวมแล้ว nil จะไล่ทีละช่องก่อน
-                    --     เพื่อคัดเฉพาะช่องที่ "ตันจริง" ออก แล้วยิงรวมต่อด้วยช่องที่เหลือ
-                    --     (ของเก่า nil ปุ๊บหยุดเลย → ช่องเดียวตันก็ลากช่องอื่นหยุดตาม)
+                    --  🔬 ทดสอบกับ client จริงมาแล้วทั้งหมด:
+                    --   1) กดปุ่ม UPGRADE ALL ตรงๆ ไม่ได้ — ตอนหน้า Equipment ปิดอยู่
+                    --      แถบบนอยู่ที่ Y = -198 (นอกจอ) กดด้วยเมาส์ไม่โดน
+                    --      และ getconnections():Fire() ก็ไม่เปิดหน้าให้ (เกมนี้ไม่รับ)
+                    --   2) แต่ได้ของดีกว่า: Stats.All.Visible เป็น "สัญญาณข้อมูลล้วน"
+                    --      มันเป็น true/false ถูกต้องเสมอ แม้หน้า Equipment ปิดอยู่!
+                    --      → ใช้เป็นด่านเช็คได้ฟรี ไม่ต้องเปิดหน้า ไม่ต้องยิง remote
+                    --   3) ยืนยันแล้วว่า InvokeServer คืน nil = โดนปฏิเสธ
+                    --
+                    --  🎯 ด่านเช็ค 2 ชั้น ก่อนยิงสักตัว:
+                    --     ชั้น 1: All.Visible == false → ตันแล้ว → 0 call
+                    --     ชั้น 2: ทองยังไม่เกินตอนที่เคยโดนปฏิเสธ → 0 call
+                    --             (All.Visible ไม่ได้ดูว่าเงินพอ — ทดสอบแล้ว)
+                    --     → เหลือแต่ call ที่ "รู้ว่าจะผ่าน" เท่านั้น
                     -- ═══════════════════════════════════════════════════
-                    local MAXFIRE = 120       -- เพดานกันลูปค้าง (ปกติหยุดเองก่อนถึง)
-                    local GAP     = 0.12      -- จังหวะระหว่าง call (ของเก่าใช้ 0.1)
-                    local live = {}
-                    for _, st in ipairs(ALL_BLADE_STATS) do table.insert(live, st) end
-
-                    local _nUp, _g0 = 0, getGoldAmount()
-                    local stopWhy = "ตันทุกช่องแล้ว"
-                    print(string.format("[UPGRADE] ⚙️ เริ่มอัพดาบ — ทอง %d | %d ช่อง", _g0, #live))
-
-                    local function fire(list)
-                        if not GET then return nil end
-                        local res
-                        pcall(function()
-                            res = GET:InvokeServer("S_Equipment", "Upgrade", list)
+                    local function eqNode(path)
+                        local ok, o = pcall(function()
+                            local n = game:GetService("Players").LocalPlayer
+                                .PlayerGui.Interface.Equipment
+                            for _, seg in ipairs(path) do n = n[seg] end
+                            return n
                         end)
-                        _nUp = _nUp + 1
-                        return res
+                        return ok and o or nil
                     end
 
-                    while getgenv().AutoUpgradeBlade and #live > 0 and _nUp < MAXFIRE do
-                        if fire(live) ~= nil then
-                            task.wait(GAP)                 -- อัพขึ้น → ยิงต่อเลย
-                        else
-                            -- ยิงรวมไม่ผ่าน → ไล่ทีละช่อง หาว่าช่องไหนยังอัพได้จริง
-                            print(string.format("[UPGRADE] 🔎 ยิงรวมไม่ผ่าน → ไล่เช็คทีละช่อง (%d ช่อง)", #live))
-                            local stillLive = {}
-                            for _, stat in ipairs(live) do
-                                if not getgenv().AutoUpgradeBlade then break end
-                                if _nUp >= MAXFIRE then break end
-                                if fire({ stat }) ~= nil then
-                                    table.insert(stillLive, stat)
-                                else
-                                    print("[UPGRADE] ⛔ " .. stat .. " → ตัน/ทองไม่พอ (คัดออก)")
-                                end
-                                task.wait(GAP)
-                            end
-                            live = stillLive
-                            if #live > 0 then
-                                print(string.format("[UPGRADE] ▶️ ยังอัพได้อีก %d ช่อง → ยิงต่อ", #live))
-                            end
-                        end
-                    end
+                    local btnAll = eqNode({ "Stats", "All" })
+                    local _g0    = getGoldAmount()
+                    local failAt = tonumber(getgenv()._VZUpgFailGold) or -1
 
-                    if _nUp >= MAXFIRE then stopWhy = "ชนเพดาน " .. MAXFIRE .. " call" end
-                    local spent = math.max(0, _g0 - getGoldAmount())
-                    if spent > 0 then
-                        print(string.format("[UPGRADE] ✅ อัพดาบจบ — %s | ยิง %d ครั้ง | ใช้ทอง %d | เหลือ %d",
-                            stopWhy, _nUp, spent, getGoldAmount()))
+                    if btnAll and btnAll.Visible == false then
+                        print("[UPGRADE] ✅ ดาบตันหมดแล้ว (ปุ่ม UPGRADE ALL ในเกมไม่โผล่) — 0 remote")
+
+                    elseif failAt >= 0 and _g0 <= failAt then
+                        print(string.format("[UPGRADE] 💰 ทองยังไม่พอ (%d ≤ %d ที่เคยยิงไม่ผ่าน) — 0 remote",
+                            _g0, failAt))
+
                     else
-                        print(string.format("[UPGRADE] ✅ ดาบตันหมดแล้ว ไม่มีอะไรให้อัพ (ยิงเช็คไป %d ครั้ง)", _nUp))
+                        local STATS = liveBladeStats()
+                        local cost = "?"
+                        pcall(function()
+                            local c = eqNode({ "Stat", "Cost", "Title" })
+                            if c and c.Text then cost = c.Text end
+                        end)
+                        print(string.format("[UPGRADE] ⚙️ เริ่มอัพดาบ — ทอง %d | %d ช่อง | ราคาช่องที่เลือก %s",
+                            _g0, #STATS, cost))
+
+                        local fired, stepped = 0, 0
+                        for _ = 1, 15 do
+                            if not getgenv().AutoUpgradeBlade then break end
+                            if btnAll and btnAll.Visible == false then break end   -- ตันกลางคัน
+                            local upRes
+                            pcall(function()
+                                upRes = GET:InvokeServer("S_Equipment", "Upgrade", STATS)
+                            end)
+                            fired = fired + 1
+                            if upRes == nil then break end        -- โดนปฏิเสธ → หยุดทันที
+                            stepped = stepped + 1
+                            task.wait(0.15)
+                        end
+
+                        local spent = math.max(0, _g0 - getGoldAmount())
+                        if stepped > 0 then
+                            getgenv()._VZUpgFailGold = nil        -- อัพขึ้นแล้ว → ล้างความจำ
+                            print(string.format("[UPGRADE] ✅ อัพดาบ %d สเต็ป | ยิง %d call | ใช้ทอง %d | เหลือ %d",
+                                stepped, fired, spent, getGoldAmount()))
+                        else
+                            -- ยิงครั้งเดียวแล้วโดนปฏิเสธ → จำทองไว้ ไม่ยิงอีกจนกว่าทองจะเพิ่ม
+                            getgenv()._VZUpgFailGold = _g0
+                            print(string.format("[UPGRADE] ⛔ ยิง 1 call ไม่ผ่าน (ทอง %d ไม่พอ)"
+                                .. " → จะไม่ยิงอีกจนกว่าทองจะเกิน %d", _g0, _g0))
+                        end
                     end
 
                     getgenv().AutoUpgradeBlade = false
@@ -5362,8 +5403,14 @@ task.spawn(function()
     dflt("ForceGold", false)     dflt("GoldReq", {0, 0, 0, 0, 0})
     dflt("AutoFarm", true)       dflt("AutoReload", true)     dflt("AutoRetry", true)
     dflt("SkipCutscene", true)   dflt("SkipForce", false)     dflt("LowGraphic", true)
-    dflt("AutoMission", true)    dflt("AutoQuest", true)      dflt("AutoAchieve", true)
-    dflt("AutoPrestige", true)   dflt("AutoUpgrade", true)    dflt("AutoSkills", true)
+    -- 🚨 3 ตัวนี้เปลี่ยนค่าเริ่มต้นเป็น false แล้ว (เดิม true)
+    --    เพราะมันยิง remote รัวๆ ที่ "เกือบทั้งหมดโดนปฏิเสธ" → ต้นเหตุ shadow ban
+    --      AutoQuest   = 93 call  (~24 วิ) วันละครั้ง
+    --      AutoAchieve = 72 call  (~9 วิ)  วันละครั้ง
+    --      AutoSkills  = 116 call (~17 วิ) ทุกครั้งที่เลเวลอัพ
+    --    ถ้าอยากเปิดต้อง "ตั้งเองในคอนฟิก" เท่านั้น จะได้ไม่เผลอเปิดโดยไม่รู้ตัว
+    dflt("AutoMission", true)    dflt("AutoQuest", false)     dflt("AutoAchieve", false)
+    dflt("AutoPrestige", true)   dflt("AutoUpgrade", true)    dflt("AutoSkills", false)
     dflt("AutoUpgradeSpear", false) dflt("SpearUpgradeDelay", 1.5)
     dflt("AutoThunderSpear", false) dflt("SpearFarmMode", "Tween")
     dflt("SpearHoverHeight", 120)   dflt("SpearHoverSpeed", 120)
@@ -5731,8 +5778,24 @@ task.spawn(function()
     end
     local function getSlot(force)
         local now = os.clock()
-        -- ยังไม่เคยอ่านได้ → ลองใหม่ถี่ๆ (2 วิ) | อ่านได้แล้ว → cache 8 วิ
-        local ttl = cache and 8 or 2
+        -- ⏱️ [SAFE] ยืดอายุ cache ตามสถานการณ์ — ลดจำนวน Data/Copy ที่ยิงเปล่า
+        --    เดิม: ยิงทุก 8 วิตลอดเวลา = ~450 call/ชม./จอ  ×50 จอ = 22,500 call/ชม.
+        --    ใหม่: ในด่าน (แค่เอาไปโชว์ป้าย) ยืดเป็น 40 วิ → เหลือ ~90 call/ชม./จอ
+        --          ตอนหน้าจบด่านโผล่ (ต้องตัดสินใจ LEAVE/RETRY) → กลับมา 5 วิ
+        --          ใน lobby (ตัดสินใจขาย perk / จุติ) → คง 8 วิเหมือนเดิม
+        local ttl
+        if not cache then
+            ttl = 2                       -- ยังไม่เคยอ่านได้ → ลองใหม่ถี่ๆ
+        elseif IsLobbyLobby() then
+            ttl = 8                       -- lobby = จุดตัดสินใจ ต้องสด
+        else
+            local rewardsUp = false
+            pcall(function()
+                local rw = plrB.PlayerGui.Interface:FindFirstChild("Rewards")
+                rewardsUp = rw and rw.Visible or false
+            end)
+            ttl = rewardsUp and 5 or 40   -- ในด่าน: หน้าจบโผล่=5 | ฟาร์มอยู่=40
+        end
         if not force and cache and (now - cacheT) < ttl then return cache end
         local d = fetchRaw()
         if d then
