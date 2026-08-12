@@ -11,16 +11,18 @@
 --   3️⃣ SLIM   : ตัดโค้ดที่ไม่ได้ใช้ทิ้ง 2,749 บรรทัด (Trade/Spin/Family/Webhook)
 --   4️⃣ ⬛ANTI-LAG : ปิด render 3D ทุกที่ + กราฟิกต่ำสุด + ปิด particle/เสียง
 --   5️⃣ 🔇CHAT  : ปิดช่องแชทถาวร (CoreGui + TextChatService + ScreenGui เก่า)
+--   6️⃣ ⏳LOAD  : ไม่ปิด render ตอนหน้า LOADING ยังอยู่ + ค้างเกิน 30 วิซ่อนทิ้ง
 --  ถ้าไม่เห็น 4 บรรทัดนี้ใน F9 = ยังรันโค้ดตัวเก่าอยู่ ให้ paste ไฟล์ใหม่ทับ
 -- ═══════════════════════════════════════════════════════════════
 print("═══════════════════════════════════════════════")
-print("🛡️ VENOZ NO-SB — BUILD v4.1")
+print("🛡️ VENOZ NO-SB — BUILD v4.2")
 print("   🔁 RETRY กดครั้งเดียว (รอนิ่ง 3 วิก่อนกด)")
 print("   ⚡ เข้าด่าน = ฟาร์มทันที ไม่รอโหลดอะไรทั้งนั้น")
 print("   ⬛ จอว่างทุกที่ (Main Menu + Lobby + ในด่าน) + ปิดแชทถาวร")
+print("   ⏳ แก้ค้างจอ LOADING ตอนกดออกจากด่าน")
 print("   🗑️ ตัดโค้ดไม่ใช้ทิ้ง 2,749 บรรทัด")
 print("═══════════════════════════════════════════════")
-getgenv().VenozBuild = "v4.1-nosb"
+getgenv().VenozBuild = "v4.2-nosb"
 
 -- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
 task.spawn(function()
@@ -628,9 +630,100 @@ task.spawn(function()
         return n
     end
 
+    -- ══════════════════════════════════════════════════════════
+    -- ⏳ ตัวจัดการหน้า "LOADING" ของเกม
+    -- ══════════════════════════════════════════════════════════
+    --  🐛 อาการ: กด LEAVE ออกจากด่าน → ค้างจอ LOADING ไม่หายสักที
+    --  💡 สาเหตุ: หน้า LOADING ของเกม fade ออกด้วย RenderStepped/Tween
+    --     ซึ่ง "ไม่เดิน" ตอนปิด render 3D → มันเลยค้างคาจออยู่อย่างนั้น
+    --     (สคริปข้างล่างยังทำงานปกตินะ แค่มีแผ่น LOADING บังอยู่)
+    --  ✅ วิธีแก้ 2 ชั้น:
+    --     ชั้น 1 = รอให้หน้า LOADING หายไปเองก่อน ค่อยปิด render (แก้ที่ต้นเหตุ)
+    --     ชั้น 2 = ถ้ามันค้างเกิน LoadTimeout วิ → ซ่อนทิ้งเอง (กันเหนียว)
+    --  🔁 ตอนเปลี่ยนแมพก็เช็คซ้ำให้ ผ่านลูป 10 วิข้างล่าง
+    -- ══════════════════════════════════════════════════════════
+    local LOAD_TIMEOUT = tonumber(VZa.LoadTimeout) or 30
+
+    -- หา GUI หน้า LOADING (สแกนลึกครั้งเดียวตอนเริ่ม — ตอนนั้นมันโชว์อยู่พอดี)
+    local function findLoadingUI(deep)
+        local hit = nil
+        pcall(function()
+            local roots = {}
+            local pg = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+            if pg then table.insert(roots, pg) end
+            local okc, cg = pcall(function() return game:GetService("CoreGui") end)
+            if okc and cg then table.insert(roots, cg) end   -- เผื่อหน้า loading ของ teleport
+
+            -- 1) หาแบบถูกๆ ก่อน: ดูแค่ลูกชั้นแรก แล้วเดาจากชื่อ
+            for _, root in ipairs(roots) do
+                for _, sg in ipairs(root:GetChildren()) do
+                    local nm = tostring(sg.Name):lower()
+                    if (sg:IsA("ScreenGui") or sg:IsA("GuiObject"))
+                        and (nm:find("load") or nm:find("splash") or nm:find("intro")) then
+                        hit = sg
+                        return
+                    end
+                end
+            end
+            if not deep then return end
+
+            -- 2) ยังไม่เจอ → สแกนลึกหา TextLabel ที่เขียนว่า LOADING (ทำครั้งเดียวตอนเริ่ม)
+            for _, root in ipairs(roots) do
+                for _, d in ipairs(root:GetDescendants()) do
+                    if d:IsA("TextLabel") or d:IsA("TextButton") then
+                        local ok, txt = pcall(function() return tostring(d.Text or ""):upper() end)
+                        if ok and txt:find("LOADING") then
+                            -- ไต่ขึ้นไปหา ScreenGui ที่ครอบอยู่
+                            local o = d
+                            while o and o.Parent and not o:IsA("ScreenGui") do o = o.Parent end
+                            -- ⚠️ ห้ามซ่อน "Interface" เด็ดขาด — บอทต้องใช้หา Rewards/ปุ่ม
+                            if o and o:IsA("ScreenGui") and o.Name ~= "Interface" then
+                                hit = o
+                            else
+                                hit = d.Parent      -- ซ่อนแค่กรอบที่ครอบตัวหนังสือพอ
+                            end
+                            return
+                        end
+                    end
+                end
+            end
+        end)
+        return hit
+    end
+
+    local function loadingShowing(g)
+        if not (g and g.Parent) then return false end
+        local ok, vis = pcall(function() return VenozVisible(g) end)
+        return ok and vis
+    end
+
+    local function hideLoading(g)
+        pcall(function()
+            if g:IsA("ScreenGui") then g.Enabled = false else g.Visible = false end
+        end)
+    end
+
+    -- 🕐 รอหน้า LOADING หายก่อน (คืนค่า true = เคลียร์แล้ว พร้อมปิดจอ)
+    local loadUI = findLoadingUI(true)
+    local function waitLoadingGone(why)
+        if not loadingShowing(loadUI) then return end
+        print("[LAG] ⏳ " .. why .. " → รอหน้า LOADING หายก่อนค่อยปิดจอ")
+        local t0 = tick()
+        while loadingShowing(loadUI) and (tick() - t0) < LOAD_TIMEOUT do
+            task.wait(0.25)
+        end
+        if loadingShowing(loadUI) then
+            hideLoading(loadUI)
+            warn(string.format("[LAG] ⛔ หน้า LOADING ค้างเกิน %d วิ → ซ่อนทิ้งเองแล้ว", LOAD_TIMEOUT))
+        else
+            print(string.format("[LAG] ✅ โหลดจบใน %.1f วิ → ปิดจอได้", tick() - t0))
+        end
+    end
+
     lowGfx()
     local want3DOff = (VZa.Disable3D ~= false)
     if want3DOff then
+        waitLoadingGone("เพิ่งเข้าแมพ")     -- ⭐ อย่าปิด render ตอนหน้า loading ยังอยู่
         Venoz3D(false)
         print("[LAG] ⬛ ปิด render 3D แล้ว — จอว่างทุกที่ (ป้ายสถานะ + F9 ยังเห็นปกติ)")
     end
@@ -642,6 +735,18 @@ task.spawn(function()
     local round = 0
     while true do
         task.wait(10)
+
+        -- 🔎 อ้างอิงเดิมโดนลบไปแล้ว (เปลี่ยนแมพ) → หาใหม่แบบถูกๆ ไม่สแกนลึก
+        if not (loadUI and loadUI.Parent) then loadUI = findLoadingUI(false) end
+
+        -- ⏳ หน้า LOADING โผล่อีก → เปิด render คืนให้มัน fade จบ แล้วค่อยปิด
+        --    (ทำงานแม้ตั้ง Disable3D = false ด้วย จะได้ไม่มีทางค้างจอ)
+        if loadingShowing(loadUI) then
+            if want3DOff then Venoz3D(true) end
+            waitLoadingGone("หน้า LOADING โผล่อีก")
+            if want3DOff then Venoz3D(false) end
+        end
+
         -- ⏸️ ถ้ากำลังกดปุ่มอยู่ → ข้ามรอบนี้ (ห้ามปิด render กลางคัน)
         if (tonumber(getgenv().VenozPressing) or 0) == 0 then
             if want3DOff and Venoz3DIsOn() then
@@ -5228,6 +5333,7 @@ task.spawn(function()
     dflt("SilentNotify", false)
     -- ⬛ จอขาว / ปิดแชท (ค่าเริ่มต้น = เปิดทั้งหมด ตั้ง false ถ้าอยากปิดระบบ)
     dflt("AntiLag", true)        dflt("Disable3D", true)      dflt("DisableChat", true)
+    dflt("LoadTimeout", 30)      -- หน้า LOADING ค้างเกินกี่วิ → ซ่อนทิ้งเอง
 
     -- ═══ 🚪 MAIN MENU: เลือกสลอต + เข้า Lobby ด้วย remote ทันที ═══
     --     (วิธีเดิมของเรา — ไม่ต้องกดปุ่ม ไม่ต้องรอ UI)
