@@ -17,15 +17,15 @@
 --  ถ้าไม่เห็น 4 บรรทัดนี้ใน F9 = ยังรันโค้ดตัวเก่าอยู่ ให้ paste ไฟล์ใหม่ทับ
 -- ═══════════════════════════════════════════════════════════════
 print("═══════════════════════════════════════════════")
-print("🛡️ VENOZ NO-SB — BUILD v4.4")
+print("🛡️ VENOZ NO-SB — BUILD v4.5")
 print("   🔁 RETRY กดครั้งเดียว (รอนิ่ง 3 วิก่อนกด)")
 print("   ⚡ เข้าด่าน = ฟาร์มทันที ไม่รอโหลดอะไรทั้งนั้น")
 print("   ⬛ จอว่างทุกที่ (Main Menu + Lobby + ในด่าน) + ปิดแชทถาวร")
 print("   ⏳ แก้ค้างจอ LOADING ตอนกดออกจากด่าน")
-print("   ⚙️ อัพดาบจนกว่าทองจะไม่พอ หรือตันทุกช่อง (ข้ามช่องที่ตันแล้ว)")
+print("   ⚙️ อัพดาบด้วยวิธีบอทเก่า (ดูค่าที่ server ตอบ ไม่ใช่ดูทองบนจอ)")
 print("   🗑️ ตัดโค้ดไม่ใช้ทิ้ง 2,749 บรรทัด")
 print("═══════════════════════════════════════════════")
-getgenv().VenozBuild = "v4.4-nosb"
+getgenv().VenozBuild = "v4.5-nosb"
 
 -- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
 task.spawn(function()
@@ -2872,8 +2872,17 @@ if IsLobbyLobby() then
                 return true
     end
 
-        local function getGoldAmount()
+    -- 💰 อ่านทอง — [CHICKEN] ยกวิธีของบอทเก่ามา
+    --    🐛 ของ UI2 อ่านจาก "ตัวหนังสือบนจอ" (Topbar...Gold.Amount)
+    --       path เปลี่ยนนิดเดียว / เกมย่อเลขเป็น "5.9M" → parse ได้ 59 → พังทันที
+    --       (ผลคือทองอ่านได้ 0 → เงื่อนไข gold >= 1000 ไม่ผ่าน = ไม่อัพเลยสักครั้ง)
+    --    ✅ ใช้ attribute ของ player ตรงๆ แบบบอทเก่า แล้วค่อย fallback ไปอ่านจอ
+    local function getGoldAmount()
         local player = game:GetService("Players").LocalPlayer
+        local g = tonumber(player:GetAttribute("Gold"))
+        if g then return g end
+        g = tonumber(getgenv().LastGold)
+        if g then return g end
         local gold = 0
         pcall(function()
             local topbar = player.PlayerGui.Interface.Topbar.Main.Currencies
@@ -2921,20 +2930,6 @@ if IsLobbyLobby() then
         "Crit_Damage", "ODM_Damage", "Crit_Chance", "Blade_Durability"
     }
 
-    -- ยิงรวดเดียวหลาย stat (ทางเร็ว — 1 remote ต่อรอบ)
-    local function batchUpgradeBlade(list)
-        if not GET then return false end
-        return (pcall(function()
-            GET:InvokeServer("S_Equipment", "Upgrade", list or ALL_BLADE_STATS)
-        end))
-    end
-    -- ยิงทีละ stat (ใช้ตอนต้องหาว่าตัวไหน "ตัน" จนบล็อกทั้งชุด)
-    local function upgradeOneBlade(stat)
-        if not GET then return false end
-        return (pcall(function()
-            GET:InvokeServer("S_Equipment", "Upgrade", { stat })
-        end))
-    end
 
     BladeTab:AddSlider("BladeUpgradeDelaySlider", {
         Text = "Upgrade Delay (seconds)",
@@ -2980,80 +2975,70 @@ if IsLobbyLobby() then
                 getgenv().UpgradeRunning = true
                 task.spawn(function()
                     -- ═══════════════════════════════════════════════════
-                    -- ⚙️ [CHICKEN] อัพจนกว่า "ทองไม่พอ" หรือ "ตันทุกช่อง"
+                    -- ⚙️ [CHICKEN] ยกวิธีอัพดาบของ "บอทเก่า" มาทั้งดุ้น
                     -- ═══════════════════════════════════════════════════
-                    --  🐛 ของเดิมยิงรวด 8 ช่องพร้อมกันทุกครั้ง —
-                    --     พอมีช่องไหน "ตัน" ขึ้นมาช่องเดียว เซิร์ฟปฏิเสธทั้งชุด
-                    --     → ทองไม่ลด → ตัวนับ "ตัน 5 ครั้ง" สั่งปิดเอง
-                    --     = หยุดอัพทั้งที่อีก 7 ช่องยังอัพได้ + เงินเหลือเพียบ
-                    --  ✅ ใหม่: ยิงรวมก่อน (เร็ว 1 remote/รอบ) ถ้าทองไม่ลด 2 รอบติด
-                    --     → ไล่ยิงทีละช่องเพื่อหาว่าช่องไหนตัน แล้วคัดออกจากชุด
-                    --     → ยิงรวมต่อด้วยเฉพาะช่องที่ยังอัพได้ วนจนหมดจริงๆ
+                    --  🐛 ที่ผ่านมาไม่อัพเลย เพราะเช็คผลด้วย "ทองลดไหม"
+                    --     ซึ่งอ่านทองจากตัวหนังสือบนจอ → path เพี้ยน/เลขถูกย่อ
+                    --     = อ่านได้ 0 ตลอด = เงื่อนไขไม่ผ่าน = ไม่ยิงสักครั้ง
+                    --  ✅ บอทเก่าใช้ "ค่าที่ server ตอบกลับ" เป็นตัวชี้ขาด:
+                    --        upRes ~= nil  → อัพขึ้น 1 สเต็ป → ยิงต่อ
+                    --        upRes == nil  → ตัน/เงินไม่พอ → หยุด
+                    --     (พิสูจน์จาก decompile UI เกม: ปุ่มในเกมยิง call นี้ตัวเดียว)
+                    --  ➕ ที่เพิ่มจากของเก่า: พอยิงรวมแล้ว nil จะไล่ทีละช่องก่อน
+                    --     เพื่อคัดเฉพาะช่องที่ "ตันจริง" ออก แล้วยิงรวมต่อด้วยช่องที่เหลือ
+                    --     (ของเก่า nil ปุ๊บหยุดเลย → ช่องเดียวตันก็ลากช่องอื่นหยุดตาม)
                     -- ═══════════════════════════════════════════════════
-                    local MINGOLD  = 1000     -- ทองต่ำกว่านี้ = ไม่พออัพอะไรแล้ว
-                    local MAXFIRE  = 500      -- เพดานกันลูปหลุด
-                    local live = {}           -- ช่องที่ยังอัพขึ้น
+                    local MAXFIRE = 120       -- เพดานกันลูปค้าง (ปกติหยุดเองก่อนถึง)
+                    local GAP     = 0.12      -- จังหวะระหว่าง call (ของเก่าใช้ 0.1)
+                    local live = {}
                     for _, st in ipairs(ALL_BLADE_STATS) do table.insert(live, st) end
 
                     local _nUp, _g0 = 0, getGoldAmount()
-                    local batchFail, stopWhy = 0, "ตันทุกช่องแล้ว"
-                    print(string.format("[UPGRADE] ⚙️ เริ่มอัพดาบ — ทอง %d | %d ช่อง",
-                        _g0, #live))
+                    local stopWhy = "ตันทุกช่องแล้ว"
+                    print(string.format("[UPGRADE] ⚙️ เริ่มอัพดาบ — ทอง %d | %d ช่อง", _g0, #live))
+
+                    local function fire(list)
+                        if not GET then return nil end
+                        local res
+                        pcall(function()
+                            res = GET:InvokeServer("S_Equipment", "Upgrade", list)
+                        end)
+                        _nUp = _nUp + 1
+                        return res
+                    end
 
                     while getgenv().AutoUpgradeBlade and #live > 0 and _nUp < MAXFIRE do
-                        local delay = tonumber(getgenv().BladeUpgradeDelay) or 0
-                        if delay <= 0 then delay = 0.6 end   -- ให้ตัวเลขทองบนจอทันอัปเดต
-
-                        if not isUpgradeReady() then task.wait(2) continue end
-
-                        local before = getGoldAmount()
-                        if before < MINGOLD then
-                            stopWhy = string.format("ทองไม่พอแล้ว (เหลือ %d)", before)
-                            break
-                        end
-
-                        -- ── ทางเร็ว: ยิงรวมเฉพาะช่องที่ยังอัพได้ ──
-                        batchUpgradeBlade(live)
-                        _nUp = _nUp + 1
-                        task.wait(delay)
-
-                        if getGoldAmount() < before then
-                            batchFail = 0                 -- ทองลด = ยังอัพขึ้น วนต่อเลย
+                        if fire(live) ~= nil then
+                            task.wait(GAP)                 -- อัพขึ้น → ยิงต่อเลย
                         else
-                            batchFail = batchFail + 1
-                            if batchFail >= 2 then
-                                -- ── ยิงรวมไม่ผ่าน 2 รอบ → หาว่าช่องไหนตัน ──
-                                print(string.format(
-                                    "[UPGRADE] 🔎 ยิงรวมไม่ผ่าน → ไล่เช็คทีละช่อง (%d ช่อง)", #live))
-                                local stillLive = {}
-                                for _, stat in ipairs(live) do
-                                    if not getgenv().AutoUpgradeBlade then break end
-                                    local b = getGoldAmount()
-                                    if b < MINGOLD then
-                                        stopWhy = string.format("ทองไม่พอแล้ว (เหลือ %d)", b)
-                                        break
-                                    end
-                                    upgradeOneBlade(stat)
-                                    _nUp = _nUp + 1
-                                    task.wait(delay)
-                                    if getGoldAmount() < b then
-                                        table.insert(stillLive, stat)   -- ยังอัพขึ้น เก็บไว้
-                                    else
-                                        print("[UPGRADE] ⛔ " .. stat .. " → ตัน/ทองไม่พอ (เลิกยิงช่องนี้)")
-                                    end
+                            -- ยิงรวมไม่ผ่าน → ไล่ทีละช่อง หาว่าช่องไหนยังอัพได้จริง
+                            print(string.format("[UPGRADE] 🔎 ยิงรวมไม่ผ่าน → ไล่เช็คทีละช่อง (%d ช่อง)", #live))
+                            local stillLive = {}
+                            for _, stat in ipairs(live) do
+                                if not getgenv().AutoUpgradeBlade then break end
+                                if _nUp >= MAXFIRE then break end
+                                if fire({ stat }) ~= nil then
+                                    table.insert(stillLive, stat)
+                                else
+                                    print("[UPGRADE] ⛔ " .. stat .. " → ตัน/ทองไม่พอ (คัดออก)")
                                 end
-                                live = stillLive
-                                batchFail = 0
-                                if #live > 0 then
-                                    print(string.format("[UPGRADE] ▶️ เหลือช่องที่ยังอัพได้ %d ช่อง → ยิงต่อ", #live))
-                                end
+                                task.wait(GAP)
+                            end
+                            live = stillLive
+                            if #live > 0 then
+                                print(string.format("[UPGRADE] ▶️ ยังอัพได้อีก %d ช่อง → ยิงต่อ", #live))
                             end
                         end
                     end
 
-                    if _nUp >= MAXFIRE then stopWhy = "ชนเพดาน " .. MAXFIRE .. " ครั้ง" end
-                    print(string.format("[UPGRADE] ✅ อัพดาบจบ — %s | ยิงไป %d ครั้ง | ใช้ทอง %d",
-                        stopWhy, _nUp, math.max(0, _g0 - getGoldAmount())))
+                    if _nUp >= MAXFIRE then stopWhy = "ชนเพดาน " .. MAXFIRE .. " call" end
+                    local spent = math.max(0, _g0 - getGoldAmount())
+                    if spent > 0 then
+                        print(string.format("[UPGRADE] ✅ อัพดาบจบ — %s | ยิง %d ครั้ง | ใช้ทอง %d | เหลือ %d",
+                            stopWhy, _nUp, spent, getGoldAmount()))
+                    else
+                        print(string.format("[UPGRADE] ✅ ดาบตันหมดแล้ว ไม่มีอะไรให้อัพ (ยิงเช็คไป %d ครั้ง)", _nUp))
+                    end
 
                     getgenv().AutoUpgradeBlade = false
                     pcall(function()
