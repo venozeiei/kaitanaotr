@@ -18,7 +18,7 @@
 --  ถ้าไม่เห็น 4 บรรทัดนี้ใน F9 = ยังรันโค้ดตัวเก่าอยู่ ให้ paste ไฟล์ใหม่ทับ
 -- ═══════════════════════════════════════════════════════════════
 print("═══════════════════════════════════════════════")
-print("🛡️ VENOZ NO-SB — BUILD v7.1")
+print("🛡️ VENOZ NO-SB — BUILD v7.2")
 print("   🔁 RETRY กดครั้งเดียว (รอนิ่ง 3 วิก่อนกด)")
 print("   ⚡ เข้าด่าน = ฟาร์มทันที ไม่รอโหลดอะไรทั้งนั้น")
 print("   ⬛ จอว่างทุกที่ (Main Menu + Lobby + ในด่าน) + ปิดแชทถาวร")
@@ -27,13 +27,14 @@ print("   🐛 TS: แก้ objective ด่าน — Forest=Guard, Utgard=Def
 print("   🐛 TS: Forest ต้องตีถึง req-5 ก่อน กล่องถึงจะ spawn (ยกลำดับบอทเก่ามา)")
 print("   🐛 TS: สมองบอทไม่เคยรู้จักธง TS → จบด่านแล้วกด RETRY ซ้ำ (แก้แล้ว)")
 print("   👑 แก้ GoldReq ไม่มีผล — UI2 มีระบบจุติของตัวเองชิงจุติก่อน (ปิดแล้ว)")
+print("   🐛 แก้ค้างที่ lobby! ทองไม่ถึงเกณฑ์จุติ = ต้องฟาร์มต่อ ไม่ใช่ยืนรอ")
 print("   🚪 TS: แมพ TS เล่นรอบเดียวแล้วออกเสมอ ไม่ RETRY ซ้ำ")
 print("   🔍 เช็คให้เลยว่าคอนฟิกส่งถึงสคริปจริงไหม (ดูบรรทัด [CONFIG])")
 print("   🛡️ ใช้ remote ทั้งหมดเหมือนเดิม แต่ทุกจุดมีด่านเช็คก่อนยิง")
 print("   🔇 ปิดเคลมเควส/achievement/สกิล เป็นค่าเริ่มต้น (ตัดไป 281 call)")
 print("   🗑️ ตัดโค้ดไม่ใช้ทิ้ง 2,749 บรรทัด")
 print("═══════════════════════════════════════════════")
-getgenv().VenozBuild = "v7.1-nosb"
+getgenv().VenozBuild = "v7.2-nosb"
 
 -- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
 task.spawn(function()
@@ -259,6 +260,7 @@ getgenv().VenozPressing    = 0   -- ⚠️ ต้องรีเซ็ตด้�
 getgenv()._VZChoreWait     = 0
 getgenv()._VZLastUpgradeT  = nil   -- คูลดาวน์อัพดาบ ก็ต้องรีเซ็ตเหมือนกัน
 getgenv()._VZTSWhy         = nil   -- เหตุผลที่ยังไม่ทำหอก (ไว้กัน log ซ้ำ)
+getgenv()._VZGoldWaitLogged = nil
 getgenv()._VZUpgFailGold   = nil
 getgenv()._VZUpgSet        = nil
 
@@ -6468,9 +6470,20 @@ task.spawn(function()
                         task.wait(3)
                         return
                     else
-                        setStatus(string.format("💰 รอทองจุติ %d/%dM", math.floor(gold / 1000000), reqM))
-                        return
+                        -- 🐛 [FIX] เดิมตรงนี้ `return` ออกไปเลย
+                        --    → ข้ามข้อ 5 (สร้างด่าน) ทั้งดุ้น = ยืนรอที่ lobby เฉยๆ
+                        --    → ไม่ฟาร์ม = ทองไม่เพิ่ม = รอทองที่ไม่มีวันมา (ค้างตลอดกาล)
+                        --    ✅ ทองไม่ถึง ต้อง "ไปฟาร์มต่อ" ไม่ใช่ยืนรอ — ปล่อยไหลลงไปข้อ 5
+                        setStatus(string.format("💰 ฟาร์มเก็บทองจุติ %d/%dM",
+                            math.floor(gold / 1000000), reqM))
+                        if not getgenv()._VZGoldWaitLogged then
+                            getgenv()._VZGoldWaitLogged = true
+                            print(string.format("[BRAIN] 💰 ทอง %dM / ต้องการ %dM → ฟาร์มต่อไปเก็บทอง",
+                                math.floor(gold / 1000000), reqM))
+                        end
                     end
+                else
+                    getgenv()._VZGoldWaitLogged = nil
                 end
 
                 -- 5) สร้างด่าน Chapel (บอทเราคุมเอง ไม่พึ่ง AutoStartMission)
