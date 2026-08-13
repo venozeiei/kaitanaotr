@@ -18,7 +18,7 @@
 --  ถ้าไม่เห็น 4 บรรทัดนี้ใน F9 = ยังรันโค้ดตัวเก่าอยู่ ให้ paste ไฟล์ใหม่ทับ
 -- ═══════════════════════════════════════════════════════════════
 print("═══════════════════════════════════════════════")
-print("🛡️ VENOZ NO-SB — BUILD v7.2")
+print("🛡️ VENOZ NO-SB — BUILD v7.3")
 print("   🔁 RETRY กดครั้งเดียว (รอนิ่ง 3 วิก่อนกด)")
 print("   ⚡ เข้าด่าน = ฟาร์มทันที ไม่รอโหลดอะไรทั้งนั้น")
 print("   ⬛ จอว่างทุกที่ (Main Menu + Lobby + ในด่าน) + ปิดแชทถาวร")
@@ -28,13 +28,14 @@ print("   🐛 TS: Forest ต้องตีถึง req-5 ก่อน กล�
 print("   🐛 TS: สมองบอทไม่เคยรู้จักธง TS → จบด่านแล้วกด RETRY ซ้ำ (แก้แล้ว)")
 print("   👑 แก้ GoldReq ไม่มีผล — UI2 มีระบบจุติของตัวเองชิงจุติก่อน (ปิดแล้ว)")
 print("   🐛 แก้ค้างที่ lobby! ทองไม่ถึงเกณฑ์จุติ = ต้องฟาร์มต่อ ไม่ใช่ยืนรอ")
+print("   🔁 แก้เข้าออกด่านทุกรอบ — ทองยังไม่ถึง = RETRY รัวๆ ไม่ต้องวาปออกมาเช็ค")
 print("   🚪 TS: แมพ TS เล่นรอบเดียวแล้วออกเสมอ ไม่ RETRY ซ้ำ")
 print("   🔍 เช็คให้เลยว่าคอนฟิกส่งถึงสคริปจริงไหม (ดูบรรทัด [CONFIG])")
 print("   🛡️ ใช้ remote ทั้งหมดเหมือนเดิม แต่ทุกจุดมีด่านเช็คก่อนยิง")
 print("   🔇 ปิดเคลมเควส/achievement/สกิล เป็นค่าเริ่มต้น (ตัดไป 281 call)")
 print("   🗑️ ตัดโค้ดไม่ใช้ทิ้ง 2,749 บรรทัด")
 print("═══════════════════════════════════════════════")
-getgenv().VenozBuild = "v7.2-nosb"
+getgenv().VenozBuild = "v7.3-nosb"
 
 -- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
 task.spawn(function()
@@ -6503,12 +6504,21 @@ task.spawn(function()
                     local sellable = perkInfo()
                     local tan, pr = isTan()
                     local pT = perkTarget()
-                    -- 🐛 [FIX] เดิมไม่เคยเช็คธงของระบบ TS เลย
-                    --    → จบด่าน TS ปุ๊บ สมองบอทตัดสินจาก perk/จุติ แล้วสั่ง RETRY
-                    --      = วนเล่นแมพ TS ซ้ำไม่จบ ทั้งที่งานเสร็จแล้ว
+                    local _, _, _, _, goldNow2 = progress()
+
+                    -- 🐛 [FIX] เดิมเงื่อนไขออกคือ "ตัน + จุติยังไม่ถึงเป้า" เฉยๆ
+                    --    → จอที่ตันแล้ว (200/200 P.4) จะ LEAVE ทุกจบด่าน
+                    --      ทั้งที่ทองยังไม่ถึง 350M จุติไม่ได้อยู่ดี
+                    --      = วาปออก-เช็ค-วาปเข้า วนไปเรื่อยๆ เสียเวลามหาศาล
+                    --    ✅ ต้องออกก็ต่อเมื่อ "จุติได้จริง" (ทองถึงเกณฑ์แล้ว)
+                    --       ทองยังไม่ถึง → RETRY เล่นด่านเดิมรัวๆ เก็บทองให้ครบก่อน
+                    local reqM = tonumber(VZ.GoldReq[pr + 1]) or 0
+                    local goldOK = (tonumber(goldNow2) or 0) >= reqM * 1000000
+                    local canPrestigeNow = tan and pr < VZ.PrestigeTarget and goldOK
+
                     local tsLeave = (getgenv().VenozTSWantLeave == true)
-                    local wantLeave = tsLeave
-                        or (sellable >= pT) or (tan and pr < VZ.PrestigeTarget)
+                    local wantLeave = tsLeave or (sellable >= pT) or canPrestigeNow
+
                     if tsLeave then setStatus("🚪 ออกจากแมพ TS (งานเสร็จแล้ว)") end
                     if wantLeave then
                         getgenv().StartRejoin = false
@@ -6517,15 +6527,23 @@ task.spawn(function()
                         b = b and b:FindFirstChild("Buttons")
                         local leave = b and (b:FindFirstChild("Leave_2") or b:FindFirstChild("Leave"))
                         if leave then
-                            print(string.format("[BRAIN] 🚪 LEAVE — perk=%d/%d ตัน=%s P%d",
-                                sellable, pT, tostring(tan), pr))
-                            setStatus("🚪 ออกจากด่าน (ไปขาย perk / จุติ)")
+                            local why = tsLeave and "งาน TS เสร็จ"
+                                or (sellable >= pT) and string.format("perk เต็ม %d/%d", sellable, pT)
+                                or string.format("จุติได้แล้ว (ทอง %dM ≥ %dM)",
+                                    math.floor((tonumber(goldNow2) or 0) / 1000000), reqM)
+                            print("[BRAIN] 🚪 LEAVE — " .. why)
+                            setStatus("🚪 ออกจากด่าน — " .. why)
                             clickBtn(leave)
                             task.wait(5)
                         end
                     else
                         getgenv().StartRejoin = true
-                        setStatus("🔁 RETRY ด่านเดิม")
+                        if tan and pr < VZ.PrestigeTarget and not goldOK then
+                            setStatus(string.format("🔁 RETRY เก็บทองจุติ %dM/%dM",
+                                math.floor((tonumber(goldNow2) or 0) / 1000000), reqM))
+                        else
+                            setStatus("🔁 RETRY ด่านเดิม")
+                        end
                     end
                 else
                     setStatus(getgenv().VenozAction or "⚔️ ฟาร์ม")
